@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:magic/magic.dart' show trans;
+import 'package:magic_payments/magic_payments.dart' show UsageStat;
 
-import '../enums/invoice_status.dart' show InvoiceStatus;
 import '../enums/team_role.dart' show TeamRole;
 
 /// A person with access to the current team.
@@ -307,253 +307,60 @@ class OnCallResponder {
   String get initials => teamInitials(name);
 }
 
-/// One row in the team's billing history.
+// ---------------------------------------------------------------------------
+// Billing usage: the numbers come from the package, the words from uptizm
+// ---------------------------------------------------------------------------
+
+/// The display copy uptizm holds for each metered resource
+/// `GET /billing/usage` reports, keyed by the resource's wire key.
 ///
-/// Mirrors the `Invoice` interface in the React billing mock, plus
-/// [number]/[status] (not carried by the React source, which formats the
-/// description client-side) so the badge and header have typed data to render.
-@immutable
-class Invoice {
-  /// Stable identifier, e.g. `'inv-2026-06'`.
-  final String id;
-
-  /// Human-readable invoice number shown in the receipt link's context.
-  final String number;
-
-  /// Billing date, e.g. `"Jun 1, 2026"`.
-  final String date;
-
-  /// Formatted amount, e.g. `"$348.00"`.
-  final String amount;
-
-  /// Settlement state.
-  final InvoiceStatus status;
-
-  const Invoice({
-    required this.id,
-    required this.number,
-    required this.date,
-    required this.amount,
-    required this.status,
-  });
-
-  /// Decodes an [Invoice] from a `GET /billing/invoices` `data[]` entry (see
-  /// `backend/app/Http/Resources/InvoiceResource.php`).
-  ///
-  /// [amount] is rendered server-side (Cashier's `Invoice::total()` returns
-  /// the formatted, currency-aware string), so no client-side money math is
-  /// involved; [date] is reformatted from the ISO 8601 wire value into the
-  /// screen's existing `"Jun 1, 2026"` display shape.
-  factory Invoice.fromMap(Map<String, dynamic> map) {
-    return Invoice(
-      id: (map['id'] as String?) ?? '',
-      number: (map['number'] as String?) ?? '',
-      date: _formatInvoiceDate(map['date'] as String?),
-      amount: (map['amount'] as String?) ?? '',
-      status: _invoiceStatusFromWire(map['status'] as String?),
-    );
-  }
-}
-
-/// Decodes a Cashier/Stripe invoice `status` wire string into an
-/// [InvoiceStatus].
+/// A catalogue key rather than a literal, because the billing page rendered
+/// "Monitors", "Responders", "Checks this month" and "checks" in English inside
+/// an otherwise fully Turkish page. Resolved at call time (see
+/// [withUsageCopy]) rather than held in a `const` map, since a `trans()` read at
+/// library-load time would resolve before any loader is registered.
 ///
-/// Stripe's raw invoice statuses (`draft`, `open`, `paid`, `uncollectible`,
-/// `void`) do not line up 1:1 with this screen's 3-state vocabulary; `open`/
-/// `draft` map to [InvoiceStatus.pending] (still awaiting settlement) and
-/// `uncollectible`/`void` map to [InvoiceStatus.failed] (never settled). An
-/// absent/unrecognized value falls back to [InvoiceStatus.pending] rather
-/// than silently defaulting to `paid`.
-InvoiceStatus _invoiceStatusFromWire(String? wire) {
-  return switch (wire) {
-    'paid' => InvoiceStatus.paid,
-    'open' => InvoiceStatus.pending,
-    'draft' => InvoiceStatus.pending,
-    'uncollectible' => InvoiceStatus.failed,
-    'void' => InvoiceStatus.failed,
-    _ => InvoiceStatus.pending,
+/// A key absent from this table is a resource this app has no name for, and it
+/// is deliberately NOT defaulted to the wire key: a meter labelled
+/// `checks_this_month` is a raw key on a customer's screen. It reaches a caller
+/// with a null [UsageStat.label] instead, and the meter grid skips it.
+Map<String, ({String label, String unit})> _usageCopy() {
+  return {
+    'monitors': (label: trans('uptizm.teams.usage_monitors'), unit: ''),
+    'responders': (label: trans('uptizm.teams.usage_responders'), unit: ''),
+    'checks_this_month': (
+      label: trans('uptizm.teams.usage_checks_this_month'),
+      unit: trans('uptizm.teams.usage_unit_checks'),
+    ),
   };
 }
 
-/// The short month names [_formatInvoiceDate] indexes by `DateTime.month`.
-const List<String> _monthAbbreviations = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-];
-
-/// Formats an ISO 8601 [iso] timestamp as `"Jun 1, 2026"`, matching the
-/// design-lab fixture's display shape. Returns an empty string when [iso] is
-/// absent or unparsable (never throws out of a decode path).
-String _formatInvoiceDate(String? iso) {
-  if (iso == null) return '';
-  final DateTime? date = DateTime.tryParse(iso);
-  if (date == null) return '';
-  return '${_monthAbbreviations[date.month - 1]} ${date.day}, ${date.year}';
-}
-
-/// Like [_formatInvoiceDate], but returns `null` (rather than an empty
-/// string) on an absent/unparsable [iso], so a caller can distinguish "no
-/// date" from a formatted one with a plain `!= null` check.
-String? _formatOptionalDate(String? iso) {
-  if (iso == null) return null;
-  final DateTime? date = DateTime.tryParse(iso);
-  if (date == null) return null;
-  return '${_monthAbbreviations[date.month - 1]} ${date.day}, ${date.year}';
-}
-
-/// A saved payment method shown on the billing page.
+/// Pairs uptizm's display copy onto the [UsageStat]s `Payments.getUsage()`
+/// decoded.
 ///
-/// Every field is nullable: `GET /billing/payment-method` is the one
-/// Stripe-live billing read and soft-fails server-side to an all-null
-/// payload on a Stripe outage (see `BillingController::paymentMethod()`), so
-/// this value object must represent "no card on file" without throwing.
-@immutable
-class PaymentMethod {
-  /// Card network/brand, e.g. `"Visa"`; `null` when no card is on file.
-  final String? brand;
-
-  /// Last 4 digits of the card number; `null` when no card is on file.
-  final String? last4;
-
-  /// Expiry, e.g. `"08 / 27"`; `null` when no card is on file.
-  final String? expiry;
-
-  /// The subscription's next renewal date, formatted `"Jun 1, 2026"`; `null`
-  /// when there is no active subscription or the date is unavailable.
-  final String? renewalDate;
-
-  const PaymentMethod({
-    this.brand,
-    this.last4,
-    this.expiry,
-    this.renewalDate,
-  });
-
-  /// Decodes a [PaymentMethod] from the `GET /billing/payment-method`
-  /// response (see `backend/app/Http/Controllers/Api/V1/BillingController.php`
-  /// `paymentMethod()`). Every field may be `null`, both on a genuine "no
-  /// card on file" state and on the endpoint's Stripe-outage soft-fail.
-  factory PaymentMethod.fromMap(Map<String, dynamic> map) {
-    final int? expMonth = (map['exp_month'] as num?)?.toInt();
-    final int? expYear = (map['exp_year'] as num?)?.toInt();
-
-    return PaymentMethod(
-      brand: map['brand'] as String?,
-      last4: map['last4'] as String?,
-      expiry: expMonth != null && expYear != null
-          ? '${expMonth.toString().padLeft(2, '0')} / '
-                '${(expYear % 100).toString().padLeft(2, '0')}'
-          : null,
-      renewalDate: _formatOptionalDate(map['renewal_date'] as String?),
-    );
-  }
-}
-
-/// A metered resource shown against its plan limit on the billing page.
+/// `magic_payments` decodes the numbers and deliberately carries no label: a
+/// display name is product copy, and a package that shipped one would render its
+/// author's English in every consumer. So the wire decode stays there, and the
+/// pairing is done here by [UsageStat.key], which is the only stable handle on a
+/// resource (the label moves with the language, so nothing may key logic on it).
 ///
-/// `limit == null` means unlimited. Mirrors the `UsageItem` interface in the
-/// React billing mock.
-@immutable
-class UsageStat {
-  /// The resource's stable wire key (`monitors`, `responders`,
-  /// `checks_this_month`), untranslated and never rendered.
-  ///
-  /// This is the field logic keys on. [label] is the same resource's display
-  /// copy, resolved through the catalogue at decode time and therefore
-  /// different in every language, so a gate that matched on it read zero usage
-  /// for every non-English session and silently opened itself.
-  final String key;
+/// Every resource the producer reports is returned, in the order it sent them,
+/// including one this app cannot name: a gate looks a resource up by key and
+/// does not need a word for it. Such a stat keeps a null [UsageStat.label], and
+/// naming it is the renderer's problem rather than this function's.
+List<UsageStat> withUsageCopy(List<UsageStat> stats) {
+  final Map<String, ({String label, String unit})> copy = _usageCopy();
 
-  /// Display label for [key], e.g. `"Monitors"`, already localized.
-  final String label;
+  return stats.map((UsageStat stat) {
+    final ({String label, String unit})? words = copy[stat.key];
+    if (words == null) return stat;
 
-  /// Current usage count.
-  final int used;
-
-  /// Plan limit; `null` = unlimited.
-  final int? limit;
-
-  /// Short suffix appended after the numbers, e.g. `""` or `"checks"`.
-  final String unit;
-
-  const UsageStat({
-    required this.key,
-    required this.label,
-    required this.used,
-    required this.limit,
-    required this.unit,
-  });
-
-  /// Decodes the three [UsageStat]s from a `GET /billing/usage` response
-  /// (`{monitors, responders, checks_this_month}`, each `{used, limit}`; see
-  /// `BillingController::usage()`), in the screen's existing display order.
-  ///
-  /// Each stat keeps the wire key it was read at, because that is the only
-  /// stable handle on a resource: labels and units are display copy, not wire
-  /// fields (the response carries only the numbers), and they come from the
-  /// catalogue rather than from English literals because the billing page
-  /// rendered "Monitors", "Responders", "Checks this month" and "checks" in
-  /// English inside an otherwise fully Turkish page.
-  ///
-  /// Resolved here, at decode time, matching `formatters.dart` reading its words
-  /// from the catalogue in this same layer. A locale change needs a fresh boot
-  /// anyway (magic_starter persists it and nothing re-points the translator
-  /// live), so there is no window where a decoded label is stale but visible.
-  static List<UsageStat> fromWireMap(Map<String, dynamic> map) {
-    return [
-      _entryFromWire(
-        map,
-        'monitors',
-        trans('uptizm.teams.usage_monitors'),
-        '',
-      ),
-      _entryFromWire(
-        map,
-        'responders',
-        trans('uptizm.teams.usage_responders'),
-        '',
-      ),
-      _entryFromWire(
-        map,
-        'checks_this_month',
-        trans('uptizm.teams.usage_checks_this_month'),
-        trans('uptizm.teams.usage_unit_checks'),
-      ),
-    ];
-  }
-
-  /// Decodes the `{used, limit}` entry stored under [key] in [map] into a
-  /// [UsageStat] carrying that same [key] plus the given display
-  /// [label]/[unit].
-  ///
-  /// Reading the wire here rather than at the call site is what keeps the key a
-  /// caller looks up by identical to the key the numbers came from.
-  static UsageStat _entryFromWire(
-    Map<String, dynamic> map,
-    String key,
-    String label,
-    String unit,
-  ) {
-    final Object? entry = map[key];
-    final Map<String, dynamic> values = entry is Map<String, dynamic>
-        ? entry
-        : const {};
     return UsageStat(
-      key: key,
-      label: label,
-      used: (values['used'] as num?)?.toInt() ?? 0,
-      limit: (values['limit'] as num?)?.toInt(),
-      unit: unit,
+      key: stat.key,
+      used: stat.used,
+      limit: stat.limit,
+      label: words.label,
+      unit: words.unit,
     );
-  }
+  }).toList();
 }

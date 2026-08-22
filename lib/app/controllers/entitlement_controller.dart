@@ -1,12 +1,15 @@
 import 'package:magic/magic.dart';
+import 'package:magic_payments/magic_payments.dart'
+    show
+        BillingProvider,
+        BillingService,
+        ManageVia,
+        Payments,
+        UsageStat;
 import 'package:magic_starter/magic_starter.dart';
 
 import '../enums/ai_level.dart' show AiLevel;
-import '../enums/billing_provider.dart' show BillingProvider;
-import '../enums/manage_via.dart' show ManageVia;
-import '../services/billing/billing_service.dart';
 import '../support/billing_types.dart' show Plan, PlanLimits;
-import '../support/team_types.dart' show UsageStat;
 
 /// App-wide source of the team's REAL billing entitlement, for proactive plan
 /// gating across every view.
@@ -36,9 +39,11 @@ import '../support/team_types.dart' show UsageStat;
 class EntitlementController extends MagicController
     implements SessionScopedController {
   /// Creates the controller. [billing] is injectable for tests; production
-  /// resolves the platform [BillingService] singleton.
+  /// resolves the platform [BillingService] through [Payments], so a test can
+  /// also swap the whole role with `Payments.extend` instead of threading a
+  /// parameter through every caller.
   EntitlementController({BillingService? billing})
-    : _billing = billing ?? BillingService.instance;
+    : _billing = billing ?? Payments.billing;
 
   final BillingService _billing;
 
@@ -170,9 +175,16 @@ class EntitlementController extends MagicController
     }
   }
 
+  /// Reads the catalogue and decodes uptizm's own [Plan] from it.
+  ///
+  /// The contract answers rows verbatim: a tier's prices, feature bullets and
+  /// in-product caps are what uptizm sells rather than anything a payment rail
+  /// understands, so [Plan], [PlanLimits] and [AiLevel] stay on this side and the
+  /// decode happens at the call site that wants them.
   Future<void> _reloadPlans() async {
     try {
-      _plans = await _billing.getPlans();
+      final List<Map<String, dynamic>> rows = await _billing.getPlans();
+      _plans = rows.map(Plan.fromMap).toList();
     } catch (error) {
       Log.error('[EntitlementController._reloadPlans] $error');
     }
@@ -250,17 +262,19 @@ class EntitlementController extends MagicController
   DateTime? get currentPeriodEnd => _currentPeriodEnd;
 
   // ---------------------------------------------------------------------------
-  // Usage (from GET /billing/usage; fixed order monitors, responders, checks)
+  // Usage (from GET /billing/usage, every resource the producer reports)
   // ---------------------------------------------------------------------------
 
   /// Current usage of the resource carried under the wire [key]
   /// (`GET /billing/usage`'s own field names), or 0 when the usage read has not
   /// landed yet.
   ///
-  /// Keyed on [UsageStat.key] and never on [UsageStat.label]: the label is
-  /// display copy the decoder resolves through the catalogue, so matching on it
-  /// found nothing in any non-English session, every gate below read zero usage,
-  /// and a team at its cap kept creating monitors until the backend refused.
+  /// Keyed on [UsageStat.key] and never on [UsageStat.label], and the label is
+  /// in fact null on every stat this controller holds: display copy is paired on
+  /// by the screen that renders it (`withUsageCopy`), so it moves with the
+  /// language. Matching a gate on it found nothing in any non-English session,
+  /// every gate below read zero usage, and a team at its cap kept creating
+  /// monitors until the backend refused.
   int _usedFor(String key) {
     for (final stat in _usage) {
       if (stat.key == key) return stat.used;

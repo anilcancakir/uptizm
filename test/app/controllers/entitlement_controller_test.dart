@@ -3,24 +3,35 @@ import 'dart:ui' show Locale;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 
+import 'package:magic_payments/magic_payments.dart'
+    show
+        BillingEntitlement,
+        BillingException,
+        BillingInvoicesPage,
+        BillingProvider,
+        BillingService,
+        ManageVia,
+        PaymentMethod,
+        UsageStat;
 import 'package:uptizm/app/controllers/entitlement_controller.dart';
 import 'package:uptizm/app/enums/ai_level.dart' show AiLevel;
-import 'package:uptizm/app/enums/billing_provider.dart' show BillingProvider;
-import 'package:uptizm/app/enums/manage_via.dart' show ManageVia;
 import 'package:uptizm/app/mocks/billing.dart' show plans;
-import 'package:uptizm/app/services/billing/billing_service.dart';
-import 'package:uptizm/app/support/billing_types.dart' show Plan;
-import 'package:uptizm/app/support/team_types.dart'
-    show PaymentMethod, UsageStat;
+import 'package:uptizm/app/mocks/teams_data.dart' show planWireRows;
+import 'package:uptizm/app/support/team_types.dart' show withUsageCopy;
 
 import '../../support/bundled_lang.dart';
 
 /// In-memory [BillingService] fake feeding the [EntitlementController] the three
 /// reads it depends on (`currentEntitlement`, `getPlans`, `getUsage`) with
 /// canned values, so the gate predicates can be asserted without a network
-/// driver. The purchase-action methods the controller never touches throw
-/// [UnimplementedError] loudly (a future caller would fail the test, not
-/// silently no-op).
+/// driver.
+///
+/// It implements the READ contract and nothing else. The purchase and management
+/// calls live on their own rail contracts (`WebBillingService`,
+/// `StoreBillingService`), which this fake deliberately does not serve: the
+/// controller never spends money, and a fake carrying a contract its subject
+/// never calls is four more methods to keep in step with a public API for
+/// nothing.
 class _FakeBilling implements BillingService {
   _FakeBilling({
     this.entitlementPlan,
@@ -75,52 +86,41 @@ class _FakeBilling implements BillingService {
     entitlementCalls++;
     if (throwOnEntitlement) throw const BillingException('billing offline');
 
-    // `plan_status` is the key `SubscriptionResource` actually emits, and one
-    // local feeds both the parameter and the raw map so the two cannot drift.
-    // A `status` key sat here until now and has NEVER existed on this wire; the
-    // identical fiction in the real fixtures is what left
-    // `BillingEntitlement.status` null in production for the life of the field.
-    const String planStatus = 'active';
-
-    return BillingEntitlement(
-      plan: entitlementPlan,
-      status: planStatus,
-      provider: entitlementProvider,
-      manageVia: entitlementManageVia,
-      renews: entitlementRenews,
-      currentPeriodEnd: entitlementPeriodEnd,
-      aiAnalysisTrialsRemaining: null,
-      raw: {'plan': entitlementPlan, 'plan_status': planStatus},
-    );
+    // `plan_status` is the key `SubscriptionResource` actually emits. A `status`
+    // key sat here until now and has NEVER existed on this wire; the identical
+    // fiction in the real fixtures is what left the decoded plan status null in
+    // production for the life of the field.
+    //
+    // Built through `fromMap` rather than through the const constructor, so the
+    // three neutral vocabularies are read by the REAL decoder from the raw wire
+    // words above: a fixture handing over already-decoded cases could assert a
+    // value `ManageVia.fromWire('play_store')` never actually produces.
+    return BillingEntitlement.fromMap(<String, dynamic>{
+      'plan': entitlementPlan,
+      'plan_status': 'active',
+      'provider': entitlementProvider,
+      'manage_via': entitlementManageVia,
+      'renews': entitlementRenews,
+      'current_period_end': entitlementPeriodEnd?.toIso8601String(),
+      'ai_analysis_trials_remaining': null,
+    });
   }
 
   /// Returns the real design-lab plan catalog (which mirrors the backend
-  /// `config/plans.php` tiers), or throws when [throwOnPlans] exercises a
-  /// degraded leg.
+  /// `config/plans.php` tiers) as the WIRE ROWS the contract answers with, or
+  /// throws when [throwOnPlans] exercises a degraded leg.
+  ///
+  /// Rows rather than typed plans, because `Plan` is uptizm's own type and the
+  /// package hands the catalogue over undecoded; going back out through
+  /// `planWireRows` means the controller under test runs its real decode.
   @override
-  Future<List<Plan>> getPlans() async {
+  Future<List<Map<String, dynamic>>> getPlans() async {
     if (throwOnPlans) throw const BillingException('catalog offline');
-    return plans;
+    return planWireRows(plans);
   }
 
   @override
   Future<List<UsageStat>> getUsage() async => usage;
-
-  @override
-  Future<BillingCheckoutSession> checkout({
-    required String plan,
-    required String successUrl,
-    required String cancelUrl,
-  }) => throw UnimplementedError();
-
-  @override
-  Future<void> swap({required String plan}) => throw UnimplementedError();
-
-  @override
-  Future<void> cancel() => throw UnimplementedError();
-
-  @override
-  Future<String> openPortal({String? returnUrl}) => throw UnimplementedError();
 
   @override
   Future<BillingInvoicesPage> getInvoices({String? cursor}) =>
@@ -243,11 +243,17 @@ void main() {
       // 'İzleyiciler', nothing matched, every usage read fell through to 0, and
       // the Free-tier gates stayed permanently open while the meter reported
       // the full cap. The fix is the lookup axis, not the literal.
-      final List<UsageStat> usage = UsageStat.fromWireMap(const {
-        'monitors': {'used': 10, 'limit': 10},
-        'responders': {'used': 1, 'limit': 1},
-        'checks_this_month': {'used': 83365, 'limit': null},
-      });
+      // Through `withUsageCopy`, which is where the labels live now: the package
+      // decodes numbers only, and uptizm pairs its catalogue copy on by key. The
+      // controller itself never labels anything, so a fixture that skipped this
+      // would carry null labels and the guard below could not fire.
+      final List<UsageStat> usage = withUsageCopy(
+        UsageStat.fromWireMap(const {
+          'monitors': {'used': 10, 'limit': 10},
+          'responders': {'used': 1, 'limit': 1},
+          'checks_this_month': {'used': 83365, 'limit': null},
+        }),
+      );
 
       // Guards against a vacuous pass: with no catalogue loaded the labels
       // would be raw keys, English would match nothing either, and the test

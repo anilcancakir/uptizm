@@ -3,12 +3,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import 'package:magic_payments/magic_payments.dart'
+    show
+        BillingCheckoutSession,
+        BillingEntitlement,
+        BillingInvoicesPage,
+        BillingService,
+        Invoice,
+        InvoiceStatus,
+        PaymentMethod,
+        UsageStat,
+        WebBillingService;
 import 'package:uptizm/app/mocks/billing.dart' show plans;
-import 'package:uptizm/app/services/billing/billing_service.dart';
-import 'package:uptizm/app/support/billing_types.dart' show Plan;
-import 'package:uptizm/app/support/team_types.dart'
-    show Invoice, PaymentMethod, UsageStat;
-import 'package:uptizm/app/enums/invoice_status.dart' show InvoiceStatus;
+import 'package:uptizm/app/mocks/teams_data.dart' show planWireRows;
 import 'package:uptizm/resources/views/teams/plan_billing_view.dart';
 
 import '../../../support/bundled_lang.dart';
@@ -20,12 +27,21 @@ import '../../../support/bundled_lang.dart';
 /// The rail arrives as its RAW WIRE WORD (`app_store`, not `ManageVia`
 /// .appStore), because that is the only thing the real decoder ever sees; a
 /// fake taking an already-decoded case could pass while
-/// `manageViaFromWire('play_store')` silently fell into its fallback.
-class _RailBillingService implements BillingService {
+/// `ManageVia.fromWire('play_store')` silently fell into its fallback. The
+/// entitlement is therefore built through [BillingEntitlement.fromMap] rather
+/// than through the const constructor, which takes cases already decoded.
+///
+/// It implements BOTH the read contract and [WebBillingService], because the
+/// subject calls both: `checkout` and `openPortal` live on the rail contract, and
+/// the screen renders no purchase or portal affordance at all when the rail is
+/// absent. A read-only fake would have made every "the affordance is gone"
+/// assertion below pass for the wrong reason.
+class _RailBillingService implements BillingService, WebBillingService {
   _RailBillingService({
     this.manageVia = 'none',
     this.manageUrl,
     this.invoices = const [],
+    this.usage = const [],
   });
 
   /// The wire word for `manage_via`.
@@ -77,37 +93,47 @@ class _RailBillingService implements BillingService {
 
   @override
   Future<BillingEntitlement> currentEntitlement() async {
-    return BillingEntitlement(
-      plan: entitlementPlan,
-      status: 'active',
-      subscribed: true,
-      renews: true,
-      provider: 'stripe',
-      manageVia: manageVia,
-      manageUrl: manageUrl,
-      aiAnalysisTrialsRemaining: null,
-      raw: {'plan': entitlementPlan, 'manage_via': manageVia},
-    );
+    return BillingEntitlement.fromMap(<String, dynamic>{
+      'plan': entitlementPlan,
+      'plan_status': 'active',
+      'subscribed': true,
+      'renews': true,
+      'provider': 'stripe',
+      'manage_via': manageVia,
+      'manage_url': manageUrl,
+      'ai_analysis_trials_remaining': null,
+    });
   }
 
   @override
-  Future<List<Plan>> getPlans() async => plans;
+  Future<List<Map<String, dynamic>>> getPlans() async => planWireRows(plans);
+
+  /// The metered usage `GET /billing/usage` resolves to, LABEL-FREE, exactly as
+  /// the package decodes it: pairing the display copy on is the screen's job, and
+  /// a fixture that pre-labelled these would assert its own words instead.
+  final List<UsageStat> usage;
 
   @override
-  Future<List<UsageStat>> getUsage() async => const [];
+  Future<List<UsageStat>> getUsage() async => usage;
 
   @override
   Future<BillingInvoicesPage> getInvoices({String? cursor}) async {
     return BillingInvoicesPage(invoices: invoices, nextCursor: null);
   }
 
+  /// The card and the renewal date as the RAIL reports them: two numbers for the
+  /// expiry and an instant for the renewal, not `'08 / 27'` and
+  /// `'Jun 1, 2026'`. Formatting both is the screen's job now, so a fixture that
+  /// handed over finished strings would be asserting the fixture's own
+  /// formatting rather than the product's.
   @override
   Future<PaymentMethod> getPaymentMethod() async {
-    return const PaymentMethod(
+    return PaymentMethod(
       brand: 'Visa',
       last4: '4242',
-      expiry: '08 / 27',
-      renewalDate: 'Jun 1, 2026',
+      expMonth: 8,
+      expYear: 2027,
+      renewalDate: DateTime.utc(2026, 6, 1),
     );
   }
 }
@@ -129,10 +155,13 @@ class _BundledLangLoader implements TranslationLoader {
 void main() {
   /// The one invoice the billing-history assertions need, so the receipt
   /// affordance has a row to live on.
-  const Invoice invoice = Invoice(
+  ///
+  /// `final`, not `const`: the date is an instant (month names and date order are
+  /// display copy the screen owns), and a [DateTime] can never be a constant.
+  final Invoice invoice = Invoice(
     id: 'in_test_1',
     number: 'INV-0001',
-    date: 'Jun 1, 2026',
+    date: DateTime.utc(2026, 6, 1),
     amount: '\$29.00',
     status: InvoiceStatus.paid,
   );
@@ -200,7 +229,7 @@ void main() {
         'CTA', (tester) async {
       final _RailBillingService billing = _RailBillingService(
         manageVia: 'portal',
-        invoices: const [invoice],
+        invoices: <Invoice>[invoice],
       );
 
       await mount(tester, PlanBillingView(billingService: billing));
@@ -235,7 +264,7 @@ void main() {
       final _RailBillingService billing = _RailBillingService(
         manageVia: 'app_store',
         manageUrl: 'https://apps.apple.com/account/subscriptions',
-        invoices: const [invoice],
+        invoices: <Invoice>[invoice],
       );
 
       await mount(tester, PlanBillingView(billingService: billing));
@@ -333,7 +362,7 @@ void main() {
         'offers no tappable affordance', (tester) async {
       final _RailBillingService billing = _RailBillingService(
         manageVia: 'play_store',
-        invoices: const [invoice],
+        invoices: <Invoice>[invoice],
       );
 
       await mount(tester, PlanBillingView(billingService: billing));
@@ -370,7 +399,7 @@ void main() {
     ) async {
       final _RailBillingService billing = _RailBillingService(
         manageVia: 'none',
-        invoices: const [invoice],
+        invoices: <Invoice>[invoice],
       );
 
       await mount(tester, PlanBillingView(billingService: billing));
@@ -405,7 +434,7 @@ void main() {
         'message instead', (tester) async {
       final _RailBillingService billing = _RailBillingService(
         manageVia: 'none',
-        invoices: const [invoice],
+        invoices: <Invoice>[invoice],
       );
 
       await mount(
@@ -442,7 +471,7 @@ void main() {
       // are 403s waiting to happen rather than actions.
       final _RailBillingService billing = _RailBillingService(
         manageVia: 'portal',
-        invoices: const [invoice],
+        invoices: <Invoice>[invoice],
       );
 
       await mount(
@@ -481,6 +510,79 @@ void main() {
         find.text(trans('uptizm.teams.billing_owner_only_notice')),
         findsNothing,
       );
+    });
+  });
+
+  group('display copy the package does not carry', () {
+    /// The usage wire `BillingController::usage()` sends, decoded by the package
+    /// and therefore label-free. Every label and unit below has to come from the
+    /// SHIPPED catalogue via `withUsageCopy`, which is the whole point.
+    final List<UsageStat> usage = UsageStat.fromWireMap(<String, dynamic>{
+      'monitors': {'used': 47, 'limit': 50},
+      'checks_this_month': {'used': 128400, 'limit': null},
+      // A resource this app has no word for. It must reach the gates (they look
+      // a resource up by key) and must NOT reach the screen as a raw wire key.
+      'widgets_provisioned': {'used': 3, 'limit': 9},
+    });
+
+    testWidgets('renders the same date, expiry, usage label and status pill it '
+        'rendered before the types moved into magic_payments', (tester) async {
+      final _RailBillingService billing = _RailBillingService(
+        manageVia: 'portal',
+        invoices: <Invoice>[invoice],
+        usage: usage,
+      );
+
+      await mount(tester, PlanBillingView(billingService: billing));
+
+      expect(tester.takeException(), isNull);
+
+      // 1. A date. `Invoice.date` and `PaymentMethod.renewalDate` are instants
+      //    now; both are rendered by the same `Jun 1, 2026` formatter, so both
+      //    the invoice row and the renewal sentence carry that exact string.
+      expect(find.text('Jun 1, 2026'), findsOneWidget);
+      expect(
+        find.text('\$29/mo billed annually · renews Jun 1, 2026'),
+        findsOneWidget,
+      );
+
+      // 2. A card expiry, built from the rail's `exp_month`/`exp_year`.
+      expect(find.text('Expires 08 / 27'), findsOneWidget);
+
+      // 3. A usage label and a unit, paired on by key from the catalogue. The
+      //    unlabelled fourth resource renders no meter at all.
+      expect(find.text('Monitors'), findsOneWidget);
+      expect(find.text('Checks this month'), findsOneWidget);
+      expect(find.textContaining('checks'), findsWidgets);
+      expect(find.textContaining('widgets_provisioned'), findsNothing);
+
+      // 4. An invoice-status pill, whose word now sits beside its tone.
+      expect(find.text('Paid'), findsOneWidget);
+    });
+
+    testWidgets('the labels and the pill are Turkish in a Turkish session, and '
+        'the date shape is unchanged', (tester) async {
+      // English is the locale where a hardcoded literal passes by construction,
+      // so the same four strings are read again from the tr catalogue.
+      Translator.instance.setLoader(const _BundledLangLoader('tr'));
+      await Translator.instance.setLocale(const Locale('tr'));
+
+      final _RailBillingService billing = _RailBillingService(
+        manageVia: 'portal',
+        invoices: <Invoice>[invoice],
+        usage: usage,
+      );
+
+      await mount(tester, PlanBillingView(billingService: billing));
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('İzleyiciler'), findsOneWidget);
+      expect(find.text('Bu ayki kontroller'), findsOneWidget);
+      expect(find.text('Ödendi'), findsOneWidget);
+      expect(find.text('Son kullanma 08 / 27'), findsOneWidget);
+      // The date table itself is English-only by decision (it always was), so
+      // this locks the shape rather than claiming a translation.
+      expect(find.text('Jun 1, 2026'), findsOneWidget);
     });
   });
 

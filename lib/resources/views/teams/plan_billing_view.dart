@@ -1,17 +1,27 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
+import 'package:magic_payments/magic_payments.dart'
+    show
+        BillingEntitlement,
+        BillingException,
+        BillingInvoicesPage,
+        BillingService,
+        Invoice,
+        InvoiceStatus,
+        ManageVia,
+        PaymentMethod,
+        Payments,
+        UnsupportedPlatformException,
+        UsageStat,
+        WebBillingService;
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/support/billing_types.dart' show Plan;
 import '../../../app/support/formatters.dart' show formatCount;
-import '../../../app/support/team_types.dart'
-    show Invoice, PaymentMethod, UsageStat;
-import '../../../app/enums/invoice_status.dart' show InvoiceStatus;
-import '../../../app/enums/manage_via.dart' show ManageVia;
+import '../../../app/support/team_types.dart' show withUsageCopy;
 import '../../../app/models/team.dart' show Team;
 import '../../../app/models/user.dart' show User;
-import '../../../app/services/billing/billing_service.dart';
 import '../../../ui/components/usage_meter/usage_meter.dart';
 
 /// The billing cycle a plan's price is shown for.
@@ -46,15 +56,14 @@ enum BillingCycle {
 ///   responder add-on line when present, a "Recommended" badge when
 ///   [Plan.recommended], and a CTA: "Current plan" (disabled) for the active
 ///   plan, else "Upgrade"/"Downgrade"/"Contact sales" decided by comparing the
-///   plan's position to the current plan's. On web, a priced-tier CTA starts
-///   a live Stripe Checkout session via [BillingService.checkout]; on mobile
-///   it surfaces the deferred-billing message instead of erroring (store
-///   rails deferred, see `BillingServiceIo`). The custom (Enterprise) tier
-///   only surfaces a "contact sales" toast; nothing navigates or persists
-///   there.
+///   plan's position to the current plan's. A priced-tier CTA starts a live
+///   Stripe Checkout session via [WebBillingService.checkout], and renders only
+///   where that rail exists (see the third axis below); the custom (Enterprise)
+///   tier only surfaces a "contact sales" toast, spends nothing and therefore
+///   needs no rail; nothing navigates or persists there.
 /// - **Payment method card**: the fetched [PaymentMethod]'s brand tile, the
 ///   masked card number + expiry + renewal date, and an "Update" [Button]
-///   that opens the Stripe billing portal via [BillingService.openPortal].
+///   that opens the Stripe billing portal via [WebBillingService.openPortal].
 ///   Fetched independently of the rest of the screen (the only Stripe-live
 ///   read, soft-failing server-side to an all-null payload), so it carries
 ///   its own loading/error state and never blocks the rest of the screen. On a
@@ -75,7 +84,14 @@ enum BillingCycle {
 /// state (empty before the first successful fetch) on failure instead of
 /// throwing out of `initState`.
 ///
-/// ### The two axes that gate every affordance
+/// Two of the read shapes arrive undecorated, because `magic_payments` carries
+/// no display copy: [Invoice.date] and [PaymentMethod.renewalDate] are instants
+/// this screen formats ([_PlanBillingViewState._formatDate]), the card expiry is
+/// built from the rail's own two numbers, each [UsageStat] is paired with its
+/// localised label by `withUsageCopy`, and the [InvoiceStatus] pill resolves its
+/// own word beside its own tone.
+///
+/// ### The three axes that gate every affordance
 ///
 /// **The rail, never the running platform.** Which management surface this
 /// screen offers comes from the entitlement's [BillingEntitlement.manageVia],
@@ -100,6 +116,15 @@ enum BillingCycle {
 /// a KNOWN non-owner loses the CTA, since an unresolved membership must not
 /// stand between an owner and paying.
 ///
+/// **The rail this BUILD can serve, for anything it has to call.** The two
+/// purchase-affecting calls live on [WebBillingService], which `magic_payments`
+/// resolves to `null` where the build cannot serve it. That absence gates the
+/// checkout CTA and all three portal affordances, and it is a different question
+/// from `manage_via`: one asks where the customer's subscription is managed, the
+/// other whether this binary has an implementation to invoke. A store build
+/// therefore renders no checkout button at all, where it used to render one that
+/// threw [UnsupportedPlatformException] when tapped.
+///
 /// ### Example
 /// ```dart
 /// MagicRoute.page('/teams/billing', () => const PlanBillingView());
@@ -108,12 +133,17 @@ enum BillingCycle {
 class PlanBillingView extends StatefulWidget {
   /// Creates the [PlanBillingView].
   ///
-  /// [billingService] overrides [BillingService.instance] for tests; omit it
-  /// in production to get the platform-resolved singleton. [isOwner] overrides
-  /// the resolved team membership, likewise for tests.
+  /// [billingService] overrides [Payments.billing] for tests; omit it in
+  /// production to get the rail this build resolved. [isOwner] overrides the
+  /// resolved team membership, likewise for tests.
   const PlanBillingView({super.key, this.billingService, this.isOwner});
 
-  /// Injectable [BillingService], overriding [BillingService.instance].
+  /// Injectable [BillingService], overriding [Payments.billing].
+  ///
+  /// A fake that also implements [WebBillingService] supplies the web rail as
+  /// well (see [_PlanBillingViewState._resolveWebRail]); one that does not models
+  /// a build with no web rail, which is exactly the state where no purchase or
+  /// portal affordance may render.
   @visibleForTesting
   final BillingService? billingService;
 
@@ -152,6 +182,27 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// The route the back affordance returns to.
   static const String _backFallback = '/';
 
+  /// The short month names [_formatDate] indexes by `DateTime.month`.
+  ///
+  /// This table and the US day-then-year order it feeds are DISPLAY COPY, which
+  /// is why they live on this side of the package boundary: `magic_payments`
+  /// hands both dates over as instants precisely so a published package does not
+  /// freeze one language and one date convention into every consumer.
+  static const List<String> _monthAbbreviations = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+
   /// The app's canonical web origin, used to build the checkout
   /// `success_url`/`cancel_url` Stripe redirects back to.
   ///
@@ -168,11 +219,39 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// the `### Deviations` note on this step).
   BillingCycle _cycle = BillingCycle.annual;
 
-  /// The [BillingService] resolved once for the entitlement read + checkout
-  /// action: [PlanBillingView.billingService] when injected (tests), else the
-  /// platform-resolved [BillingService.instance].
-  late final BillingService _billing =
-      widget.billingService ?? BillingService.instance;
+  /// The five entitlement READS, resolved once:
+  /// [PlanBillingView.billingService] when injected (tests), else the rail this
+  /// build resolved through [Payments.billing]. A read is honourable on every
+  /// platform, so this is never null.
+  late final BillingService _billing = widget.billingService ?? Payments.billing;
+
+  /// The WEB rail, or `null` in a build that cannot serve one.
+  ///
+  /// The two purchase-affecting calls this screen makes ([WebBillingService
+  /// .checkout] and [WebBillingService.openPortal]) live here rather than on the
+  /// read contract, because a rail is not available everywhere. `null` is the
+  /// answer every affordance below is gated on: a store build renders no
+  /// checkout button at all instead of one that fails when tapped.
+  late final WebBillingService? _web = _resolveWebRail();
+
+  /// Resolves the web rail for this mount.
+  ///
+  /// With nothing injected it is the build's own rail. With a fake injected it is
+  /// that fake WHEN the fake serves the contract, and `null` otherwise: reaching
+  /// for [Payments.web] behind an injected read fake would hand a test the real
+  /// driver for half its calls.
+  WebBillingService? _resolveWebRail() {
+    // Typed `Object?` rather than `BillingService?`, and that is load-bearing
+    // rather than loose: the two contracts are unrelated (neither extends the
+    // other, so one object may serve both), and Dart only promotes a variable
+    // to a SUBTYPE of its declared type. A `BillingService?` local therefore
+    // never promotes to `WebBillingService` and the test below would need a
+    // cast to compile.
+    final Object? injected = widget.billingService;
+    if (injected == null) return Payments.web;
+
+    return injected is WebBillingService ? injected : null;
+  }
 
   /// The active plan id, or `null` while it is genuinely unknown: before
   /// [_loadEntitlement]'s `GET /billing` read resolves, and permanently on a
@@ -269,7 +348,12 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// member's "Update" and "Receipt" buttons are 403s waiting to happen rather
   /// than actions. The rail decides WHERE management lives; the membership
   /// decides WHETHER this caller may go there.
+  ///
+  /// A build with no [_web] rail loses it as well, and that is a separate fact
+  /// from the entitlement's: the portal is a call this build has no
+  /// implementation for, so the button would have nothing to invoke.
   bool get _portalAvailable =>
+      _web != null &&
       (_manageVia == null || _manageVia == ManageVia.portal) &&
       _isOwner != false;
 
@@ -305,12 +389,14 @@ class _PlanBillingViewState extends State<PlanBillingView> {
 
   /// Whether this screen may offer to start or change a paid plan.
   ///
-  /// Two independent refusals: a store already charging this team (a second
-  /// rail must not open a parallel subscription, which `POST /billing/checkout`
-  /// also refuses with a 409), and a member who is not the owner (which the
-  /// four write routes refuse with a 403). Both are affordances rather than
-  /// enforcement; the server still decides.
-  bool get _canPurchase => !_storeManaged && _isOwner != false;
+  /// Three independent refusals: no web rail in this build (there is nothing to
+  /// call, and no store rail ships yet either), a store already charging this
+  /// team (a second rail must not open a parallel subscription, which
+  /// `POST /billing/checkout` also refuses with a 409), and a member who is not
+  /// the owner (which the four write routes refuse with a 403). The last two are
+  /// affordances rather than enforcement; the server still decides.
+  bool get _canPurchase =>
+      _web != null && !_storeManaged && _isOwner != false;
 
   @override
   void initState() {
@@ -359,14 +445,20 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   }
 
   /// Reads the plan catalog from `GET /billing/plans` via
-  /// [BillingService.getPlans] and republishes [_plans].
+  /// [BillingService.getPlans], decodes uptizm's own [Plan] from its rows and
+  /// republishes [_plans].
+  ///
+  /// The contract answers rows verbatim: a tier's prices, feature bullets and
+  /// in-product caps are what uptizm sells rather than anything a payment rail
+  /// understands, so [Plan] stays on this side and the decode happens here.
   ///
   /// Deliberate degradation on failure: [_plans] stays empty (last-known
   /// state before the first successful fetch), so the current-plan card and
   /// the plans grid render their loading/empty state instead of crashing.
   Future<void> _loadPlans() async {
     try {
-      final List<Plan> plans = await _billing.getPlans();
+      final List<Map<String, dynamic>> rows = await _billing.getPlans();
+      final List<Plan> plans = rows.map(Plan.fromMap).toList();
       if (!mounted) return;
       setState(() => _plans = plans);
       _startRequestedUpgrade();
@@ -425,13 +517,18 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   }
 
   /// Reads the team's usage stats from `GET /billing/usage` via
-  /// [BillingService.getUsage] and republishes [_usage].
+  /// [BillingService.getUsage], pairs uptizm's display copy onto them and
+  /// republishes [_usage].
+  ///
+  /// The contract carries the numbers and no label: a resource's display name is
+  /// product copy, so `withUsageCopy` matches it on by [UsageStat.key], the one
+  /// handle that does not move with the language.
   ///
   /// Deliberate degradation on failure: [_usage] stays empty, so the meter
   /// grid simply renders no rows instead of crashing.
   Future<void> _loadUsage() async {
     try {
-      final List<UsageStat> usage = await _billing.getUsage();
+      final List<UsageStat> usage = withUsageCopy(await _billing.getUsage());
       if (!mounted) return;
       setState(() => _usage = usage);
     } catch (_) {
@@ -568,7 +665,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
                           // is pending or after its Stripe soft-fail (never a
                           // fabricated date).
                           'date':
-                              _paymentMethod?.renewalDate ??
+                              _formatDate(_paymentMethod?.renewalDate) ??
                               trans('common.unknown'),
                         }),
                   className: 'text-sm text-fg-muted',
@@ -578,13 +675,19 @@ class _PlanBillingViewState extends State<PlanBillingView> {
           WDiv(
             className: 'grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-2',
             children: [
+              // A stat `withUsageCopy` could not name gets NO meter, rather than
+              // one labelled with its raw wire key. The backend reports every
+              // resource it meters and this app names three of them, so a fourth
+              // arriving early would otherwise put `checks_this_month` on a
+              // customer's screen; a gate still reads it by key either way.
               for (final UsageStat stat in _usage)
-                UsageMeter(
-                  label: stat.label,
-                  used: stat.used,
-                  limit: stat.limit,
-                  unit: stat.unit.isEmpty ? null : stat.unit,
-                ),
+                if (stat.label != null)
+                  UsageMeter(
+                    label: stat.label!,
+                    used: stat.used,
+                    limit: stat.limit,
+                    unit: stat.unit.isEmpty ? null : stat.unit,
+                  ),
             ],
           ),
         ],
@@ -934,7 +1037,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
 
     final PaymentMethod? paymentMethod = _paymentMethod;
     final String? last4 = paymentMethod?.last4;
-    final String? expiry = paymentMethod?.expiry;
+    final String? expiry = _cardExpiry(paymentMethod);
 
     return WDiv(
       className: 'flex flex-row items-center gap-4',
@@ -986,11 +1089,16 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     );
   }
 
-  /// Opens the Stripe billing portal via [BillingService.openPortal],
+  /// Opens the Stripe billing portal via [WebBillingService.openPortal],
   /// surfacing the same deferred/failure toasts as [_selectPlan]'s checkout
   /// path. Shared by the payment-method "Update" button and every invoice
   /// row's "Receipt" button (both are Stripe-portal actions; the portal
   /// itself deep-links a customer straight to their invoice history).
+  ///
+  /// A null [_web] returns without a word, and cannot be reached from the UI:
+  /// [_portalAvailable] gates every affordance that calls this on the same rail.
+  /// The guard is here because a null rail is not an error to report to a
+  /// customer, it is a button that was never rendered.
   ///
   /// A failure re-reads the entitlement. The endpoint has two refusals this
   /// screen's own gate is supposed to have made unreachable (409
@@ -1000,8 +1108,11 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// and it keys off the server's `manage_via` rather than off the refusal's
   /// English sentence.
   Future<void> _openBillingPortal() async {
+    final WebBillingService? web = _web;
+    if (web == null) return;
+
     try {
-      await _billing.openPortal(returnUrl: '$_webOrigin/teams/billing');
+      await web.openPortal(returnUrl: '$_webOrigin/teams/billing');
     } on UnsupportedPlatformException catch (error) {
       MagicFeedback.info(
         trans('uptizm.teams.billing_toast_deferred_title'),
@@ -1062,7 +1173,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
             className: 'flex flex-col min-w-0',
             children: [
               WText(
-                invoice.date,
+                _formatDate(invoice.date) ?? '',
                 className: 'truncate text-sm font-medium text-fg',
               ),
               WText(
@@ -1096,6 +1207,13 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// (which takes a monitoring [StatusKey] rather than an [InvoiceStatus]).
   /// Maps paid -> up-soft, pending -> degraded-soft, failed -> down-soft; every
   /// pair carries its `dark:` counterpart via `uptizmStatusAliases`.
+  ///
+  /// The copy switch sits beside the colour switch on purpose. `magic_payments`
+  /// carries the enum as a pure vocabulary with no label getter, because a
+  /// display word would ship one vendor's catalogue key into every consumer; the
+  /// two switches being adjacent is what keeps the tone and the word from
+  /// drifting apart. Both are exhaustive with no `default`, so a fourth
+  /// settlement state is a compile error here rather than an unlabelled pill.
   Widget _buildStatusPill(InvoiceStatus status) {
     const String base =
         'flex flex-row items-center rounded-full px-2 py-0.5 '
@@ -1107,7 +1225,13 @@ class _PlanBillingViewState extends State<PlanBillingView> {
       InvoiceStatus.failed => 'bg-down-soft text-down-soft-foreground',
     };
 
-    return WDiv(className: '$base $tone', child: WText(status.label));
+    final String label = switch (status) {
+      InvoiceStatus.paid => trans('uptizm.enums.invoice_status.paid'),
+      InvoiceStatus.pending => trans('uptizm.enums.invoice_status.pending'),
+      InvoiceStatus.failed => trans('uptizm.enums.invoice_status.failed'),
+    };
+
+    return WDiv(className: '$base $tone', child: WText(label));
   }
 
   // ---------------------------------------------------------------------------
@@ -1115,7 +1239,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   // ---------------------------------------------------------------------------
 
   /// Selects [plan]: hands off to sales for the custom tier, otherwise starts
-  /// a live Stripe Checkout session via [BillingService.checkout] for
+  /// a live Stripe Checkout session via [WebBillingService.checkout] for
   /// [plan.id], the backend `Plan` enum value (`'pro'`/`'business'`; the
   /// backend rejects anything else with a 422).
   ///
@@ -1124,14 +1248,17 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// monthly/annual price dimension yet), so it is never encoded into the
   /// checkout payload (see the `### Deviations` note on this step).
   ///
-  /// On web, [BillingService.checkout] opens the returned checkout URL in an
-  /// in-app browser tab; this only surfaces the local confirmation toast
-  /// afterward. On mobile, [BillingService.checkout] throws
-  /// [UnsupportedPlatformException] (store rails deferred, see
-  /// `BillingServiceIo`), surfaced here as a friendly info toast rather than
-  /// an error. Any other [BillingException] (a failed request) surfaces an
-  /// error toast; neither failure is swallowed silently. Mirrors the React
-  /// `selectPlan`.
+  /// The custom tier's sales handoff runs on a build with no web rail, because
+  /// it spends nothing and calls nothing. A priced tier without [_web] returns
+  /// silently: [_canPurchase] gates every CTA that reaches it, so there is no
+  /// button to explain a refusal to.
+  ///
+  /// [WebBillingService.checkout] opens the returned checkout URL in an in-app
+  /// browser tab; this only surfaces the local confirmation toast afterward. An
+  /// [UnsupportedPlatformException] (a rail that is present but cannot serve the
+  /// running device) is surfaced as a friendly info toast rather than an error;
+  /// any other [BillingException] (a failed request) surfaces an error toast.
+  /// Neither failure is swallowed silently. Mirrors the React `selectPlan`.
   Future<void> _selectPlan(Plan plan) async {
     // 1. Custom tier: hand off to sales, no live billing call.
     if (plan.monthly == null) {
@@ -1144,9 +1271,12 @@ class _PlanBillingViewState extends State<PlanBillingView> {
 
     // 2. Priced tier: start checkout for the plan, redirecting Stripe back to
     //    this screen on completion/abort.
+    final WebBillingService? web = _web;
+    if (web == null) return;
+
     final bool isUpgrade = _direction(plan) > 0;
     try {
-      await _billing.checkout(
+      await web.checkout(
         plan: plan.id,
         successUrl: '$_webOrigin/teams/billing?checkout=success',
         cancelUrl: '$_webOrigin/teams/billing?checkout=cancel',
@@ -1251,6 +1381,44 @@ class _PlanBillingViewState extends State<PlanBillingView> {
       ),
       BillingCycle.annual => trans('uptizm.teams.billing_renewal_cycle_annual'),
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Display copy the package deliberately does not carry
+  // ---------------------------------------------------------------------------
+
+  /// Formats [instant] as `"Jun 1, 2026"`, or `null` when there is no date.
+  ///
+  /// `magic_payments` hands `Invoice.date` and `PaymentMethod.renewalDate` over
+  /// as `DateTime?` rather than as formatted strings, so this is the whole of
+  /// what the move left behind: the same table, the same US day-then-year order,
+  /// and the same one screen rendering it.
+  ///
+  /// Returns `null` rather than an empty string so a caller can tell "no date"
+  /// from a formatted one with a plain `!= null` check; the invoice row, which
+  /// wants a string either way, falls back with `?? ''`.
+  String? _formatDate(DateTime? instant) {
+    if (instant == null) return null;
+
+    return '${_monthAbbreviations[instant.month - 1]} '
+        '${instant.day}, ${instant.year}';
+  }
+
+  /// The card-expiry line for [paymentMethod] (`"08 / 27"`), or `null` when the
+  /// rail reported no card.
+  ///
+  /// Built from the rail's own two numbers, which is what the package carries: a
+  /// separator, a zero pad and a two- versus four-digit year are rendering
+  /// decisions, and a package freezing them would hand every consumer the same
+  /// card row. Both numbers are required, because a month with no year is not an
+  /// expiry.
+  String? _cardExpiry(PaymentMethod? paymentMethod) {
+    final int? month = paymentMethod?.expMonth;
+    final int? year = paymentMethod?.expYear;
+    if (month == null || year == null) return null;
+
+    return '${month.toString().padLeft(2, '0')} / '
+        '${(year % 100).toString().padLeft(2, '0')}';
   }
 
   // ---------------------------------------------------------------------------

@@ -1,6 +1,12 @@
 import 'package:magic/magic.dart';
 import 'package:magic_deeplink/magic_deeplink.dart';
 import 'package:magic_notifications/magic_notifications.dart';
+// Named rather than imported whole: the payments barrel and the social-auth
+// barrel below both export `UnsupportedPlatformException`, so a later edit to
+// this file that reached for that type would get an ambiguous import. This file
+// needs exactly one symbol from payments, so it says so.
+import 'package:magic_payments/magic_payments.dart'
+    show PaymentsServiceProvider;
 import 'package:magic_social_auth/magic_social_auth.dart';
 import 'package:magic_starter/magic_starter.dart';
 
@@ -40,6 +46,11 @@ Map<String, dynamic> get appConfig => {
       (app) => AuthServiceProvider(app),
       (app) => DeeplinkServiceProvider(app),
       (app) => NotificationServiceProvider(app),
+      // Binds `payments` and wires the rail the build can serve. There is no
+      // `config/payments.dart`, and none is needed: the provider reads
+      // `payments.driver`, and an absent key leaves the mode null, which skips
+      // the misconfiguration branch and wires the platform driver.
+      (app) => PaymentsServiceProvider(app),
       (app) => SocialAuthServiceProvider(app),
       (app) => MagicStarterServiceProvider(app),
     ],
