@@ -9,6 +9,7 @@ use App\Enums\PlanStatus;
 use App\Models\Team;
 use App\Services\Billing\RevenueCatClient;
 use App\Support\Billing\EntitlementWrite;
+use App\Support\TeamKey;
 use Carbon\CarbonImmutable;
 use Carbon\Exceptions\InvalidFormatException;
 use Illuminate\Bus\Queueable;
@@ -17,7 +18,6 @@ use Illuminate\Foundation\Queue\Queueable as FoundationQueueable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 
 /**
  * The store rail's feeder for the team entitlement column.
@@ -193,7 +193,7 @@ class SyncRevenueCatEntitlement implements ShouldQueue
      */
     protected function resolveTeam(string $appUserId): ?Team
     {
-        if (! $this->looksLikeATeamKey($appUserId)) {
+        if (! TeamKey::looksLikeOne($appUserId)) {
             $this->warn(
                 'malformed_app_user_id',
                 'RevenueCat named an app_user_id that cannot be a team key; entitlement left untouched.',
@@ -216,19 +216,6 @@ class SyncRevenueCatEntitlement implements ShouldQueue
         }
 
         return $team;
-    }
-
-    /**
-     * Whether a string can be a team key at all.
-     *
-     * Read from the same switch the migrations use rather than hardcoding UUID,
-     * so a deployment on integer keys is not refused every event.
-     */
-    protected function looksLikeATeamKey(string $appUserId): bool
-    {
-        return config('magic-starter.use_uuids')
-            ? Str::isUuid($appUserId)
-            : ctype_digit($appUserId);
     }
 
     /**

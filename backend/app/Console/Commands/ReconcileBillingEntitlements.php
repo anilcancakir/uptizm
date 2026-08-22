@@ -6,11 +6,12 @@ use App\Actions\Billing\WriteTeamEntitlement;
 use App\Enums\BillingProvider;
 use App\Enums\Plan;
 use App\Enums\PlanStatus;
-use App\Http\Controllers\StripeWebhookController;
 use App\Jobs\SyncRevenueCatEntitlement;
 use App\Models\Team;
 use App\Services\Billing\RevenueCatClient;
 use App\Support\Billing\EntitlementWrite;
+use App\Support\Billing\StripeSubscriptionState;
+use App\Support\TeamKey;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Console\Command;
@@ -19,7 +20,6 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 use Laravel\Cashier\Subscription;
 use RuntimeException;
 
@@ -121,24 +121,6 @@ class ReconcileBillingEntitlements extends Command
     protected const string RECONCILED = 'RECONCILIATION';
 
     /**
-     * The Stripe subscription statuses that grant a paid entitlement.
-     *
-     * The same three the webhook feeder decides on
-     * ({@see StripeWebhookController::$grantingStatuses}).
-     * Kept in Stripe's own vocabulary rather than re-derived from
-     * {@see PlanStatus::grants()}, because that is the list which has always
-     * decided this question and a second definition of "granting" for one
-     * outcome would be free to disagree with the first.
-     *
-     * @var array<int, string>
-     */
-    protected array $grantingStatuses = [
-        'active',
-        'trialing',
-        'past_due',
-    ];
-
-    /**
      * How many teams were walked, corrected, and skipped without a correction.
      */
     protected int $walked = 0;
@@ -171,7 +153,7 @@ class ReconcileBillingEntitlements extends Command
         // `uuid` column, so a bad value in `where id = ?` raises there while
         // SQLite answers an empty set, which would make the default test engine
         // blind to a 500 production gets.
-        if (is_string($only) && ! $this->looksLikeATeamKey($only)) {
+        if (is_string($only) && ! TeamKey::looksLikeOne($only)) {
             $this->error("[{$only}] cannot be a team key, so nothing was queried.");
 
             return self::FAILURE;
@@ -400,11 +382,11 @@ class ReconcileBillingEntitlements extends Command
         // A locally recorded non-granting status is a positive statement that
         // the subscription finished, so it really does revoke. That is the
         // asymmetry with the absent row above: this is an answer, not a gap.
-        if (! in_array($status, $this->grantingStatuses, true)) {
+        if (! StripeSubscriptionState::grants($status)) {
             return new EntitlementWrite(
                 team: $team,
                 plan: Plan::Free,
-                status: $this->mapStatus($status),
+                status: StripeSubscriptionState::planStatusFor($status),
                 provider: BillingProvider::Stripe,
                 eventAt: $eventAt,
                 providerStatus: $status,
@@ -418,7 +400,7 @@ class ReconcileBillingEntitlements extends Command
 
         // An unmapped price is a CONFIG gap, exactly as it is in the webhook
         // feeder: the absence of a reason to grant is not a reason to revoke.
-        $plan = $this->planFromPrice($subscription->stripe_price);
+        $plan = StripeSubscriptionState::planForPrice($subscription->stripe_price);
 
         if (! $plan instanceof Plan) {
             $this->skip($team, 'unmapped_price', 'stripe', [
@@ -431,7 +413,7 @@ class ReconcileBillingEntitlements extends Command
         return new EntitlementWrite(
             team: $team,
             plan: $plan,
-            status: $this->mapStatus($status),
+            status: StripeSubscriptionState::planStatusFor($status),
             provider: BillingProvider::Stripe,
             eventAt: $eventAt,
             providerStatus: $status,
@@ -550,54 +532,5 @@ class ReconcileBillingEntitlements extends Command
             'rail' => $rail,
             ...$context,
         ]);
-    }
-
-    /**
-     * Map Stripe's status word onto the neutral vocabulary.
-     *
-     * The same table the webhook feeder applies, for the same reason: `unpaid`
-     * and both `incomplete*` states are lifecycles that ran out without ever
-     * being paid and have no neutral twin, and everything unlisted falls through
-     * to `fromWire()`, which lands an unrecognised word on the non-granting
-     * default so a status Stripe adds next year cannot entitle by accident.
-     */
-    protected function mapStatus(string $status): PlanStatus
-    {
-        return match ($status) {
-            'active' => PlanStatus::Active,
-            'trialing' => PlanStatus::Trialing,
-            'past_due' => PlanStatus::PastDue,
-            'canceled' => PlanStatus::Canceled,
-            'unpaid', 'incomplete', 'incomplete_expired' => PlanStatus::Expired,
-            default => PlanStatus::fromWire($status),
-        };
-    }
-
-    /**
-     * The tier a Stripe price grants, read from the same `cashier.plans` map the
-     * webhook feeder uses.
-     */
-    protected function planFromPrice(?string $priceId): ?Plan
-    {
-        if ($priceId === null || $priceId === '') {
-            return null;
-        }
-
-        $map = (array) config('cashier.plans', []);
-
-        return Plan::tryFrom((string) ($map[$priceId] ?? ''));
-    }
-
-    /**
-     * Whether an operator-supplied id can be a team key at all.
-     *
-     * Read from the same switch the migrations use rather than hardcoding UUID,
-     * so a deployment on integer keys is not refused.
-     */
-    protected function looksLikeATeamKey(string $id): bool
-    {
-        return config('magic-starter.use_uuids')
-            ? Str::isUuid($id)
-            : ctype_digit($id);
     }
 }

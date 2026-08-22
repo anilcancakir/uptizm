@@ -9,6 +9,7 @@ use App\Enums\PlanStatus;
 use App\Models\ProcessedWebhookEvent;
 use App\Models\Team;
 use App\Support\Billing\EntitlementWrite;
+use App\Support\Billing\StripeSubscriptionState;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Closure;
@@ -83,17 +84,6 @@ class StripeWebhookController extends CashierWebhookController
         // webhook secret is configured; skipping it would unsign this route.
         parent::__construct();
     }
-
-    /**
-     * The Stripe subscription statuses that grant a paid entitlement.
-     *
-     * @var array<int, string>
-     */
-    protected array $grantingStatuses = [
-        'active',
-        'trialing',
-        'past_due',
-    ];
 
     /**
      * Handle customer subscription created.
@@ -205,7 +195,7 @@ class StripeWebhookController extends CashierWebhookController
         //    that has always decided this, and re-deriving it from the neutral
         //    vocabulary would be a second definition of "granting" for the same
         //    outcome, free to disagree with the first one.
-        if (! in_array($status, $this->grantingStatuses, true)) {
+        if (! StripeSubscriptionState::grants($status)) {
             $this->claim($this->subscriptionClaim($team, Plan::Free, $status, $object, $eventAt));
 
             return;
@@ -214,7 +204,7 @@ class StripeWebhookController extends CashierWebhookController
         // 2. A granting status whose price is unmapped is a config gap, not a
         //    downgrade: skip the write so the config gap never revokes a paid
         //    tier, and surface the missing price->plan mapping for operators.
-        $plan = $this->resolvePlanFromPrice($priceId);
+        $plan = StripeSubscriptionState::planForPrice($priceId);
 
         if (! $plan instanceof Plan) {
             $this->warnUnmappedPrice($priceId, $team);
@@ -247,7 +237,7 @@ class StripeWebhookController extends CashierWebhookController
 
         // A paid invoice must never downgrade the payer: an unmapped price is a
         // config gap, so leave the entitlement untouched and warn instead.
-        $plan = $this->resolvePlanFromPrice($subscription->stripe_price);
+        $plan = StripeSubscriptionState::planForPrice($subscription->stripe_price);
 
         if (! $plan instanceof Plan) {
             $this->warnUnmappedPrice($subscription->stripe_price, $team);
@@ -338,7 +328,7 @@ class StripeWebhookController extends CashierWebhookController
         return new EntitlementWrite(
             team: $team,
             plan: $plan,
-            status: $this->mapStatus($status),
+            status: StripeSubscriptionState::planStatusFor($status),
             provider: BillingProvider::Stripe,
             eventAt: $eventAt,
             providerStatus: $status,
@@ -380,29 +370,6 @@ class StripeWebhookController extends CashierWebhookController
     protected function eventAt(array $payload): CarbonInterface
     {
         return CarbonImmutable::createFromTimestamp((int) ($payload['created'] ?? 0));
-    }
-
-    /**
-     * Map Stripe's subscription status onto the rail-neutral vocabulary.
-     *
-     * An explicit table rather than {@see PlanStatus::fromWire()} alone, because
-     * three of Stripe's words have no neutral twin: `unpaid` and both
-     * `incomplete*` states are lifecycles that ran out without ever being paid.
-     * Everything unlisted falls THROUGH to `fromWire()`, which lands an
-     * unrecognised word on the non-granting default: a status Stripe adds next
-     * year must never be able to entitle by accident. Nothing maps onto `active`
-     * except the word `active` itself.
-     */
-    protected function mapStatus(string $status): PlanStatus
-    {
-        return match ($status) {
-            'active' => PlanStatus::Active,
-            'trialing' => PlanStatus::Trialing,
-            'past_due' => PlanStatus::PastDue,
-            'canceled' => PlanStatus::Canceled,
-            'unpaid', 'incomplete', 'incomplete_expired' => PlanStatus::Expired,
-            default => PlanStatus::fromWire($status),
-        };
     }
 
     /**
@@ -462,23 +429,6 @@ class StripeWebhookController extends CashierWebhookController
         $team = $this->getUserByStripeId($customerId);
 
         return $team instanceof Team ? $team : null;
-    }
-
-    /**
-     * Map a Stripe price id to its entitlement tier via the config plan map,
-     * returning `null` when the price is absent or unmapped so the caller can
-     * treat a config gap as "leave the entitlement untouched" rather than a
-     * silent downgrade to the free tier.
-     */
-    protected function resolvePlanFromPrice(?string $priceId): ?Plan
-    {
-        if (! $priceId) {
-            return null;
-        }
-
-        $map = (array) config('cashier.plans', []);
-
-        return Plan::tryFrom((string) ($map[$priceId] ?? ''));
     }
 
     /**
