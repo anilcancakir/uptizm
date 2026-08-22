@@ -90,6 +90,13 @@ use RuntimeException;
  * which is what an older deploy sees after a newer one ships a fourth rail, is
  * excluded by the same `whereIn`: a rail this build cannot read is a rail this
  * build must not correct.
+ *
+ * Plus a second arm, for the rows that predate every rail: `plan_provider` NULL
+ * WITH a local billing signal. See {@see self::onAReadableRail()} for why NULL
+ * needs its own arm at all, why the signal is required with it, and why the
+ * store rail cannot have one. Such a team reads as {@see BillingProvider::None},
+ * which is not a store, so it is reconciled through the Stripe branch; that
+ * branch is what the local signal attests to.
  */
 class ReconcileBillingEntitlements extends Command
 {
@@ -192,11 +199,51 @@ class ReconcileBillingEntitlements extends Command
     {
         return Team::query()
             ->with('subscriptions')
-            ->whereIn('plan_provider', [
-                BillingProvider::Stripe->value,
-                BillingProvider::AppStore->value,
-                BillingProvider::PlayStore->value,
-            ])
+            // Both arms are wrapped in ONE group, and that grouping is
+            // correctness rather than tidiness: `chunkById` appends its keyset
+            // `id > ?` at the top level, and SQL binds AND tighter than OR, so
+            // an ungrouped `orWhere` would attach the page boundary to the
+            // second arm alone and the walk would restart from the top of the
+            // first arm on every chunk.
+            ->where(function (Builder $selected): void {
+                $selected
+                    ->whereIn('plan_provider', [
+                        BillingProvider::Stripe->value,
+                        BillingProvider::AppStore->value,
+                        BillingProvider::PlayStore->value,
+                    ])
+                    // The rows that predate every rail. `whereIn` is satisfied
+                    // by no NULL on either engine, and the provenance migration
+                    // adds all eight columns nullable with a deliberate absence
+                    // of backfill, so without this arm the first run against
+                    // real data walked approximately nobody, and a dropped
+                    // `INITIAL_PURCHASE` (which leaves the provenance NULL by
+                    // construction) was excluded by the very filter meant to
+                    // catch it.
+                    //
+                    // A LOCAL SIGNAL is required with it, because NULL
+                    // provenance on its own is also every team that has never
+                    // bought anything, and walking the free tier hourly would
+                    // log a `no_local_subscription` skip per team forever.
+                    //
+                    // The signal is Stripe-only, and there is deliberately no
+                    // store equivalent: a store customer leaves NOTHING behind
+                    // locally. `app_user_id` exists only on the event that
+                    // carries it (nothing persists it, and this command
+                    // reconstructs it from the team key), and RevenueCat
+                    // publishes no list-subscribers endpoint, so the only way to
+                    // find a NULL-provenance store customer would be to ask
+                    // `GET /v1/subscribers` about every team on the table, once
+                    // an hour. A NULL-provenance store purchase is therefore
+                    // genuinely unreachable from here, and it is named rather
+                    // than papered over with an arm that would select the wrong
+                    // rows.
+                    ->orWhere(fn (Builder $unprovenanced): Builder => $unprovenanced
+                        ->whereNull('plan_provider')
+                        ->where(fn (Builder $signal): Builder => $signal
+                            ->whereNotNull('stripe_id')
+                            ->orWhereHas('subscriptions')));
+            })
             ->when($only !== null, fn (Builder $query): Builder => $query->whereKey($only));
     }
 
@@ -453,8 +500,10 @@ class ReconcileBillingEntitlements extends Command
             // The webhook feeder guards this carry-forward with a "is Stripe the
             // rail on record" check, because an invoice can arrive for a team a
             // store rail has since taken over. Here that check would be dead
-            // code: this branch is only reached for a team whose stored
-            // `plan_provider` IS stripe, which is what selected it.
+            // code: the two selections that reach this branch are a stored
+            // `plan_provider` of stripe, and a NULL one, which is a row no rail
+            // has ever written and therefore a row with no period for a store to
+            // have established. Neither can carry a store's period forward.
             currentPeriodEnd: $team->plan_current_period_end,
             // This one the local row does know: `ends_at` is Cashier's
             // cancellation-effective date, so a row that carries one will not

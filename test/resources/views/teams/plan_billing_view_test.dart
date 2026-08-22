@@ -62,7 +62,11 @@ class _ReadsBillingService implements BillingService {
   /// in this file is about the rail or the membership, and the tier only has to
   /// be a real catalogue id (one with a cheaper and a pricier neighbour) so the
   /// grid resolves an Upgrade, a Downgrade and a Current-plan CTA.
-  final String entitlementPlan = 'pro';
+  ///
+  /// A getter rather than a field, so [_HeldRetiredTierBillingService] can
+  /// override it without the `overridden_fields` lint a second `final` field
+  /// would trigger.
+  String get entitlementPlan => 'pro';
 
   /// The billing history `GET /billing/invoices` resolves to.
   final List<Invoice> invoices;
@@ -170,6 +174,25 @@ class _SoftFailedPaymentBillingService extends _ReadsBillingService {
 
   @override
   Future<PaymentMethod> getPaymentMethod() async => const PaymentMethod();
+}
+
+/// A team grandfathered on a tier the current catalogue no longer serves.
+///
+/// `_ReadsBillingService.entitlementPlan` is fixed to `'pro'`, a real
+/// catalogue id, because every other test in this file needs a tier with both
+/// a cheaper and a pricier neighbour so the grid resolves an Upgrade AND a
+/// Downgrade CTA. This fixture overrides just that one field with an id
+/// `plans` (`app/mocks/billing.dart`) never carries, modelling a customer
+/// whose tier the backend retired: `_planIndex`/`_findPlan` must answer
+/// absence rather than the catalogue's cheapest entry.
+///
+/// Extends [_RailBillingService] (a WEB rail) rather than the bare reads,
+/// because a build with no rail at all renders no CTA on a priced tier
+/// regardless of direction, which would make the neutral-label assertion
+/// below pass for the wrong reason.
+class _HeldRetiredTierBillingService extends _RailBillingService {
+  @override
+  String get entitlementPlan => 'legacy_grandfathered';
 }
 
 /// The payment-method read answers EMPTY while the entitlement read never does.
@@ -1159,6 +1182,102 @@ void main() {
         find.text(trans('uptizm.teams.billing_payment_header')),
         findsOneWidget,
       );
+    });
+  });
+
+  group('a held tier the catalogue no longer serves renders as unknown', () {
+    testWidgets('the current-plan card names the held tier id instead of the '
+        "catalogue's cheapest plan", (tester) async {
+      await mount(
+        tester,
+        PlanBillingView(
+          billingService: _HeldRetiredTierBillingService(),
+          isOwner: true,
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+      // The defect this replaces: `_findPlan` fell back to `_plans.first`
+      // ('free'), so a grandfathered customer saw the free tier's name and
+      // renewal line as their own current plan.
+      expect(
+        find.text(
+          trans('uptizm.teams.billing_plan_unavailable_text', {
+            'id': 'legacy_grandfathered',
+          }),
+        ),
+        findsOneWidget,
+      );
+      // The "Current" badge still marks the card as theirs, even though its
+      // details are unavailable. Exactly one: no priced-tier card in the grid
+      // may claim to be the active plan when [_findPlan] found none.
+      expect(
+        find.text(trans('uptizm.teams.billing_plan_current_badge')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('every plan card falls back to a neutral comparison label '
+        'rather than Upgrade or Downgrade', (tester) async {
+      await mount(
+        tester,
+        PlanBillingView(
+          billingService: _HeldRetiredTierBillingService(),
+          isOwner: true,
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.text(trans('uptizm.teams.billing_plan_button_upgrade')),
+        findsNothing,
+      );
+      expect(
+        find.text(trans('uptizm.teams.billing_plan_button_downgrade')),
+        findsNothing,
+      );
+      // Every priced, non-custom card (free/pro/business) reads the neutral
+      // label; the custom tier keeps its own "Contact sales".
+      expect(
+        find.text(trans('uptizm.teams.billing_plan_button_unranked')),
+        findsNWidgets(3),
+      );
+    });
+
+    testWidgets('the Turkish session renders the shipped Turkish copy, not a '
+        'raw i18n key', (tester) async {
+      Translator.instance.setLoader(const _BundledLangLoader('tr'));
+      await Translator.instance.setLocale(const Locale('tr'));
+
+      final Map<String, dynamic> tr = readBundledLang('tr');
+      final Object? unavailable = tr['uptizm.teams.billing_plan_unavailable_text'];
+      final Object? unranked = tr['uptizm.teams.billing_plan_button_unranked'];
+      expect(unavailable, isA<String>());
+      expect(unranked, isA<String>());
+
+      await mount(
+        tester,
+        PlanBillingView(
+          billingService: _HeldRetiredTierBillingService(),
+          isOwner: true,
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.text(
+          trans('uptizm.teams.billing_plan_unavailable_text', {
+            'id': 'legacy_grandfathered',
+          }),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.text(trans('uptizm.teams.billing_plan_button_unranked')),
+        findsNWidgets(3),
+      );
+      expect(find.textContaining('billing_plan_unavailable'), findsNothing);
+      expect(find.textContaining('billing_plan_button_unranked'), findsNothing);
     });
   });
 
