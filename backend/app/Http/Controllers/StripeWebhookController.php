@@ -260,6 +260,12 @@ class StripeWebhookController extends CashierWebhookController
             status: PlanStatus::Active,
             provider: BillingProvider::Stripe,
             eventAt: $eventAt,
+            // A PROJECTION, and the only one this controller makes: the tier
+            // above comes from the local Cashier row's `stripe_price`, which
+            // Cashier may not have resynced for the change this very invoice
+            // paid for. It may refresh the record; it may not decide that Stripe
+            // is the rail billing this team.
+            authoritative: false,
             providerStatus: 'active',
             productId: $subscription->stripe_price,
             // An invoice object carries no subscription items, so this path has
@@ -296,6 +302,8 @@ class StripeWebhookController extends CashierWebhookController
             status: PlanStatus::Canceled,
             provider: BillingProvider::Stripe,
             eventAt: $eventAt,
+            // Stripe telling us directly, on its own event.
+            authoritative: true,
             // Stripe does not put a status on the deletion itself; the deletion
             // IS the status, and `canceled` is the word Stripe uses for it.
             providerStatus: 'canceled',
@@ -331,6 +339,9 @@ class StripeWebhookController extends CashierWebhookController
             status: StripeSubscriptionState::planStatusFor($status),
             provider: BillingProvider::Stripe,
             eventAt: $eventAt,
+            // Every field here is read out of the event payload Stripe signed,
+            // so this is Stripe speaking rather than us remembering.
+            authoritative: true,
             providerStatus: $status,
             productId: $object['items']['data'][0]['price']['id'] ?? null,
             currentPeriodEnd: $this->periodEndFromPayload($object),

@@ -111,11 +111,11 @@ class WriteTeamEntitlement
             return false;
         }
 
-        // RULE 2b, a rail that is not selling an UPGRADE may not take over the
-        // provenance of a rail that is still granting.
+        // RULE 2b, a PROJECTION may not take over the record of a rail that is
+        // still granting.
         //
         // Rule 2 above only stops a cross-rail REVOCATION, so a cross-rail write
-        // carrying the SAME tier used to pass and `apply()` then rewrote
+        // carrying the SAME tier passed and `apply()` then rewrote
         // `plan_provider` unconditionally. That handed the rail-on-record to a
         // rail that had not sold the subscription, and the damage was one step
         // later: the next revocation from that rail was now SAME-rail, so rule 2
@@ -127,36 +127,37 @@ class WriteTeamEntitlement
         // the team-delete path stopped seeing a store, and the reconciler began
         // re-reading Stripe and never RevenueCat, so nothing healed it.
         //
-        // Dropping the write loses nothing, because a SAME-tier write carries no
-        // tier information the record does not already hold. Its only effect was
-        // the takeover.
+        // The status half is DEFENCE rather than a live requirement in THIS app:
+        // `$storedProvider->grants()` is a per-RAIL table, true for every real
+        // rail, and no feeder here stores a paid tier with a lapsed status
+        // because every non-granting path writes `Plan::Free` in the same apply.
+        // It stays because the starter's copy takes `plan` and `status` from a
+        // consumer independently and CAN reach that pair, and because the
+        // invariant is held by convention across four feeders rather than by a
+        // constraint.
         //
-        // The status half is DEFENCE here rather than a live requirement, and
-        // saying so is the honest version: `$storedProvider->grants()` is a
-        // per-RAIL table, true for every real rail, so gating on it alone would
-        // drop a genuine App Store purchase of Business from a team whose EXPIRED
-        // Stripe record still named Business. No feeder in THIS app writes that
-        // pair, because every non-granting path here writes `Plan::Free` in the
-        // same apply, and the direction test alone would therefore be enough
-        // today (free to business ranks as an UPGRADE, not SAME).
+        // The test is the WRITER's standing, not the tier and not the clock.
         //
-        // It stays for two reasons. The starter's copy of this action, which
-        // consumers supply `plan` and `status` to independently, CAN reach it,
-        // and the two copies are worth keeping in step. And the invariant it
-        // leans on ("a paid tier is never stored with a lapsed status") is held
-        // by convention across four feeders rather than by a constraint, so one
-        // hand-edited row is enough to need it.
-        // The direction test is `=== SAME` rather than `!== UPGRADE`, and the two
-        // are equivalent only by accident of the current table: rule 2 above has
-        // already dropped DOWNGRADE and UNKNOWN, so nothing else can reach here
-        // today. Naming SAME says what this guard is for, and a fifth direction
-        // added later has to be decided rather than inheriting a drop.
+        // This replaced a blanket same-tier drop, which closed one direction of
+        // the problem by opening the other. A store selling the tier a customer
+        // already holds on Stripe is a MIGRATION and the record has to follow
+        // it; refusing it left `plan_provider` on Stripe, so the cancellation
+        // that followed was SAME-rail, newer, and revoked a tier Apple was
+        // still charging for. Both directions are the same question asked of
+        // different writers, and the tier could never answer it.
+        //
+        // A PROJECTION may refresh what the record says and may never move who
+        // it says is billing. It is assembled from something the rail wrote into
+        // our database earlier, so it cannot testify to a handover: the invoice
+        // re-affirmation reads a `stripe_price` Cashier may not have resynced,
+        // and the hourly reconciler reads the same row. An AUTHORITATIVE claim
+        // is the rail speaking now, and it takes the record.
         if ($storedProvider !== $write->provider
             && $storedProvider->grants()
             && $this->storedStatusStillGrants($team)
-            && $direction === self::DIRECTION_SAME
+            && ! $write->authoritative
         ) {
-            $this->logDrop('cross-rail provenance takeover', $write, $storedProvider, $direction);
+            $this->logDrop('projected cross-rail takeover', $write, $storedProvider, $direction);
 
             return false;
         }

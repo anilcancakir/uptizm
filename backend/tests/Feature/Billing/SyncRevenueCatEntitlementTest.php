@@ -672,6 +672,42 @@ class SyncRevenueCatEntitlementTest extends TestCase
     }
 
     /**
+     * A padded `app_user_id` resolves to its team rather than being refused.
+     *
+     * Not cosmetic. `TeamKey::looksLikeOne()` runs `Str::isUuid`, which rejects
+     * a padded value, so before the ids were trimmed a payload with whitespace
+     * around the id was refused at `resolveTeam()` and no entitlement was
+     * written at all. It also made the id compare unequal to `handle()`'s own
+     * `$primary`, which is built with `trim()`, so the alias fallback was
+     * disabled for the event's OWN subscriber and the refusal said "transferred"
+     * about an id nothing had transferred.
+     */
+    public function test_a_padded_app_user_id_still_finds_its_team(): void
+    {
+        Log::spy();
+
+        $team = $this->makeTeam([
+            'plan' => Plan::Free->value,
+            'plan_status' => PlanStatus::None->value,
+        ]);
+
+        $this->fakeAuthoritativeReads([
+            $team->id => $this->subscriber([
+                self::APP_STORE_BUSINESS => $this->subscription(),
+            ]),
+        ]);
+
+        $this->sync($this->event('INITIAL_PURCHASE', $team, [
+            'app_user_id' => "  {$team->id}  ",
+        ]));
+
+        $team->refresh();
+
+        $this->assertSame(Plan::Business, $team->plan, 'A padded id was refused its own team.');
+        $this->assertSame(BillingProvider::AppStore->value, $team->plan_provider);
+    }
+
+    /**
      * An alias may never stand in for a TRANSFER side.
      *
      * The two sides of a transfer are different SUBSCRIBERS, while `aliases`

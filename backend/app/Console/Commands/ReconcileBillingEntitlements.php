@@ -406,6 +406,13 @@ class ReconcileBillingEntitlements extends Command
                 status: StripeSubscriptionState::planStatusFor($status),
                 provider: BillingProvider::Stripe,
                 eventAt: $eventAt,
+                // A PROJECTION, and the whole Stripe branch of this command is
+                // one: `stripe_status` and `stripe_price` are themselves what a
+                // webhook wrote here earlier, so this can correct drift in the
+                // record and cannot testify that Stripe is the rail billing
+                // anybody. The store branch does not go through here at all; it
+                // dispatches a job that re-reads the rail.
+                authoritative: false,
                 providerStatus: $status,
                 productId: $subscription->stripe_price,
                 // A finished subscription has no period left to run and nothing
@@ -433,6 +440,8 @@ class ReconcileBillingEntitlements extends Command
             status: StripeSubscriptionState::planStatusFor($status),
             provider: BillingProvider::Stripe,
             eventAt: $eventAt,
+            // A projection, for the same reason as the branch above.
+            authoritative: false,
             providerStatus: $status,
             productId: $subscription->stripe_price,
             // The local row carries no period column, so the stored value is

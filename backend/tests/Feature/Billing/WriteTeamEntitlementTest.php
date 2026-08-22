@@ -69,6 +69,7 @@ class WriteTeamEntitlementTest extends TestCase
             status: PlanStatus::Expired,
             provider: BillingProvider::AppStore,
             eventAt: $grantedAt->subMinute(),
+            authoritative: true,
             providerStatus: 'EXPIRATION',
         ));
 
@@ -122,6 +123,7 @@ class WriteTeamEntitlementTest extends TestCase
             status: PlanStatus::Active,
             provider: BillingProvider::Stripe,
             eventAt: $eventAt,
+            authoritative: true,
             providerStatus: 'active',
             productId: 'price_business_monthly',
         ));
@@ -163,6 +165,7 @@ class WriteTeamEntitlementTest extends TestCase
             status: PlanStatus::Expired,
             provider: BillingProvider::Stripe,
             eventAt: $eventAt,
+            authoritative: true,
             providerStatus: 'canceled',
         ));
 
@@ -207,6 +210,7 @@ class WriteTeamEntitlementTest extends TestCase
             status: PlanStatus::Canceled,
             provider: BillingProvider::Stripe,
             eventAt: $grantedAt->addMinute(),
+            authoritative: true,
             providerStatus: 'canceled',
         ));
 
@@ -255,6 +259,7 @@ class WriteTeamEntitlementTest extends TestCase
             status: PlanStatus::Active,
             provider: BillingProvider::AppStore,
             eventAt: $eventAt,
+            authoritative: true,
             providerStatus: 'ACTIVE',
             productId: 'uptizm_business_monthly',
         ));
@@ -278,8 +283,8 @@ class WriteTeamEntitlementTest extends TestCase
     }
 
     /**
-     * RULE 2b: a cross-rail write carrying the SAME tier does not get to take
-     * over the provenance of a rail that is still granting.
+     * RULE 2b: a PROJECTED write does not get to take over the record of a rail
+     * that is still granting.
      *
      * Rule 2 above only stops a cross-rail REVOCATION, so this write used to
      * pass and `apply()` rewrote `plan_provider` unconditionally. The damage was
@@ -293,8 +298,14 @@ class WriteTeamEntitlementTest extends TestCase
      * The state is reachable without anything exotic: a customer who migrated
      * from web to store and did not cancel the web subscription is paying twice,
      * which is exactly the case the cross-rail warning exists to announce.
+     *
+     * The guard was first written as a blanket SAME-TIER drop, and its sibling
+     * test above is why that was wrong: it also refused the store purchase that
+     * performs the migration. What separates the two writes is not the tier, it
+     * is that this one is assembled from the local Cashier row while that one is
+     * a fresh read of the rail that took the money.
      */
-    public function test_a_cross_rail_same_tier_write_cannot_take_over_provenance(): void
+    public function test_a_projected_cross_rail_write_cannot_take_over_the_record(): void
     {
         Log::spy();
 
@@ -314,6 +325,7 @@ class WriteTeamEntitlementTest extends TestCase
             status: PlanStatus::Active,
             provider: BillingProvider::Stripe,
             eventAt: $grantedAt->addMinute(),
+            authoritative: false,
             providerStatus: 'active',
             productId: 'price_business_monthly',
         ));
@@ -327,6 +339,56 @@ class WriteTeamEntitlementTest extends TestCase
         $this->assertTrue($grantedAt->equalTo($team->plan_source_event_at));
 
         $this->assertDropWasLogged($team, 'app_store', 'stripe', 'same');
+    }
+
+    /**
+     * A store selling the tier a customer already holds on Stripe is a MIGRATION,
+     * and the record has to follow it.
+     *
+     * This is the sequence rule 2b got wrong when it was written as a blanket
+     * same-tier drop. The store's purchase was refused, `plan_provider` stayed
+     * `stripe`, and the Stripe cancellation that follows was then SAME-rail,
+     * newer, and landed `plan = free` while Apple went on charging. Before rule
+     * 2b existed the purchase landed and that same cancellation was cross-rail
+     * DOWNGRADE, which rule 2 drops: the correct outcome. So the guard closed
+     * one direction of the provenance problem by opening the other.
+     *
+     * What separates the two is not the tier and not the clock, it is how well
+     * the writer knows its own claim. A store purchase is an AUTHORITATIVE read
+     * of the rail that just took the money; the write that used to steal
+     * provenance was a projection of local state. Only the first may move the
+     * record.
+     */
+    public function test_an_authoritative_cross_rail_claim_takes_the_record_at_the_same_tier(): void
+    {
+        Log::spy();
+
+        $grantedAt = CarbonImmutable::parse('2026-08-22 12:00:00');
+
+        $team = $this->makeTeam([
+            'plan' => Plan::Business->value,
+            'plan_status' => PlanStatus::Active->value,
+            'plan_provider' => BillingProvider::Stripe->value,
+            'plan_source_event_at' => $grantedAt,
+            'plan_product_id' => 'price_business_monthly',
+        ]);
+
+        $applied = $this->write(new EntitlementWrite(
+            team: $team,
+            plan: Plan::Business,
+            status: PlanStatus::Active,
+            provider: BillingProvider::AppStore,
+            eventAt: $grantedAt->addMinute(),
+            authoritative: true,
+            providerStatus: 'ACTIVE',
+            productId: 'uptizm_business_monthly',
+        ));
+
+        $this->assertTrue($applied, 'The store bought the tier and the record ignored it.');
+
+        $team->refresh();
+        $this->assertSame(BillingProvider::AppStore->value, $team->plan_provider);
+        $this->assertSame('uptizm_business_monthly', $team->plan_product_id);
     }
 
     /**
@@ -363,6 +425,7 @@ class WriteTeamEntitlementTest extends TestCase
             status: PlanStatus::Active,
             provider: BillingProvider::AppStore,
             eventAt: $eventAt,
+            authoritative: true,
             providerStatus: 'ACTIVE',
             productId: 'uptizm_business_monthly',
         ));
@@ -412,6 +475,7 @@ class WriteTeamEntitlementTest extends TestCase
             status: PlanStatus::PastDue,
             provider: BillingProvider::Stripe,
             eventAt: $eventAt,
+            authoritative: true,
             providerStatus: 'past_due',
             productId: 'price_business',
             currentPeriodEnd: $periodEnd,
@@ -477,6 +541,7 @@ class WriteTeamEntitlementTest extends TestCase
             status: PlanStatus::Active,
             provider: BillingProvider::Stripe,
             eventAt: $grantedAt->addMinute(),
+            authoritative: true,
             providerStatus: 'active',
         ));
 

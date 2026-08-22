@@ -456,11 +456,65 @@ class StripeWebhookTest extends TestCase
 
         $team->refresh();
 
-        // The cross-rail upgrade really does land, so the rail on record changed.
+        // The projection does not take the record from a rail that is still
+        // granting, whatever tier it carries. This assertion USED to be its
+        // opposite: the write landed, the rail on record became Stripe, and the
+        // test only checked that the store's period had not followed it across.
+        // That premise was the enabler for the defect rule 2b exists to stop,
+        // because the Stripe cancellation after it would then be SAME-rail and
+        // revoke a tier Apple was still charging for.
+        $this->assertSame(Plan::Pro, $team->plan);
+        $this->assertSame(BillingProvider::AppStore->value, $team->plan_provider);
+
+        // The store's own period is untouched, because nothing was written.
+        $this->assertSame($storePeriodEnd, $team->plan_current_period_end->getTimestamp());
+        $this->assertTrue($team->plan_renews);
+    }
+
+    /**
+     * When a projected invoice DOES land, it still carries no other rail's
+     * period across.
+     *
+     * The guard above makes the takeover unreachable while the store is
+     * granting, so the period-nulling in `reaffirmEntitlementFromInvoice` needs
+     * a state where the write is allowed through: a store record that has
+     * LAPSED. Without this, deleting that nulling would go unnoticed.
+     */
+    public function test_an_invoice_that_lands_cross_rail_still_carries_no_foreign_period(): void
+    {
+        $team = $this->makeBillableTeam();
+
+        $this->postSignedWebhook(
+            $this->subscriptionEvent(
+                'evt_lapsed_seed',
+                'customer.subscription.created',
+                $team,
+                'price_business',
+                'active',
+            ),
+        )->assertOk();
+
+        // The store's record is EXPIRED, so it is a slot another rail can fill
+        // rather than an entitlement one can take over.
+        $team->forceFill([
+            'plan' => Plan::Pro->value,
+            'plan_status' => PlanStatus::Expired->value,
+            'plan_provider' => BillingProvider::AppStore->value,
+            'plan_source_event_at' => CarbonImmutable::createFromTimestamp(static::EVENT_AT + 30),
+            'plan_current_period_end' => CarbonImmutable::createFromTimestamp(static::EVENT_AT + 2592000),
+            'plan_renews' => true,
+        ])->save();
+
+        $this->postSignedWebhook(
+            $this->invoiceEvent('evt_lapsed_invoice', $team, created: static::EVENT_AT + 60),
+        )->assertOk();
+
+        $team->refresh();
+
         $this->assertSame(Plan::Business, $team->plan);
         $this->assertSame(BillingProvider::Stripe->value, $team->plan_provider);
 
-        // ...and the store's period did not follow it across.
+        // The store's period did not follow it across.
         $this->assertNull($team->plan_current_period_end);
         $this->assertNull($team->plan_renews);
     }

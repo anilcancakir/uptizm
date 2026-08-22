@@ -1248,6 +1248,24 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     );
   }
 
+  /// The "Update" affordance, which every branch of the payment card offers on
+  /// a build that has the web rail.
+  ///
+  /// Extracted at the FOURTH copy. Three identical blocks read as a pattern; a
+  /// fourth is a place for them to drift, and the thing they would drift on is
+  /// which callback the button carries, on the one control that lets a customer
+  /// replace a card. The `if (_portalAvailable)` stays at each site because the
+  /// branches differ in what they surround it with, and a method returning
+  /// `Widget?` would hide that decision inside a nullable.
+  MSButton _updateCardButton() {
+    return MSButton(
+      intent: ButtonIntent.secondary,
+      size: ButtonSize.sm,
+      onPressed: () => _openBillingPortal(),
+      child: WText(trans('uptizm.teams.billing_payment_update_button')),
+    );
+  }
+
   /// Builds the payment-method card's body for its states: loading skeleton,
   /// error text, resolved-with-nothing, or the card.
   ///
@@ -1295,13 +1313,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
               className: 'text-sm text-fg-muted',
             ),
           ),
-          if (_portalAvailable)
-            MSButton(
-              intent: ButtonIntent.secondary,
-              size: ButtonSize.sm,
-              onPressed: () => _openBillingPortal(),
-              child: WText(trans('uptizm.teams.billing_payment_update_button')),
-            ),
+          if (_portalAvailable) _updateCardButton(),
         ],
       );
     }
@@ -1326,6 +1338,13 @@ class _PlanBillingViewState extends State<PlanBillingView> {
       // the cheaper for a customer-less team, so the window is real but small;
       // saying "an error occurred" through it would put a false sentence on
       // screen in a state where nothing had gone wrong.
+      // The wait is PERMANENT when `GET /billing` failed rather than merely
+      // being slow: `_loadEntitlement` degrades deliberately and nothing retries
+      // it on a timer. That is acceptable and it is not invisible, because the
+      // Update button below re-reads the entitlement through
+      // `_openBillingPortal`'s failure arm, which resolves this card. On a build
+      // with no web rail there is no button and the card shimmers until the next
+      // mount; said here so the next reader does not rediscover it as a bug.
       if (_manageVia == null) {
         return WDiv(
           className: 'flex flex-row items-center gap-4',
@@ -1339,15 +1358,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
             // failed read must not leave a paying customer with no way to reach
             // their card. An earlier draft of this branch returned the skeleton
             // alone and took the affordance away with it.
-            if (_portalAvailable)
-              MSButton(
-                intent: ButtonIntent.secondary,
-                size: ButtonSize.sm,
-                onPressed: () => _openBillingPortal(),
-                child: WText(
-                  trans('uptizm.teams.billing_payment_update_button'),
-                ),
-              ),
+            if (_portalAvailable) _updateCardButton(),
           ],
         );
       }
@@ -1365,13 +1376,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
               className: 'text-sm text-fg-muted',
             ),
           ),
-          if (_portalAvailable)
-            MSButton(
-              intent: ButtonIntent.secondary,
-              size: ButtonSize.sm,
-              onPressed: () => _openBillingPortal(),
-              child: WText(trans('uptizm.teams.billing_payment_update_button')),
-            ),
+          if (_portalAvailable) _updateCardButton(),
         ],
       );
     }
@@ -1420,13 +1425,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
             ],
           ),
         ),
-        if (_portalAvailable)
-          MSButton(
-            intent: ButtonIntent.secondary,
-            size: ButtonSize.sm,
-            onPressed: () => _openBillingPortal(),
-            child: WText(trans('uptizm.teams.billing_payment_update_button')),
-          ),
+        if (_portalAvailable) _updateCardButton(),
       ],
     );
   }

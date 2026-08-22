@@ -196,7 +196,8 @@ class SyncRevenueCatEntitlement implements ShouldQueue
         );
 
         // TRIMMED, not merely filtered on a trimmed value. The two differ, and
-        // the difference reached a customer: `$primary` in `handle()` is built
+        // the difference WOULD reach a customer (nothing has been sold through
+        // either store yet): `$primary` in `handle()` is built
         // with `trim()`, so a padded `app_user_id` compared unequal to its own
         // loop entry, the alias fallback was refused for the event's OWN
         // subscriber, and the refusal said "transferred" about an id nothing had
@@ -480,6 +481,12 @@ class SyncRevenueCatEntitlement implements ShouldQueue
             status: $this->grantingStatus($subscription),
             provider: $provider,
             eventAt: $this->eventAt(),
+            // AUTHORITATIVE, and it is the whole design of this job: the event
+            // is a dirty signal and every field here comes from re-reading
+            // `GET /v1/subscribers`. A store purchase is therefore allowed to
+            // move the record, which is what makes a web-to-store migration
+            // land rather than being refused as a same-tier duplicate.
+            authoritative: true,
             providerStatus: $this->eventType(),
             productId: $productId,
             currentPeriodEnd: $this->instant($subscription['expires_date'] ?? null),
@@ -517,6 +524,9 @@ class SyncRevenueCatEntitlement implements ShouldQueue
             status: $this->revokedStatus($latest),
             provider: $provider,
             eventAt: $this->eventAt(),
+            // Authoritative for the same reason: this revocation is what the
+            // fresh read SHOWED, not what the event was called.
+            authoritative: true,
             providerStatus: $this->eventType(),
             productId: $ranked === [] ? null : (string) array_key_first($ranked),
             // No period is carried forward: a subscription that has run out has

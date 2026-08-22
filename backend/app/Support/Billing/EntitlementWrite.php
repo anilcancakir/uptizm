@@ -59,6 +59,31 @@ readonly class EntitlementWrite
         public PlanStatus $status,
         public BillingProvider $provider,
         public CarbonInterface $eventAt,
+        /**
+         * Whether this claim comes from READING the rail, or from projecting
+         * local state that the rail wrote earlier.
+         *
+         * Required, with no default, for the same reason the provider `match`
+         * has no `default` arm: a new feeder has to decide which of the two it
+         * is rather than inheriting a quiet answer, and the two are not
+         * interchangeable at the point where a record changes hands.
+         *
+         * TRUE for a webhook payload and for a re-read of the rail's own API:
+         * the rail is telling us, now, what it believes.
+         *
+         * FALSE for a claim assembled from something the rail wrote into OUR
+         * database earlier. The invoice re-affirmation reads `stripe_price` off
+         * the local Cashier row, and the hourly reconciler reads the same row;
+         * both are a projection, and both can be a whole period behind while
+         * looking exactly like a fresh claim.
+         *
+         * The distinction earns its place by having been reconstructed from
+         * proxies twice and got wrong both times. A projection sharing a Stripe
+         * second with the event that superseded it needed a tie-break rule; a
+         * projection taking `plan_provider` from a rail that was still billing
+         * needed another. Both were this field, worn as a rule.
+         */
+        public bool $authoritative,
         public ?string $providerStatus = null,
         public ?string $productId = null,
         public ?CarbonInterface $currentPeriodEnd = null,
