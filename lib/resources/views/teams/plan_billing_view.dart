@@ -541,8 +541,17 @@ class _PlanBillingViewState extends State<PlanBillingView> {
       if (!mounted) return;
 
       setState(() => _storeFundedTeam = name);
-    } catch (_) {
-      // Deliberate degradation: see the docblock above.
+    } catch (error) {
+      // Degradation stays deliberate (see the docblock above), but it stops
+      // being SILENT. This read is the only thing standing between a store
+      // purchase and transferring another team's subscription away, it fails
+      // permissive, and `_purchaseInStore` awaits it again at the moment money
+      // moves. Swallowing it left a 500 on this endpoint letting the transfer
+      // through with nothing in any log to explain it afterwards.
+      Log.error(
+        '[PlanBillingView] $_storeFundedTeamPath failed, so the '
+        'cross-team store check is permissive for this mount: $error',
+      );
     }
   }
 

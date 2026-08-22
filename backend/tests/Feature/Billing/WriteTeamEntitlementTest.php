@@ -6,6 +6,7 @@ use App\Actions\Billing\WriteTeamEntitlement;
 use App\Enums\BillingProvider;
 use App\Enums\Plan;
 use App\Enums\PlanStatus;
+use App\Http\Controllers\StripeWebhookController;
 use App\Models\Team;
 use App\Models\User;
 use App\Support\Billing\EntitlementWrite;
@@ -80,6 +81,98 @@ class WriteTeamEntitlementTest extends TestCase
         $this->assertTrue($grantedAt->equalTo($team->plan_source_event_at));
 
         $this->assertDropWasLogged($team, 'app_store', 'app_store', 'downgrade');
+    }
+
+    /**
+     * An EQUAL timestamp is not a stale delivery, and treating it as one dropped
+     * a paid upgrade.
+     *
+     * The scenario is ordinary Stripe. `created` is a Unix timestamp in SECONDS
+     * ({@see StripeWebhookController::eventAt()}), and one
+     * plan swap emits `customer.subscription.updated` and
+     * `invoice.payment_succeeded` from a single API call, routinely inside the
+     * same second, in an order Stripe does not guarantee. Delivered
+     * invoice-first, the invoice handler reads the team's not-yet-resynced
+     * Cashier price and re-affirms the OLD tier at second T; the subscription
+     * event then carries the tier the customer actually bought, stamped with the
+     * same second.
+     *
+     * Dropping it left a customer who had just paid for Business sitting on Pro
+     * until the hourly `billing:reconcile` healed it, which is the hour they are
+     * looking at the screen. The other delivery order was always correct, so the
+     * bug was invisible half the time.
+     */
+    public function test_a_same_instant_upgrade_on_the_same_rail_is_applied(): void
+    {
+        Log::spy();
+
+        $eventAt = CarbonImmutable::parse('2026-08-22 12:00:00');
+
+        $team = $this->makeTeam([
+            'plan' => Plan::Pro->value,
+            'plan_status' => PlanStatus::Active->value,
+            'plan_provider' => BillingProvider::Stripe->value,
+            'plan_source_event_at' => $eventAt,
+            'plan_product_id' => 'price_pro_monthly',
+        ]);
+
+        $applied = $this->write(new EntitlementWrite(
+            team: $team,
+            plan: Plan::Business,
+            status: PlanStatus::Active,
+            provider: BillingProvider::Stripe,
+            eventAt: $eventAt,
+            providerStatus: 'active',
+            productId: 'price_business_monthly',
+        ));
+
+        $this->assertTrue($applied);
+
+        $team->refresh();
+        $this->assertSame(Plan::Business, $team->plan);
+        $this->assertSame('price_business_monthly', $team->plan_product_id);
+    }
+
+    /**
+     * The other half of the tie-break, and the reason it is a direction test
+     * rather than a blanket "equal timestamps now win".
+     *
+     * A tie that would TAKE the tier away still loses, because this class's
+     * doctrine resolves every ambiguity toward keeping the entitlement. Without
+     * this test the fix above could have been written as "apply on equal" and
+     * passed, which would have let a same-second `customer.subscription.deleted`
+     * revoke a subscription the paired event had just confirmed.
+     */
+    public function test_a_same_instant_downgrade_on_the_same_rail_is_still_dropped(): void
+    {
+        Log::spy();
+
+        $eventAt = CarbonImmutable::parse('2026-08-22 12:00:00');
+
+        $team = $this->makeTeam([
+            'plan' => Plan::Business->value,
+            'plan_status' => PlanStatus::Active->value,
+            'plan_provider' => BillingProvider::Stripe->value,
+            'plan_source_event_at' => $eventAt,
+            'plan_product_id' => 'price_business_monthly',
+        ]);
+
+        $applied = $this->write(new EntitlementWrite(
+            team: $team,
+            plan: Plan::Free,
+            status: PlanStatus::Expired,
+            provider: BillingProvider::Stripe,
+            eventAt: $eventAt,
+            providerStatus: 'canceled',
+        ));
+
+        $this->assertFalse($applied);
+
+        $team->refresh();
+        $this->assertSame(Plan::Business, $team->plan);
+        $this->assertSame(PlanStatus::Active->value, $team->plan_status);
+
+        $this->assertDropWasLogged($team, 'stripe', 'stripe', 'downgrade');
     }
 
     /**

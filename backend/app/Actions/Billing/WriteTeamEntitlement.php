@@ -66,11 +66,35 @@ class WriteTeamEntitlement
         $storedProvider = BillingProvider::fromWire($team->plan_provider);
         $direction = $this->direction($write, $team);
 
-        // RULE 1, monotonic per rail. An event older than the one already on
+        // RULE 1, monotonic per rail. An event OLDER than the one already on
         // record from the SAME rail is a late or re-ordered delivery, and the
         // record it would overwrite was written from a fresher truth.
-        if ($storedProvider === $write->provider && ! $this->isNewerThanStored($write, $team)) {
+        if ($storedProvider === $write->provider && $this->isOlderThanStored($write, $team)) {
             $this->logDrop('stale', $write, $storedProvider, $direction);
+
+            return false;
+        }
+
+        // RULE 1b, a TIE resolves by direction rather than by arrival order.
+        // Treating an equal timestamp as stale was a real defect: Stripe's
+        // `created` is a Unix timestamp in SECONDS
+        // ({@see \App\Http\Controllers\StripeWebhookController::eventAt()}), and
+        // one plan swap emits `customer.subscription.updated` and
+        // `invoice.payment_succeeded` from a single API call inside the same
+        // second, in an order Stripe does not guarantee. Delivered
+        // invoice-first, the invoice handler re-affirms the OLD tier from a
+        // not-yet-resynced Cashier price, so the event carrying the tier the
+        // customer actually bought arrived at the same second and lost, leaving
+        // a payer on the cheaper plan until the hourly reconcile healed it.
+        //
+        // Resolving by direction rather than simply letting ties win is what
+        // keeps this consistent with rule 2 below: a tie that would TAKE the
+        // entitlement away still loses.
+        if ($storedProvider === $write->provider
+            && $this->isSameInstantAsStored($write, $team)
+            && $this->revokes($direction)
+        ) {
+            $this->logDrop('same-instant revocation', $write, $storedProvider, $direction);
 
             return false;
         }
@@ -99,23 +123,42 @@ class WriteTeamEntitlement
     }
 
     /**
-     * Whether the incoming event is STRICTLY newer than the one that wrote the
-     * stored entitlement.
-     *
-     * Strictly, not "newer or equal", because equal timestamps carry no
-     * ordering information and the safe reading of "I cannot tell which came
-     * first" is to keep what is already there. The cost is real and accepted:
-     * Stripe stamps events to the second, so two events on one customer inside
-     * the same second let only the first through.
+     * Whether the incoming event is STRICTLY older than the one that wrote the
+     * stored entitlement, which is the only case rule 1 drops outright.
      *
      * A null stored timestamp means this rail has never written here, so there
-     * is nothing for the incoming event to be newer THAN and it applies.
+     * is nothing for the incoming event to be older THAN and it applies.
+     *
+     * This used to be its own inverse, an `isNewerThanStored` whose docblock
+     * argued that "equal timestamps carry no ordering information and the safe
+     * reading is to keep what is already there", and named the cost: Stripe
+     * stamps to the second, so two events on one customer inside one second let
+     * only the first through. The reasoning was right and the conclusion was
+     * wrong, because it assumed the loser of a tie is always the one that would
+     * take something away. On the Stripe rail the loser is routinely a paid
+     * UPGRADE, so "keep what is already there" kept the customer on the tier
+     * they had just stopped paying for. A tie now goes to
+     * {@see self::isSameInstantAsStored()} and is judged by direction.
      */
-    protected function isNewerThanStored(EntitlementWrite $write, Team $team): bool
+    protected function isOlderThanStored(EntitlementWrite $write, Team $team): bool
     {
         $stored = $team->plan_source_event_at;
 
-        return $stored === null || $write->eventAt->greaterThan($stored);
+        return $stored !== null && $write->eventAt->lessThan($stored);
+    }
+
+    /**
+     * Whether the incoming event carries the SAME instant as the stored one.
+     *
+     * A tie is not evidence of late delivery; it is an absence of evidence
+     * either way, which is why the caller resolves it with the same predicate
+     * rule 2 uses instead of with arrival order.
+     */
+    protected function isSameInstantAsStored(EntitlementWrite $write, Team $team): bool
+    {
+        $stored = $team->plan_source_event_at;
+
+        return $stored !== null && $write->eventAt->equalTo($stored);
     }
 
     /**
