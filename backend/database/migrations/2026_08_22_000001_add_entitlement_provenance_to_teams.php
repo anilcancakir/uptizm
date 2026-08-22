@@ -31,11 +31,16 @@ use Illuminate\Support\Facades\Schema;
  *   NULL means unknown, which is not the same claim as false.
  * - `plan_grace_period_ends_at` carries a Stripe `past_due` window or a
  *   RevenueCat `grace_period_expiration_at_ms`.
- * - `plan_manage_url` is where the customer manages this subscription: the
- *   Stripe portal URL on the web rail, RevenueCat's own
- *   `subscriber.management_url` on a store rail. Passing the destination
- *   through rather than hardcoding an Apple or Google page means a store
- *   moving that page does not need an app release.
+ * - `plan_manage_url` is where the customer manages this subscription, and it
+ *   holds only DURABLE destinations: RevenueCat's own
+ *   `subscriber.management_url` on a store rail. Passing that through rather
+ *   than hardcoding an Apple or Google page means a store moving that page does
+ *   not need an app release. It stays NULL on the Stripe rail, because a Stripe
+ *   billing-portal URL is not a durable destination: `billingPortalUrl()` mints
+ *   a short-lived single-use session through a live API call and bakes one
+ *   `return_url` into it, so a stored copy would expire and would freeze the
+ *   page it returns to. The web rail keeps its existing `GET /billing/portal`
+ *   endpoint instead.
  *
  * Every column is nullable and there is deliberately NO backfill. Nothing has
  * ever been granted by Stripe in production, so writing `stripe` onto existing
