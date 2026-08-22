@@ -548,6 +548,173 @@ class SyncRevenueCatEntitlementTest extends TestCase
     }
 
     /**
+     * A refunded subscription is not live, whatever its dates still say.
+     *
+     * RevenueCat documents that a Google Play or RC Billing refund expires the
+     * subscription immediately, which moves `expires_date` into the past and
+     * makes this guard a no-op there. For APPLE the documentation says only that
+     * a refund is detected and tracked, not that the subscription expires, and a
+     * refund arrives as `CANCELLATION`, which the rest of this job correctly
+     * refuses to read as a revocation. Without this, a refunded annual Business
+     * tier is up to twelve months of free service.
+     */
+    public function test_a_refunded_subscription_does_not_keep_the_tier(): void
+    {
+        Log::spy();
+
+        $team = $this->makeTeam([
+            'plan' => Plan::Business->value,
+            'plan_status' => PlanStatus::Active->value,
+            'plan_provider' => BillingProvider::AppStore->value,
+            'plan_product_id' => self::APP_STORE_BUSINESS,
+        ]);
+
+        $this->fakeAuthoritativeReads([
+            $team->id => $this->subscriber([
+                self::APP_STORE_BUSINESS => $this->subscription([
+                    // The period has months to run, and the money has been given
+                    // back. The dates alone would call this live.
+                    'expires_date' => $this->periodEnd()->addMonths(6)->toIso8601ZuluString(),
+                    'refunded_at' => $this->eventAt()->toIso8601ZuluString(),
+                ]),
+            ]),
+        ]);
+
+        $this->sync($this->event('CANCELLATION', $team));
+
+        $team->refresh();
+
+        $this->assertSame(Plan::Free, $team->plan, 'A refunded subscription kept its tier.');
+        $this->assertSame(BillingProvider::AppStore->value, $team->plan_provider);
+    }
+
+    /**
+     * When the last-seen id is not a team key, ONE alias that is may stand in.
+     *
+     * `app_user_id` is documented as the last seen id, and RevenueCat instructs
+     * callers to search `original_app_user_id` and `aliases` too. A subscriber
+     * whose last-seen id is one the SDK generated (an anonymous id from before
+     * `logIn` ran) otherwise arrives malformed and is refused, which is this
+     * job's own worst failure: a paying customer left on free, unable to buy
+     * again because the store will not resell what they already own.
+     */
+    public function test_one_alias_can_stand_in_for_an_anonymous_last_seen_id(): void
+    {
+        Log::spy();
+
+        $team = $this->makeTeam([
+            'plan' => Plan::Free->value,
+            'plan_status' => PlanStatus::None->value,
+        ]);
+
+        $this->fakeAuthoritativeReads([
+            '$RCAnonymousID:8e9b21c5f1' => $this->subscriber([
+                self::APP_STORE_BUSINESS => $this->subscription(),
+            ]),
+        ]);
+
+        $this->sync($this->event('INITIAL_PURCHASE', $team, [
+            'app_user_id' => '$RCAnonymousID:8e9b21c5f1',
+            'original_app_user_id' => $team->id,
+            'aliases' => ['$RCAnonymousID:8e9b21c5f1', $team->id],
+        ]));
+
+        $team->refresh();
+
+        $this->assertSame(Plan::Business, $team->plan, 'The purchase was refused over an anonymous id.');
+        $this->assertSame(BillingProvider::AppStore->value, $team->plan_provider);
+    }
+
+    /**
+     * TWO aliases that could each be a team is not a tie to break.
+     *
+     * This app calls `identify(teamId)` on every team switch, so an owner moving
+     * between two of their own teams on one device makes both team ids aliases
+     * of a single subscriber. "The first alias that parses" would then hand one
+     * team's subscription to the other, silently, on a rail nobody has watched
+     * run. The job declines and says so instead.
+     */
+    public function test_two_candidate_aliases_are_refused_rather_than_guessed(): void
+    {
+        Log::spy();
+
+        $one = $this->makeTeam(['plan' => Plan::Free->value, 'plan_status' => PlanStatus::None->value]);
+        $two = $this->makeTeam(['plan' => Plan::Free->value, 'plan_status' => PlanStatus::None->value]);
+
+        Http::fake();
+
+        $this->sync($this->event('INITIAL_PURCHASE', $one, [
+            'app_user_id' => '$RCAnonymousID:8e9b21c5f1',
+            'aliases' => [$one->id, $two->id],
+        ]));
+
+        $one->refresh();
+        $two->refresh();
+
+        $this->assertSame(Plan::Free, $one->plan);
+        $this->assertSame(Plan::Free, $two->plan);
+
+        Log::shouldHaveReceived('warning')
+            ->withArgs(function (string $message, array $context): bool {
+                return ($context['reason'] ?? null) === 'ambiguous_aliases';
+            })
+            ->atLeast()
+            ->once();
+    }
+
+    /**
+     * A subscription from a rail this feeder does not own cannot mask the store
+     * subscription behind it.
+     *
+     * The store check used to sit on the ranked WINNER rather than on the set,
+     * and the ranking is by expiry alone. So a `promotional` grant reaching
+     * further into the future than a real App Store purchase won the ranking,
+     * was refused as an unowned store, and nothing ever looked at the purchase
+     * behind it. The customer paid, the webhook arrived, the read was correct,
+     * and the entitlement stayed on free.
+     *
+     * `promotional` is RevenueCat's own store value for a grant issued from
+     * their dashboard, so this is an ordinary support action, not an exotic
+     * state: comping a customer a month is enough to trigger it.
+     */
+    public function test_an_unowned_store_does_not_mask_the_purchase_behind_it(): void
+    {
+        Log::spy();
+
+        $team = $this->makeTeam([
+            'plan' => Plan::Free->value,
+            'plan_status' => PlanStatus::None->value,
+        ]);
+
+        $this->fakeAuthoritativeReads([
+            $team->id => $this->subscriber([
+                // Reaches furthest, so it wins the expiry ranking, and belongs to
+                // a rail this job does not feed.
+                'promo_grant' => $this->subscription([
+                    'store' => 'promotional',
+                    'expires_date' => $this->periodEnd()->addYear()->toIso8601ZuluString(),
+                ]),
+                self::APP_STORE_BUSINESS => $this->subscription([
+                    'store' => 'app_store',
+                    'expires_date' => $this->periodEnd()->toIso8601ZuluString(),
+                ]),
+            ]),
+        ]);
+
+        $this->sync($this->event('INITIAL_PURCHASE', $team));
+
+        $team->refresh();
+
+        $this->assertSame(
+            Plan::Business,
+            $team->plan,
+            'The App Store purchase was hidden behind a promotional grant with a later date.',
+        );
+        $this->assertSame(BillingProvider::AppStore->value, $team->plan_provider);
+        $this->assertSame(self::APP_STORE_BUSINESS, $team->plan_product_id);
+    }
+
+    /**
      * A well-formed app user id with no team behind it writes nothing and does
      * not fail the job.
      *

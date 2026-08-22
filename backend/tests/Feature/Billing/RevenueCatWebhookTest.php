@@ -100,7 +100,6 @@ class RevenueCatWebhookTest extends TestCase
         'SUBSCRIPTION_EXTENDED',
         'REFUND_REVERSED',
         'TRANSFER',
-        'TEMPORARY_ENTITLEMENT_GRANT',
     ];
 
     /**
@@ -113,6 +112,16 @@ class RevenueCatWebhookTest extends TestCase
     protected const array IGNORED_TYPES = [
         'TEST',
         'SUBSCRIBER_ALIAS',
+        // Moved here from the dispatched list, and not because it says nothing
+        // about entitlement: it says RevenueCat granted one for up to 24 hours
+        // because it could NOT validate with the store. The event therefore
+        // carries no subscription fields, the re-read job reads
+        // `subscriber.subscriptions` and nothing else, and an authoritative read
+        // showing nothing live is how an expiry is honoured. Dispatching it had
+        // one possible outcome and it was revoking the tier the grant existed to
+        // protect. The follow-up that IS actionable arrives either way, as an
+        // INITIAL_PURCHASE or an EXPIRATION.
+        'TEMPORARY_ENTITLEMENT_GRANT',
         'EXPERIMENT_ENROLLMENT',
         'INVOICE_ISSUANCE',
         'PURCHASE_REDEEMED',

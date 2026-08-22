@@ -18,6 +18,7 @@ use Illuminate\Foundation\Queue\Queueable as FoundationQueueable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use RuntimeException;
 
 /**
  * The store rail's feeder for the team entitlement column.
@@ -109,14 +110,18 @@ class SyncRevenueCatEntitlement implements ShouldQueue
 
     /**
      * @param  array<string, mixed>  $event  the RevenueCat webhook `event`
-     *                                       object. FOUR fields are read from it
-     *                                       and no others: `app_user_id`,
+     *                                       object. Only IDENTITY and ORDERING
+     *                                       are read from it: `app_user_id` plus
      *                                       `transferred_to`/`transferred_from`
      *                                       (which subscribers to re-read),
-     *                                       `event_timestamp_ms` (the ordering
-     *                                       key) and `type` (recorded verbatim as
-     *                                       the rail's own word). Not the tier,
-     *                                       not the product, not the period.
+     *                                       `original_app_user_id` and `aliases`
+     *                                       (a fallback when the last-seen id is
+     *                                       not a team key), `event_timestamp_ms`
+     *                                       (the ordering key) and `type`
+     *                                       (recorded verbatim as the rail's own
+     *                                       word). Not the tier, not the product,
+     *                                       not the period: those come only from
+     *                                       the authoritative read.
      */
     public function __construct(protected array $event)
     {
@@ -194,13 +199,29 @@ class SyncRevenueCatEntitlement implements ShouldQueue
     protected function resolveTeam(string $appUserId): ?Team
     {
         if (! TeamKey::looksLikeOne($appUserId)) {
-            $this->warn(
-                'malformed_app_user_id',
-                'RevenueCat named an app_user_id that cannot be a team key; entitlement left untouched.',
-                ['app_user_id' => $appUserId],
-            );
+            // `app_user_id` is documented as the LAST SEEN id, and RevenueCat
+            // instructs callers to "search both the `original_app_user_id` and
+            // the `aliases` array". A subscriber whose last-seen id is one the
+            // SDK generated (an anonymous `$RCAnonymousID:...` before `logIn`
+            // ran) therefore arrives here malformed while the team's own id sits
+            // in the aliases, and refusing it is the failure this job's own
+            // docblock calls the worst one available: a paying customer left on
+            // free, with no self-serve recovery, because the store will not
+            // resell what they already own.
+            $alias = $this->unambiguousAliasKey();
 
-            return null;
+            if ($alias === null) {
+                $this->warn(
+                    'malformed_app_user_id',
+                    'RevenueCat named an app_user_id that cannot be a team key, and no single '
+                    .'alias could stand in for it; entitlement left untouched.',
+                    ['app_user_id' => $appUserId],
+                );
+
+                return null;
+            }
+
+            $appUserId = $alias;
         }
 
         $team = Team::query()->find($appUserId);
@@ -216,6 +237,51 @@ class SyncRevenueCatEntitlement implements ShouldQueue
         }
 
         return $team;
+    }
+
+    /**
+     * The one alias on this event that could be a team key, or null when there
+     * is not exactly one.
+     *
+     * EXACTLY one, and the strictness is the whole point rather than caution.
+     * `aliases` is "all App User IDs ever used by the subscriber", and this app
+     * calls `identify(teamId)` on every team switch, so an owner who moves
+     * between two of their own teams on one device makes BOTH team ids aliases
+     * of a single subscriber. Taking "the first alias that parses" would then
+     * hand one team's subscription to the other, silently, on a rail nobody has
+     * watched run yet. Two candidates is not a tie to break, it is a question
+     * this job cannot answer, so it declines and says so.
+     *
+     * `original_app_user_id` is included as a candidate rather than preferred:
+     * it is the FIRST id the subscriber ever used, which on a team switch is the
+     * team they left.
+     */
+    protected function unambiguousAliasKey(): ?string
+    {
+        $candidates = array_merge(
+            array_filter([$this->event['original_app_user_id'] ?? null], 'is_string'),
+            array_filter((array) ($this->event['aliases'] ?? []), 'is_string'),
+        );
+
+        $keys = array_values(array_unique(array_filter(
+            array_map('trim', $candidates),
+            fn (string $id): bool => $id !== '' && TeamKey::looksLikeOne($id),
+        )));
+
+        if (count($keys) !== 1) {
+            if ($keys !== []) {
+                $this->warn(
+                    'ambiguous_aliases',
+                    'RevenueCat named several aliases that could each be a team; this job cannot '
+                    .'choose between them, so the entitlement is left untouched.',
+                    ['alias_team_keys' => $keys],
+                );
+            }
+
+            return null;
+        }
+
+        return $keys[0];
     }
 
     /**
@@ -268,10 +334,49 @@ class SyncRevenueCatEntitlement implements ShouldQueue
             return null;
         }
 
-        $ranked = $this->rankedByExpiry($dated);
+        // 3. Only the stores this feeder OWNS. A subscriber can hold a
+        //    subscription sold by a rail this job does not feed (`stripe`,
+        //    `promotional`, `amazon`), and this check used to sit on the ranked
+        //    WINNER instead of here. That let one foreign subscription reaching
+        //    furthest into the future hide every store subscription behind it:
+        //    the winner was refused as unfed, and nothing ever looked at the
+        //    rest, so a live App Store purchase went unclaimed while a
+        //    promotional grant with a later date sat in front of it.
+        $owned = array_filter(
+            $dated,
+            fn (mixed $subscription): bool => $this->providerFor(
+                is_array($subscription) ? ($subscription['store'] ?? null) : null,
+            ) instanceof BillingProvider,
+        );
+
+        if (count($owned) !== count($dated)) {
+            $this->warn(
+                'unfed_store',
+                'RevenueCat reports subscriptions from a store this feeder does not own; they are ignored.',
+                [
+                    'team_id' => $team->id,
+                    'ignored_product_ids' => array_keys(array_diff_key($dated, $owned)),
+                ],
+            );
+        }
+
+        // Everything the subscriber holds belongs to another rail. There is
+        // nothing for this feeder to claim and nothing it may revoke, because a
+        // rail may only revoke what it granted.
+        //
+        // The `$dated !== []` half is load-bearing: when the subscriber holds
+        // NOTHING at all, both arrays are empty and the walk must continue to
+        // the revocation path below, which is exactly how an EXPIRATION is
+        // honoured. Returning early on an empty `$owned` alone would silently
+        // turn every expiry into a no-op.
+        if ($owned === [] && $dated !== []) {
+            return null;
+        }
+
+        $ranked = $this->rankedByExpiry($owned);
         $live = array_filter($ranked, fn (array $subscription): bool => $this->isLive($subscription));
 
-        // 3. The subscription that decides is the live one reaching furthest
+        // 4. The subscription that decides is the live one reaching furthest
         //    into the future. Deliberately NOT "the highest tier among the live
         //    ones": ranking tiers is the write action's job, and a second
         //    definition of which tier is higher would be free to disagree with
@@ -293,19 +398,16 @@ class SyncRevenueCatEntitlement implements ShouldQueue
         string $productId,
         array $subscription,
     ): ?EntitlementWrite {
+        // The store is known to be one this feeder owns: `claimFor` filters the
+        // whole set before ranking it, so a foreign rail's subscription can no
+        // longer reach this method at all, let alone mask the ones behind it.
         $provider = $this->providerFor($subscription['store'] ?? null);
 
-        // A subscriber can hold a subscription sold by a rail this job does not
-        // feed (`stripe`, `promotional`, `amazon`). Claiming it under a store
-        // provider would let this feeder overwrite another rail's grant.
         if (! $provider instanceof BillingProvider) {
-            $this->warn(
-                'unfed_store',
-                'RevenueCat reports a store this feeder does not own; entitlement left untouched.',
-                ['team_id' => $team->id, 'store' => $subscription['store'] ?? null],
+            throw new RuntimeException(
+                'A subscription from an unowned store reached grant(); claimFor is '
+                .'supposed to have filtered it out before ranking.',
             );
-
-            return null;
         }
 
         // An unmapped product is a CONFIG gap, exactly as an unmapped Stripe
@@ -579,6 +681,27 @@ class SyncRevenueCatEntitlement implements ShouldQueue
     protected function isLive(array $subscription): bool
     {
         $now = CarbonImmutable::now();
+
+        // A refund voids the purchase, whatever the dates still say.
+        //
+        // This is a guard against ONE store's behaviour being different from the
+        // others, and it is deliberately narrow. RevenueCat documents that a
+        // Google Play or RC Billing refund "will immediately expire the
+        // subscription and remove any entitlement access", which moves
+        // `expires_date` into the past and makes this arm a no-op. For APPLE the
+        // documentation says only that a refund is detected and tracked; it does
+        // not say the subscription expires. If it does not, a refunded annual
+        // Business tier is up to twelve months of free service, and `CANCELLATION`
+        // is the event that carries a refund, which the rest of this job
+        // correctly refuses to treat as a revocation.
+        //
+        // Reading the field costs nothing where the store already handles it and
+        // closes the case where it might not. It stays unproven until a real
+        // sandbox refund runs on both stores, which is item 4 of the human-gated
+        // record.
+        if ($this->instant($subscription['refunded_at'] ?? null) !== null) {
+            return false;
+        }
 
         foreach (['expires_date', 'grace_period_expires_date'] as $field) {
             $instant = $this->instant($subscription[$field] ?? null);

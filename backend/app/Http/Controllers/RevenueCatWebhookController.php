@@ -102,12 +102,24 @@ class RevenueCatWebhookController extends Controller
      * few minutes late, when the next real event or the reconciler catches it.
      *
      * Every type here can change what a subscriber is entitled to, including the
-     * three that are easy to read as noise: `SUBSCRIPTION_EXTENDED` pushes the
-     * period end back, `REFUND_REVERSED` restores an entitlement a refund took
-     * away, and `TEMPORARY_ENTITLEMENT_GRANT` is RevenueCat entitling a customer
-     * for up to 24 hours when it could not reach the store. `TRANSFER` moves a
-     * subscription between App User IDs and therefore between TEAMS, which is
-     * why the job re-reads both sides.
+     * two that are easy to read as noise: `SUBSCRIPTION_EXTENDED` pushes the
+     * period end back and `REFUND_REVERSED` restores an entitlement a refund took
+     * away. `TRANSFER` moves a subscription between App User IDs and therefore
+     * between TEAMS, which is why the job re-reads both sides.
+     *
+     * `TEMPORARY_ENTITLEMENT_GRANT` was here and was REMOVED, and the reason is
+     * the shape of this whole design rather than a judgement about the event. It
+     * is RevenueCat entitling a customer for up to 24 hours when it could not
+     * validate with the store, so by definition there is no validated
+     * transaction, and RevenueCat documents that the event carries no
+     * subscription or identity fields beyond `app_user_id`. The job it dispatches
+     * reads `subscriber.subscriptions` and nothing else, so this event had no
+     * path that could GRANT from it and one that could REVOKE: an authoritative
+     * read showing nothing live is exactly how an expiry is honoured. Dispatching
+     * it could only ever take the tier away from the customer it was invented to
+     * protect. RevenueCat promises the follow-up worth acting on either way: a
+     * regular `INITIAL_PURCHASE` when validation succeeds, an `EXPIRATION` when
+     * it fails, and both are already here.
      *
      * Everything else RevenueCat documents is absent on purpose and says nothing
      * about entitlement: `TEST`, `SUBSCRIBER_ALIAS`, `EXPERIMENT_ENROLLMENT`,
@@ -131,7 +143,6 @@ class RevenueCatWebhookController extends Controller
         'SUBSCRIPTION_EXTENDED',
         'REFUND_REVERSED',
         'TRANSFER',
-        'TEMPORARY_ENTITLEMENT_GRANT',
     ];
 
     /**
