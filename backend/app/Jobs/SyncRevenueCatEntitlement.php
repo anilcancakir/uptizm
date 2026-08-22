@@ -195,7 +195,17 @@ class SyncRevenueCatEntitlement implements ShouldQueue
             array_filter((array) ($this->event['transferred_from'] ?? []), 'is_string'),
         );
 
-        return array_values(array_unique(array_filter($ids, fn (string $id): bool => trim($id) !== '')));
+        // TRIMMED, not merely filtered on a trimmed value. The two differ, and
+        // the difference reached a customer: `$primary` in `handle()` is built
+        // with `trim()`, so a padded `app_user_id` compared unequal to its own
+        // loop entry, the alias fallback was refused for the event's OWN
+        // subscriber, and the refusal said "transferred" about an id nothing had
+        // transferred. Trimming here also makes the id handed to `Team::find()`
+        // and the one in the subscriber URL the same string in every case.
+        return array_values(array_unique(array_filter(
+            array_map('trim', $ids),
+            fn (string $id): bool => $id !== '',
+        )));
     }
 
     /**

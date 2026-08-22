@@ -376,12 +376,19 @@ class ReconcileBillingEntitlementsTest extends TestCase
      *
      * A local Cashier row is no fresher than the delivery that wrote it, so
      * re-applying an agreeing read would stamp this run's provenance over a real
-     * event's, and the next run's identical claim would then be dropped as stale
-     * by the ordering rule. That drop is logged at warning level, so an
-     * unconditional write here would produce one warning per Stripe team per
-     * hour, forever, which is how a log stops being read. `plan_source_event_at`
-     * is what proves nothing was written: the entitlement columns would be
-     * unchanged either way.
+     * event's, once an hour, for every Stripe team, forever.
+     *
+     * The mechanism behind that used to be a drop: the claim carried the Cashier
+     * row's `updated_at`, so the next run's identical claim tied with the stamp
+     * and the ordering rule refused it, loudly, which is how a log stops being
+     * read. Since the claim is stamped `now()` it is strictly newer instead, so
+     * an unconditional write would be APPLIED silently rather than refused
+     * noisily. The cost changed shape; `agreesWithRecord()` is what prevents it
+     * either way, and this test is what pins it.
+     *
+     * `plan_source_event_at` is what proves nothing was written: the entitlement
+     * columns would be unchanged either way, which is exactly why asserting them
+     * would pass with the guard deleted.
      */
     public function test_a_stripe_rail_that_agrees_with_the_record_is_not_written(): void
     {

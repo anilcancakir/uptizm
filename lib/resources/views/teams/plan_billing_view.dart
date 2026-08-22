@@ -869,11 +869,17 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     // subscription, which is worse than the "renews Unknown" this replaced,
     // because Unknown was at least neutral.
     //
-    // `manage_via` is the discriminator the producer CAN express: it is
-    // `portal` exactly when a Stripe customer exists, so requiring `none` keeps
-    // this sentence to teams that really have no rail. Requiring it explicitly
-    // rather than "not portal" also keeps the unresolved state (`null`) out,
-    // matching how every other gate here treats it.
+    // `manage_via` is the discriminator the producer CAN express: `portal`
+    // implies a Stripe customer exists, so requiring `none` keeps this sentence
+    // to teams that really have no rail. Not the converse, and the comment used
+    // to claim it: `SubscriptionResource::manageVia()` also answers `none` for
+    // the `manual` and `none` providers whatever `hasStripeId()` says, and such
+    // a team's payment-method read DOES make the live call that can soft-fail.
+    // It reaches no wrong sentence today only because every non-granting uptizm
+    // feeder writes `Plan::Free` in the same apply, and a free plan returns
+    // above. Requiring `none` explicitly rather than "not portal" also keeps the
+    // unresolved state (`null`) out, matching how every other gate here treats
+    // it.
     final PaymentMethod? resolved = _paymentMethod;
     if (_manageVia == ManageVia.none &&
         resolved != null &&
@@ -1312,6 +1318,40 @@ class _PlanBillingViewState extends State<PlanBillingView> {
       // so only a team with no rail is told there is nothing on file; anyone
       // else is told the read failed, which is what actually happened, and keeps
       // the Update button that lets them fix it.
+      //
+      // While `manage_via` is UNRESOLVED, neither sentence is available: this
+      // read has answered and the entitlement read has not, so we do not yet
+      // know which of the two facts we are looking at. The skeleton is the only
+      // honest thing left. Both reads are dispatched together and this one is
+      // the cheaper for a customer-less team, so the window is real but small;
+      // saying "an error occurred" through it would put a false sentence on
+      // screen in a state where nothing had gone wrong.
+      if (_manageVia == null) {
+        return WDiv(
+          className: 'flex flex-row items-center gap-4',
+          children: [
+            const MSSkeleton(width: 48, height: 36),
+            const Expanded(
+              child: MSSkeleton(shape: SkeletonShape.text, height: 16),
+            ),
+            // The BUTTON stays. [_portalAvailable] is permissive while the rail
+            // is unresolved on purpose, and its docblock says why: a slow or
+            // failed read must not leave a paying customer with no way to reach
+            // their card. An earlier draft of this branch returned the skeleton
+            // alone and took the affordance away with it.
+            if (_portalAvailable)
+              MSButton(
+                intent: ButtonIntent.secondary,
+                size: ButtonSize.sm,
+                onPressed: () => _openBillingPortal(),
+                child: WText(
+                  trans('uptizm.teams.billing_payment_update_button'),
+                ),
+              ),
+          ],
+        );
+      }
+
       final bool noRail = _manageVia == ManageVia.none;
 
       return WDiv(

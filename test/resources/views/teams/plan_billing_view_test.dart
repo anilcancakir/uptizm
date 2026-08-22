@@ -172,6 +172,25 @@ class _SoftFailedPaymentBillingService extends _ReadsBillingService {
   Future<PaymentMethod> getPaymentMethod() async => const PaymentMethod();
 }
 
+/// The payment-method read answers EMPTY while the entitlement read never does.
+///
+/// Both are dispatched together on mount, and for a customer-less team the
+/// payment-method one is the cheaper (Cashier's `defaultPaymentMethod()`
+/// short-circuits on `hasStripeId()`), so this ordering is ordinary rather than
+/// contrived. A failing entitlement read makes it permanent.
+///
+/// In that window neither sentence is available: "no card on file" needs to know
+/// there is no rail, and "the read failed" needs to know one failed.
+class _UnresolvedRailBillingService extends _ReadsBillingService {
+  @override
+  Future<BillingEntitlement> currentEntitlement() async {
+    throw const BillingException('Failed to load the billing entitlement.');
+  }
+
+  @override
+  Future<PaymentMethod> getPaymentMethod() async => const PaymentMethod();
+}
+
 /// The reads PLUS the WEB rail, recording every purchase-affecting call so a
 /// test can assert an affordance was not merely hidden but never reachable.
 ///
@@ -1198,6 +1217,30 @@ void main() {
       // because the temptation on seeing it is to reach for the confident
       // sentence, which is exactly the defect the sibling test pins.
       expect(find.textContaining(trans('common.unknown')), findsOneWidget);
+    });
+  });
+
+  group('an unresolved rail claims neither sentence', () {
+    testWidgets('the payment card waits instead of picking one', (tester) async {
+      await mount(
+        tester,
+        PlanBillingView(
+          billingService: _UnresolvedRailBillingService(),
+          isOwner: true,
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+
+      // Neither is knowable yet: "no card on file" needs to know there is no
+      // rail, and "the read failed" needs to know one failed. The second sneaked
+      // in with the fix for the first, because `null` is not `ManageVia.none`
+      // and the branch keyed on the negative.
+      expect(
+        find.text(trans('uptizm.teams.billing_payment_none')),
+        findsNothing,
+      );
+      expect(find.text(trans('common.error_occurred')), findsNothing);
     });
   });
 
