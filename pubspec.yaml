@@ -38,6 +38,8 @@ dependencies:
     path: ../magic_deeplink
   magic_notifications:
     path: ../magic_notifications
+  magic_payments:
+    path: ../magic_payments
   magic_social_auth:
     path: ../magic_social_auth
   magic_starter:
@@ -77,6 +79,8 @@ dependency_overrides:
     path: ../magic_deeplink
   magic_notifications:
     path: ../magic_notifications
+  magic_payments:
+    path: ../magic_payments
   magic_social_auth:
     path: ../magic_social_auth
   magic_starter:

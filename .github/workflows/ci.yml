@@ -3,7 +3,7 @@ name: CI
 # The gate on every pull request. `bin/check` is the same thing locally; these
 # jobs exist so a green claim is a measurement rather than a report.
 #
-# The Flutter job clones the eleven fluttersdk siblings because `pubspec.yaml`
+# The Flutter job clones the twelve fluttersdk siblings because `pubspec.yaml`
 # resolves them by path (`../<pkg>`), which is how this app is developed. That
 # has one known and legitimate red: when a change here depends on a sibling API
 # that has not merged yet, the analyze step fails with "undefined". The fix is to
@@ -59,15 +59,15 @@ jobs:
           path: uptizm
 
       # `pubspec.yaml` points at ../<pkg>, so the siblings have to sit next to the
-      # checkout. All eleven are public repositories in the fluttersdk org, and the
+      # checkout. All twelve are public repositories in the fluttersdk org, and the
       # directory name is what the path override expects (artisan, dusk, telescope
       # and wind* differ from their package names).
       - name: Check out the fluttersdk siblings
         run: |
           set -euo pipefail
           for repo in magic magic_deeplink magic_devtools magic_notifications \
-                      magic_social_auth magic_starter artisan dusk telescope \
-                      wind wind_diagnostics_contracts; do
+                      magic_payments magic_social_auth magic_starter artisan \
+                      dusk telescope wind wind_diagnostics_contracts; do
             git clone --depth 1 "https://github.com/fluttersdk/$repo.git" "$repo"
           done
 

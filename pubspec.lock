@@ -226,7 +226,7 @@ packages:
     source: hosted
     version: "7.0.1"
   file_picker:
-    dependency: transitive
+    dependency: "direct overridden"
     description:
       name: file_picker
       sha256: f13a03000d942e476bc1ff0a736d2e9de711d2f89a95cd4c1d88f861c3348387
@@ -724,6 +724,13 @@ packages:
       relative: true
     source: path
     version: "0.0.3"
+  magic_payments:
+    dependency: "direct main"
+    description:
+      path: "../magic_payments"
+      relative: true
+    source: path
+    version: "0.0.1"
   magic_social_auth:
     dependency: "direct main"
     description:

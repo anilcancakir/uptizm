@@ -44,4 +44,4 @@ Applies to `lib/` and `test/`. Token and component mechanics live in `.github/in
 
 ## When the framework itself is wrong
 
-The eleven `fluttersdk` packages under `../` are the dependency, and a defect in one is often the real cause. Read their source freely. Fixing one is a PR in that repository under its own rules, and until it merges this app still builds from the local working tree, so a green local run can hide an API that no published version has yet.
+The twelve `fluttersdk` packages under `../` are the dependency, and a defect in one is often the real cause. Read their source freely. Fixing one is a PR in that repository under its own rules, and until it merges this app still builds from the local working tree, so a green local run can hide an API that no published version has yet.

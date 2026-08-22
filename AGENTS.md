@@ -15,7 +15,7 @@ Uptizm is an uptime, incident, and status-page monitoring product: periodic chec
 
 Several agents work this repo at the same time, so isolation is the default and `master` is never written directly.
 
-- Create the worktree BESIDE the repo, not inside it: `git worktree add ../uptizm-<slug> -b feature/<slug>`. The eleven sibling packages are declared as `path: ../<pkg>`, so from a nested `.claude/worktrees/<slug>` they resolve to a directory that does not exist, and `flutter analyze` reports eight `path_does_not_exist` warnings that no override file can silence. `bin/check` refuses to run in the wrong layout and tells you this.
+- Create the worktree BESIDE the repo, not inside it: `git worktree add ../uptizm-<slug> -b feature/<slug>`. The twelve sibling packages are declared as `path: ../<pkg>`, so from a nested `.claude/worktrees/<slug>` they resolve to a directory that does not exist, and `flutter analyze` reports a `path_does_not_exist` warning per path dependency that no override file can silence. `bin/check` refuses to run in the wrong layout and tells you this.
 - `bin/check` then copies the gitignored files a worktree needs from the main checkout. Run `(cd backend && composer install)` yourself: a branch that touches `composer.lock` has to be tested against its own vendor tree.
 - Land the work as a PR against `master`, and let CI be the evidence rather than a local run. Five checks are required (`Instruction mirrors`, the Flutter suite, the backend suite once per engine, and the worker job) and a review thread has to be resolved before a merge; force-pushing and deleting `master` are refused. A sixth job, `Design tokens`, reports without blocking.
 - Deploying is never automatic, but it is no longer forbidden. `deploy/README.md` is the procedure, and an agent may run it **when the user asks for that deploy**. Asking is the whole gate: not because a PR merged, not as the tail end of "ship it", not to finish a task that felt incomplete. Production carries live customer monitoring, so a deploy nobody requested is an outage nobody expected. When you do run one, follow the order in that file (server, then edge), verify each step rather than assuming it, and say plainly what you changed on the box.
@@ -36,7 +36,7 @@ The Flutter client is `flutter run -d chrome`, and `.env` has to stay a bundled 
 
 - Generated files are regenerated, never edited: `lib/config/wind_theme.g.dart` (`design:sync`), `lib/preview/_previews.g.dart` (`previews:refresh`), `lib/app/commands/_index.g.dart` (`commands:refresh`), `.artisan/plugins.json`, and everything `bin/sync-instructions` writes under `.github/`.
 - `backend/vendor/`, `build/`, `.dart_tool/`.
-- The eleven `fluttersdk` packages under `../` are separate public repositories. Reading them to understand behavior is expected and encouraged; changing one is a PR in that repo under its own rules, never an edit from here. `design:sync`, `design:lint`, `make:component`, and `previews:refresh` are `magic`'s commands, not this project's.
+- The twelve `fluttersdk` packages under `../` are separate public repositories. Reading them to understand behavior is expected and encouraged; changing one is a PR in that repo under its own rules, never an edit from here. `design:sync`, `design:lint`, `make:component`, and `previews:refresh` are `magic`'s commands, not this project's.
 - Secrets never enter the repo. This repository is public: `.env.production` holds only values that ship to every browser anyway, and server credentials live on the box.
 
 ## Mirroring the boilerplate
