@@ -179,6 +179,52 @@ class WriteTeamEntitlementTest extends TestCase
     }
 
     /**
+     * The third case in the tie-break, and the one the direction test could not
+     * see: a same-instant revocation that keeps the TIER and drops the STATUS.
+     *
+     * `revokes()` ranks two tiers, so Business/Active against Business/Expired
+     * ranks as SAME and applied. The two tests above pin the tier axis and both
+     * pass with this hole open, because neither of them varies the status while
+     * holding the tier still. Stripe stamps `created` to the second, so a plan
+     * swap and a cancellation emitted from one API call genuinely can share a
+     * timestamp, and the losing coin flip took access from a payer.
+     */
+    public function test_a_same_instant_status_only_revocation_on_the_same_rail_is_dropped(): void
+    {
+        Log::spy();
+
+        $eventAt = CarbonImmutable::parse('2026-08-22 12:00:00');
+
+        $team = $this->makeTeam([
+            'plan' => Plan::Business->value,
+            'plan_status' => PlanStatus::Active->value,
+            'plan_provider' => BillingProvider::Stripe->value,
+            'plan_source_event_at' => $eventAt,
+            'plan_product_id' => 'price_business_monthly',
+        ]);
+
+        $applied = $this->write(new EntitlementWrite(
+            team: $team,
+            // The SAME tier: only the status moves, which is what makes this
+            // invisible to a direction test.
+            plan: Plan::Business,
+            status: PlanStatus::Expired,
+            provider: BillingProvider::Stripe,
+            eventAt: $eventAt,
+            authoritative: true,
+            providerStatus: 'canceled',
+        ));
+
+        $this->assertFalse($applied);
+
+        $team->refresh();
+        $this->assertSame(Plan::Business, $team->plan);
+        $this->assertSame(PlanStatus::Active->value, $team->plan_status);
+
+        $this->assertDropWasLogged($team, 'stripe', 'stripe', 'same');
+    }
+
+    /**
      * RULE 2, a rail may only revoke what it granted: a downgrade arriving from
      * a rail OTHER than the one on record is dropped.
      *

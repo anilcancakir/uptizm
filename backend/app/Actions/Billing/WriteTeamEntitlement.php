@@ -88,12 +88,16 @@ class WriteTeamEntitlement
         // customer actually bought arrived at the same second and lost, leaving
         // a payer on the cheaper plan until the hourly reconcile healed it.
         //
-        // Resolving by direction rather than simply letting ties win is what
-        // keeps this consistent with rule 2 below: a tie that would TAKE the
-        // entitlement away still loses.
+        // Resolving by what the write would DO rather than simply letting ties
+        // win is what keeps this consistent with rule 2 below: a tie that would
+        // TAKE the entitlement away still loses. "Away" is not only a lower
+        // tier, and reading it that way left half the promise unkept. The pair
+        // above can also agree on the tier and disagree about whether it still
+        // grants, which ranks as SAME, so the cancelling half landed and a payer
+        // lost access on a coin flip.
         if ($storedProvider === $write->provider
             && $this->isSameInstantAsStored($write, $team)
-            && $this->revokes($direction)
+            && $this->takesAccessAway($direction, $write, $team)
         ) {
             $this->logDrop('same-instant revocation', $write, $storedProvider, $direction);
 
@@ -268,6 +272,32 @@ class WriteTeamEntitlement
             self::DIRECTION_DOWNGRADE, self::DIRECTION_UNKNOWN => true,
             self::DIRECTION_UPGRADE, self::DIRECTION_SAME => false,
         };
+    }
+
+    /**
+     * Whether a write would leave the team holding LESS access than it has now.
+     *
+     * A tier can be taken away through either of two columns, and {@see
+     * revokes()} only reads one of them. The Stripe pair described at rule 1b
+     * shares a second, and a pair that keeps the tier while disagreeing about
+     * whether it still grants ranks as SAME: the tie-break let the cancelling
+     * half land, so the promise that a tie which would take the entitlement away
+     * still loses held for a downgrade and not for a cancellation. Access is
+     * what is being arbitrated, so the tie-break asks about access.
+     *
+     * Deliberately NOT folded into `revokes()`, which rule 2 also uses. Rule 2
+     * asks whether a rail may revoke what ANOTHER rail granted, and a cross-rail
+     * status change is already answered there by rule 2b's standing test.
+     * Widening the shared predicate would move rule 2's behaviour as a side
+     * effect of fixing rule 1b's.
+     */
+    protected function takesAccessAway(string $direction, EntitlementWrite $write, Team $team): bool
+    {
+        if ($this->revokes($direction)) {
+            return true;
+        }
+
+        return ! $write->status->grants() && $this->storedStatusStillGrants($team);
     }
 
     /**
