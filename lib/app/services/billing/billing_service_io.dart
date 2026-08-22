@@ -16,10 +16,18 @@ import 'billing_service.dart';
 class BillingServiceIo implements BillingService {
   const BillingServiceIo();
 
+  /// Shown when a purchase-affecting action is attempted on a store platform.
+  ///
+  /// It deliberately names no other purchase method. The clause "manage your
+  /// subscription on the web" used to end this sentence, and on iOS that is a
+  /// user who tapped Upgrade being pointed at an outside payment method, which
+  /// App Review Guideline 3.1.3(a) forbids. Saying only what is true here costs
+  /// nothing and removes the whole class of problem: an app may state that a
+  /// feature is unavailable, it may not route the customer around IAP.
   static const String _deferredMessage =
       'In-app purchases are not yet available on this platform. Store '
       'billing (StoreKit on iOS, Google Play Billing on Android) is planned '
-      'but not implemented; manage your subscription on the web.';
+      'but not implemented.';
 
   @override
   Future<BillingCheckoutSession> checkout({

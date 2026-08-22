@@ -2,6 +2,8 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../enums/ai_level.dart' show AiLevel;
+import '../enums/billing_provider.dart' show BillingProvider;
+import '../enums/manage_via.dart' show ManageVia;
 import '../services/billing/billing_service.dart';
 import '../support/billing_types.dart' show Plan, PlanLimits;
 import '../support/team_types.dart' show UsageStat;
@@ -15,6 +17,12 @@ import '../support/team_types.dart' show UsageStat;
 /// `minCheckIntervalSec`, `aiLevelAllows`, `canUsePrivatePages`,
 /// `canAddResponder`, ...) that views consult to disable or nudge an action
 /// BEFORE the user hits the backend's hard 422/403.
+///
+/// The same `GET /billing` read also carries the rail-neutral subscription
+/// facts ([provider], [manageVia], [renews], [currentPeriodEnd]), republished
+/// here so a billing surface reads them off this controller instead of issuing
+/// a second entitlement fetch. They describe the subscription; they gate
+/// nothing.
 ///
 /// Until the fetch resolves the gates are PERMISSIVE (nothing is client-gated):
 /// the backend is the true enforcer, so an optimistic pre-load gate never lets
@@ -64,6 +72,20 @@ class EntitlementController extends MagicController
   /// must treat null as "no allowance to display" rather than "none left".
   int? _aiAnalysisTrialsRemaining;
 
+  /// The rail-neutral subscription facts from the same `GET /billing` read as
+  /// [_planId]: who bills the team, where the subscription is managed, whether
+  /// it rolls over, and until when.
+  ///
+  /// The two enums start on their `none` case (the same landing place their
+  /// `*FromWire()` decoders use for a word this build cannot name) and the two
+  /// nullables start null, so the pre-load state states no rail rather than
+  /// guessing one. None of the four gates anything; a view pairs them with
+  /// [isLoaded] before treating `none` as an answer.
+  BillingProvider _provider = BillingProvider.none;
+  ManageVia _manageVia = ManageVia.none;
+  bool? _renews;
+  DateTime? _currentPeriodEnd;
+
   /// Guards the one-shot initial load kicked off by [instance].
   bool _loadStarted = false;
 
@@ -83,14 +105,15 @@ class EntitlementController extends MagicController
     return reload();
   }
 
-  /// Drops the previous session's plan, catalog, usage, and AI allowance,
-  /// publishes the cleared (permissive) state, then refetches the entitlement
-  /// of the identity that is now authenticated.
+  /// Drops the previous session's plan, catalog, usage, AI allowance, and
+  /// subscription rail, publishes the cleared (permissive) state, then refetches
+  /// the entitlement of the identity that is now authenticated.
   ///
   /// Clears BEFORE refetching (see [SessionScopedController]): each [reload]
   /// leg keeps its last-known-good value on failure, so a failed refetch across
   /// an identity change would otherwise gate the new team by the previous
-  /// team's plan. The cleared state is the permissive [_loadingLimits] one, so
+  /// team's plan, and offer it the management surface of the previous team's
+  /// purchase. The cleared state is the permissive [_loadingLimits] one, so
   /// nothing is wrongly locked while the new plan is in flight. [_loadStarted]
   /// is re-armed as part of the reset and immediately claimed again by
   /// [_ensureLoading], so the awaited refetch IS the new session's one-shot
@@ -105,6 +128,10 @@ class EntitlementController extends MagicController
     _usage = const [];
     _loaded = false;
     _aiAnalysisTrialsRemaining = null;
+    _provider = BillingProvider.none;
+    _manageVia = ManageVia.none;
+    _renews = null;
+    _currentPeriodEnd = null;
     _loadStarted = false;
     refreshUI();
 
@@ -126,9 +153,19 @@ class EntitlementController extends MagicController
         _planId = entitlement.plan;
       }
       _aiAnalysisTrialsRemaining = entitlement.aiAnalysisTrialsRemaining;
+      // Published unconditionally, unlike [_planId]: `none` and null are real
+      // readings here (a team whose subscription ended IS billed by nobody), so
+      // keeping the previous value on a successful read would strand the view
+      // on a rail the backend has stopped reporting.
+      _provider = entitlement.provider;
+      _manageVia = entitlement.manageVia;
+      _renews = entitlement.renews;
+      _currentPeriodEnd = entitlement.currentPeriodEnd;
     } catch (error) {
       // Deliberate degradation: a transport failure leaves the last-known plan
-      // (or the permissive pre-load default) so gating never crashes a view.
+      // and rail (or the permissive pre-load default) so gating never crashes a
+      // view. Every assignment above sits inside the try for that reason: a
+      // partial write would publish half of one read next to half of another.
       Log.error('[EntitlementController._reloadEntitlement] $error');
     }
   }
@@ -176,6 +213,41 @@ class EntitlementController extends MagicController
 
   /// Whether the real entitlement has finished loading at least once.
   bool get isLoaded => _loaded;
+
+  // ---------------------------------------------------------------------------
+  // Subscription rail (from GET /billing, alongside the plan id)
+  // ---------------------------------------------------------------------------
+
+  /// Which rail granted the current entitlement, or [BillingProvider.none]
+  /// before the first load resolves and for a team no rail has ever charged.
+  ///
+  /// Published as the enum itself rather than as a derived convenience (an
+  /// `isStoreRail`, say): the enum already answers the question, and a second
+  /// definition of one predicate is how two answers start disagreeing. A view
+  /// that needs the store/card distinction matches the cases it cares about.
+  BillingProvider get provider => _provider;
+
+  /// Where the customer manages this subscription, as the SERVER computed it
+  /// from the rail, or [ManageVia.none] before the first load resolves.
+  ///
+  /// A function of the rail and not of the running platform: a subscription
+  /// bought on an iPhone stays managed in the App Store when the customer opens
+  /// the web app, so a view branches on this and never on `kIsWeb`. The
+  /// destination that pairs with a store surface arrives as the entitlement's
+  /// `manageUrl`, which this controller does not republish.
+  ManageVia get manageVia => _manageVia;
+
+  /// Whether the subscription rolls over at [currentPeriodEnd], or `null` when
+  /// no rail has said (including before the first load).
+  ///
+  /// Null is not `false`: "nobody reported a renewal" and "this will not renew"
+  /// are different sentences, and only the second one may tell a customer their
+  /// plan is ending.
+  bool? get renews => _renews;
+
+  /// When the current paid period ends, whether or not it renews, or `null`
+  /// when no rail has reported one (including before the first load).
+  DateTime? get currentPeriodEnd => _currentPeriodEnd;
 
   // ---------------------------------------------------------------------------
   // Usage (from GET /billing/usage; fixed order monitors, responders, checks)

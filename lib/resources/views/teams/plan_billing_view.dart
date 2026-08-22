@@ -8,6 +8,9 @@ import '../../../app/support/formatters.dart' show formatCount;
 import '../../../app/support/team_types.dart'
     show Invoice, PaymentMethod, UsageStat;
 import '../../../app/enums/invoice_status.dart' show InvoiceStatus;
+import '../../../app/enums/manage_via.dart' show ManageVia;
+import '../../../app/models/team.dart' show Team;
+import '../../../app/models/user.dart' show User;
 import '../../../app/services/billing/billing_service.dart';
 import '../../../ui/components/usage_meter/usage_meter.dart';
 
@@ -54,7 +57,9 @@ enum BillingCycle {
 ///   that opens the Stripe billing portal via [BillingService.openPortal].
 ///   Fetched independently of the rest of the screen (the only Stripe-live
 ///   read, soft-failing server-side to an all-null payload), so it carries
-///   its own loading/error state and never blocks the rest of the screen.
+///   its own loading/error state and never blocks the rest of the screen. On a
+///   store rail this whole section is replaced by the store-managed statement
+///   (see below); there is no Stripe card to show.
 /// - **Billing history card**: one row per fetched [Invoice]: date + number, a
 ///   token-tinted [InvoiceStatus] pill (a `WDiv` + `WText` mapping
 ///   paid -> up-soft, pending -> degraded-soft, failed -> down-soft with `dark:`
@@ -70,6 +75,31 @@ enum BillingCycle {
 /// state (empty before the first successful fetch) on failure instead of
 /// throwing out of `initState`.
 ///
+/// ### The two axes that gate every affordance
+///
+/// **The rail, never the running platform.** Which management surface this
+/// screen offers comes from the entitlement's [BillingEntitlement.manageVia],
+/// computed server-side from the rail. The two are independent: a subscription
+/// bought on an iPhone is still managed in the App Store when its owner opens
+/// the web app, so a branch on the RUNNING platform (the web compilation flag,
+/// a `dart:io` host check, the framework's target-platform value) would offer
+/// the wrong surface to a real customer, and the step that introduced this gate
+/// pins that with a grep. [ManageVia.portal] keeps the three Stripe-portal
+/// affordances (the payment-method "Update" in both its states, and every
+/// invoice "Receipt"); the two store rails replace the payment-method section
+/// with a statement naming the store, plus a link to the server-passed
+/// [BillingEntitlement.manageUrl] when there is one; [ManageVia.none] offers
+/// none of them, because `GET /billing/portal` answers 409
+/// `no_billing_account` for exactly the teams the server reports as `none`, so
+/// the button would be a dead end rather than an action.
+///
+/// **The owner, for anything that spends money.** The four billing write
+/// routes are the team owner's server-side, so a member sees the plan grid
+/// read-only with an owner-only notice instead of a purchase CTA it would take
+/// a 403 to discover. The gate is tri-state on purpose (see [_isOwner]): only
+/// a KNOWN non-owner loses the CTA, since an unresolved membership must not
+/// stand between an owner and paying.
+///
 /// ### Example
 /// ```dart
 /// MagicRoute.page('/teams/billing', () => const PlanBillingView());
@@ -79,12 +109,21 @@ class PlanBillingView extends StatefulWidget {
   /// Creates the [PlanBillingView].
   ///
   /// [billingService] overrides [BillingService.instance] for tests; omit it
-  /// in production to get the platform-resolved singleton.
-  const PlanBillingView({super.key, this.billingService});
+  /// in production to get the platform-resolved singleton. [isOwner] overrides
+  /// the resolved team membership, likewise for tests.
+  const PlanBillingView({super.key, this.billingService, this.isOwner});
 
   /// Injectable [BillingService], overriding [BillingService.instance].
   @visibleForTesting
   final BillingService? billingService;
+
+  /// Injectable team ownership, overriding the resolution in [_isOwner].
+  ///
+  /// A widget test mounts this screen without an auth container, where
+  /// membership is genuinely unresolvable, so the owner gate needs a seam to be
+  /// testable at all. `null` (the production value) means "resolve it".
+  @visibleForTesting
+  final bool? isOwner;
 
   @override
   State<PlanBillingView> createState() => _PlanBillingViewState();
@@ -102,6 +141,13 @@ class _PlanBillingViewState extends State<PlanBillingView> {
 
   /// The sparkle glyph rendered on the AI hero tile.
   static const IconData _sparkleIcon = Icons.auto_awesome;
+
+  /// The glyph rendered on the store-managed and owner-only statements.
+  static const IconData _infoIcon = Icons.info_outline;
+
+  /// The membership role [Team.userRole] carries for a team's owner, as
+  /// `TeamResource::resolveUserRole()` emits it.
+  static const String _ownerRole = 'owner';
 
   /// The route the back affordance returns to.
   static const String _backFallback = '/';
@@ -143,6 +189,22 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// Whether the live entitlement read resolved, so [_currentPlanId] is the
   /// team's real plan rather than the seeded fixture id.
   bool _entitlementLoaded = false;
+
+  /// The management surface the server computed from the rail, or `null` while
+  /// no `GET /billing` read has resolved one.
+  ///
+  /// `null` is not [ManageVia.none]: one means "no rail has answered yet" and
+  /// the other means "the rail answered, and there is nowhere to send you".
+  /// Every gate below treats the unresolved state permissively, matching
+  /// `EntitlementController`'s permissive-until-loaded default: a screen that
+  /// hid its own management affordances for the duration of one fetch would
+  /// flicker them in, and a slow or failed read would leave a paying customer
+  /// with no way to reach their card.
+  ManageVia? _manageVia;
+
+  /// The store-management destination the server passed through from the rail,
+  /// or `null` when the rail reported none (which is always, on Stripe).
+  String? _manageUrl;
 
   /// Whether this mount has already acted on a `?upgrade=<plan>` deep link, so
   /// a second resolving fetch cannot reopen checkout.
@@ -187,6 +249,69 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     return _findPlan(planId);
   }
 
+  // ---------------------------------------------------------------------------
+  // The two gates: the rail, and the owner
+  // ---------------------------------------------------------------------------
+
+  /// Whether a store owns this subscription, so the store owns its management
+  /// too and nothing here may offer a competing purchase or a Stripe surface.
+  bool get _storeManaged =>
+      _manageVia == ManageVia.appStore || _manageVia == ManageVia.playStore;
+
+  /// Whether the Stripe billing portal is a surface this caller can reach.
+  ///
+  /// True while [_manageVia] is unresolved (see its docblock), false on
+  /// [ManageVia.none] because the portal endpoint refuses a team with no
+  /// billing account, and false on both store rails.
+  ///
+  /// A known non-owner loses it too: `GET /billing/portal` resolves its team
+  /// through the same owner check as the three other write routes, so a
+  /// member's "Update" and "Receipt" buttons are 403s waiting to happen rather
+  /// than actions. The rail decides WHERE management lives; the membership
+  /// decides WHETHER this caller may go there.
+  bool get _portalAvailable =>
+      (_manageVia == null || _manageVia == ManageVia.portal) &&
+      _isOwner != false;
+
+  /// Whether the signed-in user owns the current team, or `null` when that is
+  /// genuinely unresolved.
+  ///
+  /// Tri-state rather than a bool, because the two negative answers lead
+  /// somewhere different: a KNOWN non-owner is told the owner handles billing,
+  /// while an UNRESOLVED membership must not stand between an owner and paying
+  /// us. The auth read is guarded behind the container binding, mirroring
+  /// `LocalePromptBanner.shouldShow`: the running app always binds `auth`, but
+  /// a widget test mounting this screen without one must not crash on the
+  /// probe, and "no auth container" is unresolved rather than "not the owner".
+  ///
+  /// `user_role` is preferred over the owner-id comparison because it is the
+  /// caller's OWN membership as the server resolved it, which is the same
+  /// question the server's `BillingPolicy` answers; the `owner_id` comparison
+  /// is the fallback for a payload that carried no role.
+  bool? get _isOwner {
+    final bool? injected = widget.isOwner;
+    if (injected != null) return injected;
+
+    if (!Magic.bound('auth') || !Auth.check()) return null;
+
+    final Team? team = User.current.currentTeam;
+    if (team == null) return null;
+
+    final String? role = team.userRole;
+    if (role != null) return role == _ownerRole;
+
+    return team.ownerId == null ? null : team.isOwner;
+  }
+
+  /// Whether this screen may offer to start or change a paid plan.
+  ///
+  /// Two independent refusals: a store already charging this team (a second
+  /// rail must not open a parallel subscription, which `POST /billing/checkout`
+  /// also refuses with a 409), and a member who is not the owner (which the
+  /// four write routes refuse with a 403). Both are affordances rather than
+  /// enforcement; the server still decides.
+  bool get _canPurchase => !_storeManaged && _isOwner != false;
+
   @override
   void initState() {
     super.initState();
@@ -206,17 +331,27 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// failure never crashes this screen. It also never fabricates a guessed
   /// plan id; the current-plan card and every plan-card CTA simply stay in
   /// their unresolved state until a retry succeeds.
+  ///
+  /// [_manageVia] and [_manageUrl] are republished whether or not the payload
+  /// names a plan, because the rail is a separate fact from the tier: a team
+  /// whose `plan` is absent can still be billed through a store, and gating the
+  /// rail behind a non-null plan would have left it unresolved for exactly the
+  /// teams whose management surface is hardest to guess.
   Future<void> _loadEntitlement() async {
     try {
       final BillingEntitlement entitlement = await _billing
           .currentEntitlement();
+      if (!mounted) return;
       final String? plan = entitlement.plan;
-      if (plan == null || !mounted) return;
       setState(() {
-        _currentPlanId = plan;
-        _entitlementLoaded = true;
+        _manageVia = entitlement.manageVia;
+        _manageUrl = entitlement.manageUrl;
+        if (plan != null) {
+          _currentPlanId = plan;
+          _entitlementLoaded = true;
+        }
       });
-      _startRequestedUpgrade();
+      if (plan != null) _startRequestedUpgrade();
     } catch (_) {
       // Deliberate degradation: keeps the fixture plan id as last-known
       // state (see the docblock above) instead of throwing.
@@ -256,6 +391,11 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   void _startRequestedUpgrade() {
     if (_upgradeRequestHandled) return;
     if (_plans.isEmpty || !_entitlementLoaded) return;
+    // The same gate the CTA renders behind. A deep link is the one path that
+    // can reach checkout without a tap, so a store-billed team or a non-owner
+    // arriving on `?upgrade=business` would otherwise be handed a purchase the
+    // server is about to refuse.
+    if (!_canPurchase) return;
 
     final Map<String, String> query = MagicRouter.instance.queryParameters;
     final String? requested = query[PlanUpgradeRequirement.planQueryKey];
@@ -459,10 +599,16 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// Builds the tier-comparison section: a centered heading + cycle toggle,
   /// then a responsive grid of one plan card per fetched plan (a loading
   /// skeleton grid while [_plans] is still empty).
+  ///
+  /// A known non-owner gets one notice here rather than the same sentence
+  /// repeated on every card: the grid stays fully readable (comparing tiers is
+  /// not a write), it just stops offering to buy.
   Widget _buildPlansSection() {
     return WDiv(
       className: 'flex flex-col gap-5',
       children: [
+        if (_isOwner == false)
+          _buildStatementTile(trans('uptizm.teams.billing_owner_only_notice')),
         WDiv(
           className: 'flex flex-col items-center gap-2 text-center',
           children: [
@@ -583,19 +729,28 @@ class _PlanBillingViewState extends State<PlanBillingView> {
           WText(plan.responderAddOn!, className: 'text-xs text-fg-muted'),
         // 6. CTA. A block column stretches the button full-width without a
         //    flex-row w-full (MUST NOT). Current plan is disabled.
-        WDiv(
-          className: 'flex flex-col pt-1',
-          children: [
-            MSButton(
-              intent: (isCurrent || !plan.recommended)
-                  ? ButtonIntent.secondary
-                  : ButtonIntent.primary,
-              disabled: isCurrent,
-              onPressed: isCurrent ? null : () => _selectPlan(plan),
-              child: WText(_ctaLabel(plan)),
-            ),
-          ],
-        ),
+        //
+        //    Rendered for three different reasons, and only one of them is a
+        //    purchase: the active tier's disabled "Current plan" label (a
+        //    read-out, and the only marker of which card is theirs once the
+        //    grid stops offering to buy), the custom tier's sales handoff
+        //    (driven by the GRID, since `teams.plan` can never hold
+        //    `enterprise`, so it survives both gates), and an actual purchase,
+        //    which needs the rail and the membership to allow it.
+        if (isCurrent || isCustom || _canPurchase)
+          WDiv(
+            className: 'flex flex-col pt-1',
+            children: [
+              MSButton(
+                intent: (isCurrent || !plan.recommended)
+                    ? ButtonIntent.secondary
+                    : ButtonIntent.primary,
+                disabled: isCurrent,
+                onPressed: isCurrent ? null : () => _selectPlan(plan),
+                child: WText(_ctaLabel(plan)),
+              ),
+            ],
+          ),
       ],
     );
   }
@@ -614,7 +769,14 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// all-null [PaymentMethod], whether from a genuine "no card on file" or
   /// the endpoint's own Stripe-outage degradation) renders as an
   /// empty/updatable state instead of crashing.
+  ///
+  /// On a store rail the section is replaced wholesale by
+  /// [_buildStoreManagedSection]: there is no Stripe card behind a store
+  /// subscription, so a "Payment method" card would be describing an object
+  /// that does not exist.
   Widget _buildPaymentMethodSection() {
+    if (_storeManaged) return _buildStoreManagedSection();
+
     return WDiv(
       className: 'flex flex-col gap-3',
       children: [
@@ -624,6 +786,115 @@ class _PlanBillingViewState extends State<PlanBillingView> {
         ),
         MSCard(child: _buildPaymentMethodContent()),
       ],
+    );
+  }
+
+  /// Builds the store-managed section: a heading, the statement naming the
+  /// store that sold this subscription, and either a link to the
+  /// server-supplied [BillingEntitlement.manageUrl] or, when the rail reported
+  /// none, the sentence telling the customer where to look instead.
+  ///
+  /// A null [_manageUrl] deliberately renders NO button, not a disabled one: a
+  /// disabled button invites a tap and explains nothing, while the sentence
+  /// answers the question the tap would have asked. The URL itself comes from
+  /// the rail rather than from a hardcoded Apple or Google address, so a store
+  /// moving its subscriptions page does not need an app release.
+  Widget _buildStoreManagedSection() {
+    final String? manageUrl = _manageUrl;
+
+    return WDiv(
+      className: 'flex flex-col gap-3',
+      children: [
+        WText(
+          trans('uptizm.teams.billing_manage_header'),
+          className: 'text-sm font-semibold text-fg',
+        ),
+        MSCard(
+          child: WDiv(
+            className: 'flex flex-col gap-3',
+            children: [
+              _buildStatementTile(_storeStatement()),
+              if (manageUrl != null && manageUrl.isNotEmpty)
+                WDiv(
+                  className: 'flex flex-col',
+                  children: [
+                    MSButton(
+                      intent: ButtonIntent.secondary,
+                      size: ButtonSize.sm,
+                      onPressed: () => _openStoreManagement(manageUrl),
+                      child: WText(
+                        trans('uptizm.teams.billing_manage_store_button'),
+                      ),
+                    ),
+                  ],
+                )
+              else
+                WText(
+                  trans('uptizm.teams.billing_manage_store_no_url'),
+                  className: 'text-xs text-fg-muted',
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The statement naming the store that sold the active subscription.
+  ///
+  /// Exhaustive over [ManageVia] with no `default`, so adding a fifth rail is a
+  /// compile error here rather than a screen that silently names the wrong
+  /// store. The two non-store cases are unreachable (this is only called from
+  /// [_buildStoreManagedSection], behind [_storeManaged]) and fall back to the
+  /// generic "look in your store account" sentence rather than inventing a
+  /// vendor.
+  String _storeStatement() {
+    return switch (_manageVia) {
+      ManageVia.appStore => trans('uptizm.teams.billing_manage_app_store_text'),
+      ManageVia.playStore => trans(
+        'uptizm.teams.billing_manage_play_store_text',
+      ),
+      ManageVia.portal ||
+      ManageVia.none ||
+      null => trans('uptizm.teams.billing_manage_store_no_url'),
+    };
+  }
+
+  /// Builds the soft-tinted informational tile the store statement and the
+  /// owner-only notice share.
+  ///
+  /// A [WDiv] + [WIcon] + [WText] on the `info` status family, mirroring the
+  /// AI hero tile in [_buildPlanCard]; every token carries its `dark:` pair
+  /// through `uptizmStatusAliases`. There is no registry component for a
+  /// one-line notice (checked `docs/component-registry.md`: it has EmptyState
+  /// and ErrorState, both of which want a title, a glyph and an action).
+  Widget _buildStatementTile(String statement) {
+    return WDiv(
+      className:
+          'flex flex-row items-start gap-2 rounded-md '
+          'bg-info-soft p-2.5',
+      children: [
+        WIcon(_infoIcon, className: 'text-sm text-info'),
+        WText(
+          statement,
+          className: 'flex-1 text-xs leading-relaxed text-info-soft-foreground',
+        ),
+      ],
+    );
+  }
+
+  /// Opens the store's own subscription-management page.
+  ///
+  /// [Launch.url] answers false rather than throwing when nothing can handle
+  /// the URL, so a failure surfaces the same sentence the null-URL branch
+  /// renders: the customer still learns where to go.
+  Future<void> _openStoreManagement(String manageUrl) async {
+    final bool opened = await Launch.url(manageUrl);
+    if (opened) return;
+
+    MagicFeedback.info(
+      trans('uptizm.teams.billing_manage_header'),
+      trans('uptizm.teams.billing_manage_store_no_url'),
     );
   }
 
@@ -650,12 +921,13 @@ class _PlanBillingViewState extends State<PlanBillingView> {
               className: 'text-sm text-fg-muted',
             ),
           ),
-          MSButton(
-            intent: ButtonIntent.secondary,
-            size: ButtonSize.sm,
-            onPressed: () => _openBillingPortal(),
-            child: WText(trans('uptizm.teams.billing_payment_update_button')),
-          ),
+          if (_portalAvailable)
+            MSButton(
+              intent: ButtonIntent.secondary,
+              size: ButtonSize.sm,
+              onPressed: () => _openBillingPortal(),
+              child: WText(trans('uptizm.teams.billing_payment_update_button')),
+            ),
         ],
       );
     }
@@ -703,12 +975,13 @@ class _PlanBillingViewState extends State<PlanBillingView> {
             ],
           ),
         ),
-        MSButton(
-          intent: ButtonIntent.secondary,
-          size: ButtonSize.sm,
-          onPressed: () => _openBillingPortal(),
-          child: WText(trans('uptizm.teams.billing_payment_update_button')),
-        ),
+        if (_portalAvailable)
+          MSButton(
+            intent: ButtonIntent.secondary,
+            size: ButtonSize.sm,
+            onPressed: () => _openBillingPortal(),
+            child: WText(trans('uptizm.teams.billing_payment_update_button')),
+          ),
       ],
     );
   }
@@ -718,6 +991,14 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// path. Shared by the payment-method "Update" button and every invoice
   /// row's "Receipt" button (both are Stripe-portal actions; the portal
   /// itself deep-links a customer straight to their invoice history).
+  ///
+  /// A failure re-reads the entitlement. The endpoint has two refusals this
+  /// screen's own gate is supposed to have made unreachable (409
+  /// `managed_by_store` and 409 `no_billing_account`, both of which imply a
+  /// [_manageVia] other than [ManageVia.portal]), so reaching one means the
+  /// rail changed under a mounted screen. Re-reading the authority is the fix,
+  /// and it keys off the server's `manage_via` rather than off the refusal's
+  /// English sentence.
   Future<void> _openBillingPortal() async {
     try {
       await _billing.openPortal(returnUrl: '$_webOrigin/teams/billing');
@@ -731,6 +1012,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
         trans('uptizm.teams.billing_toast_checkout_failed_title'),
         error.message,
       );
+      await _loadEntitlement();
     }
   }
 
@@ -765,8 +1047,9 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     );
   }
 
-  /// Builds one invoice row: date + number, the status pill, the amount, and
-  /// a "Receipt" [Button] that opens the Stripe billing portal.
+  /// Builds one invoice row: date + number, the status pill, the amount, and,
+  /// on the Stripe rail only, a "Receipt" [Button] that opens the billing
+  /// portal.
   Widget _buildInvoiceRow(Invoice invoice, {required bool isLast}) {
     return WDiv(
       className: isLast
@@ -794,12 +1077,15 @@ class _PlanBillingViewState extends State<PlanBillingView> {
           invoice.amount,
           className: 'font-mono text-sm tabular-nums text-fg',
         ),
-        MSButton(
-          intent: ButtonIntent.ghost,
-          size: ButtonSize.sm,
-          onPressed: () => _openBillingPortal(),
-          child: WText(trans('uptizm.teams.billing_invoice_receipt_button')),
-        ),
+        // The receipt is a portal deep link, not a stored PDF URL, so it is
+        // gated on the portal being this team's surface at all.
+        if (_portalAvailable)
+          MSButton(
+            intent: ButtonIntent.ghost,
+            size: ButtonSize.sm,
+            onPressed: () => _openBillingPortal(),
+            child: WText(trans('uptizm.teams.billing_invoice_receipt_button')),
+          ),
       ],
     );
   }

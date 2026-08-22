@@ -5,6 +5,8 @@ import 'package:magic/magic.dart';
 
 import 'package:uptizm/app/controllers/entitlement_controller.dart';
 import 'package:uptizm/app/enums/ai_level.dart' show AiLevel;
+import 'package:uptizm/app/enums/billing_provider.dart' show BillingProvider;
+import 'package:uptizm/app/enums/manage_via.dart' show ManageVia;
 import 'package:uptizm/app/mocks/billing.dart' show plans;
 import 'package:uptizm/app/services/billing/billing_service.dart';
 import 'package:uptizm/app/support/billing_types.dart' show Plan;
@@ -24,6 +26,10 @@ class _FakeBilling implements BillingService {
     this.entitlementPlan,
     this.usage = const [],
     this.throwOnPlans = false,
+    this.entitlementProvider = 'none',
+    this.entitlementManageVia = 'none',
+    this.entitlementRenews,
+    this.entitlementPeriodEnd,
   });
 
   /// The plan id `currentEntitlement` resolves to; `null` mirrors an absent
@@ -33,11 +39,32 @@ class _FakeBilling implements BillingService {
   /// `resetForSession` case) without building a second controller.
   String? entitlementPlan;
 
+  /// The RAW WIRE words `currentEntitlement` reports for the rail and the
+  /// management surface (`stripe`, `app_store`, `portal`, ...), fed through the
+  /// real decoder rather than as ready-made enum cases, so a fixture cannot
+  /// assert a value the wire could never produce.
+  String? entitlementProvider;
+  String? entitlementManageVia;
+
+  /// Whether the reported subscription rolls over, and when its paid period
+  /// ends. Both nullable: `null` is the wire's "no rail has said".
+  bool? entitlementRenews;
+  DateTime? entitlementPeriodEnd;
+
   /// The usage stats `getUsage` returns.
   List<UsageStat> usage;
 
   /// When true, `getPlans` throws to exercise a degraded leg.
   bool throwOnPlans;
+
+  /// When true, `currentEntitlement` throws to exercise the entitlement leg
+  /// degrading on its own while the catalog and usage legs still answer.
+  ///
+  /// Field-only rather than a constructor parameter: every case that needs it
+  /// flips it AFTER a first successful load, because the thing under test is
+  /// what survives the failure, and a fake that failed from birth would have
+  /// nothing to keep.
+  bool throwOnEntitlement = false;
 
   /// How many times `currentEntitlement` was called, so a test can assert the
   /// one-shot load guard fires exactly once per identity.
@@ -46,11 +73,24 @@ class _FakeBilling implements BillingService {
   @override
   Future<BillingEntitlement> currentEntitlement() async {
     entitlementCalls++;
+    if (throwOnEntitlement) throw const BillingException('billing offline');
+
+    // `plan_status` is the key `SubscriptionResource` actually emits, and one
+    // local feeds both the parameter and the raw map so the two cannot drift.
+    // A `status` key sat here until now and has NEVER existed on this wire; the
+    // identical fiction in the real fixtures is what left
+    // `BillingEntitlement.status` null in production for the life of the field.
+    const String planStatus = 'active';
+
     return BillingEntitlement(
       plan: entitlementPlan,
-      status: 'active',
+      status: planStatus,
+      provider: entitlementProvider,
+      manageVia: entitlementManageVia,
+      renews: entitlementRenews,
+      currentPeriodEnd: entitlementPeriodEnd,
       aiAnalysisTrialsRemaining: null,
-      raw: {'plan': entitlementPlan, 'status': 'active'},
+      raw: {'plan': entitlementPlan, 'plan_status': planStatus},
     );
   }
 
@@ -348,6 +388,92 @@ void main() {
     );
   });
 
+  // ---------------------------------------------------------------------------
+  // The subscription rail: who bills the team, where it is managed, whether it
+  // renews and until when. Published off the controller so a view reads it
+  // without a second `GET /billing` of its own.
+  // ---------------------------------------------------------------------------
+
+  group('EntitlementController subscription rail', () {
+    test('publishes the rail, manage surface, renewal and period end', () async {
+      final DateTime periodEnd = DateTime.utc(2026, 9, 1, 12);
+      final controller = EntitlementController(
+        billing: _FakeBilling(
+          entitlementPlan: 'pro',
+          entitlementProvider: 'app_store',
+          entitlementManageVia: 'app_store',
+          entitlementRenews: true,
+          entitlementPeriodEnd: periodEnd,
+        ),
+      );
+
+      await controller.reload();
+
+      expect(controller.provider, BillingProvider.appStore);
+      expect(controller.manageVia, ManageVia.appStore);
+      expect(controller.renews, isTrue);
+      expect(controller.currentPeriodEnd, periodEnd);
+    });
+
+    test('before the load the rail reads unknown and gates nothing', () {
+      final controller = EntitlementController(
+        billing: _FakeBilling(
+          entitlementPlan: 'free',
+          entitlementProvider: 'stripe',
+          entitlementManageVia: 'portal',
+          usage: _usage(monitors: 10, responders: 1),
+        ),
+      );
+
+      expect(controller.isLoaded, isFalse);
+      // `none` is the honest pre-load reading: nobody has said which rail bills
+      // this team, and a client that cannot name the surface must not steer the
+      // customer at a guessed one.
+      expect(controller.provider, BillingProvider.none);
+      expect(controller.manageVia, ManageVia.none);
+      expect(controller.renews, isNull);
+      expect(controller.currentPeriodEnd, isNull);
+      // None of that gates an action: the pre-load state stays permissive, so
+      // an unknown rail can never lock a control the backend would have allowed.
+      expect(controller.canCreateMonitor, isTrue);
+      expect(controller.canAddResponder, isTrue);
+      expect(controller.canUsePrivatePages, isTrue);
+      expect(controller.minCheckIntervalSec, 0);
+    });
+
+    test('a failed GET /billing keeps the last-known rail, not null', () async {
+      final DateTime periodEnd = DateTime.utc(2026, 9, 1);
+      final fake = _FakeBilling(
+        entitlementPlan: 'pro',
+        entitlementProvider: 'stripe',
+        entitlementManageVia: 'portal',
+        entitlementRenews: true,
+        entitlementPeriodEnd: periodEnd,
+        usage: _usage(monitors: 4, responders: 1),
+      );
+      final controller = EntitlementController(billing: fake);
+      await controller.reload();
+      expect(controller.provider, BillingProvider.stripe);
+
+      // Only the entitlement leg fails on the refresh. Each leg keeps its own
+      // last-known-good, so the rail must survive verbatim rather than degrade
+      // to `none`, which would read as "nobody bills this team" and hide the
+      // management surface of a subscription that is still live. The other two
+      // legs keep answering, proving one failing leg blanks nothing else.
+      fake.throwOnEntitlement = true;
+      fake.usage = _usage(monitors: 6, responders: 1);
+
+      await controller.reload();
+
+      expect(controller.provider, BillingProvider.stripe);
+      expect(controller.manageVia, ManageVia.portal);
+      expect(controller.renews, isTrue);
+      expect(controller.currentPeriodEnd, periodEnd);
+      expect(controller.planName, 'Pro');
+      expect(controller.monitorsUsed, 6);
+    });
+  });
+
   group('EntitlementController.instance', () {
     test(
       'resolving the singleton kicks off the load without a manual reload',
@@ -435,6 +561,32 @@ void main() {
       expect(controller.canCreateMonitor, isTrue);
       expect(controller.canUsePrivatePages, isTrue);
       expect(controller.monitorsUsed, 5);
+    });
+
+    test('drops the previous identity rail even when the refetch fails', () async {
+      final fake = _FakeBilling(
+        entitlementPlan: 'pro',
+        entitlementProvider: 'app_store',
+        entitlementManageVia: 'app_store',
+        entitlementRenews: true,
+        entitlementPeriodEnd: DateTime.utc(2026, 9, 1),
+      );
+      final controller = EntitlementController(billing: fake);
+      await controller.reload();
+      expect(controller.provider, BillingProvider.appStore);
+
+      // The identity changed and the new team's entitlement does not resolve.
+      // The entitlement leg keeps its last-known-good on failure, so without
+      // the clear the new team would read the PREVIOUS team's rail and be
+      // offered the management surface of someone else's purchase.
+      fake.throwOnEntitlement = true;
+
+      await controller.resetForSession();
+
+      expect(controller.provider, BillingProvider.none);
+      expect(controller.manageVia, ManageVia.none);
+      expect(controller.renews, isNull);
+      expect(controller.currentPeriodEnd, isNull);
     });
 
     test('re-arms the one-shot guard without firing a second load', () async {
