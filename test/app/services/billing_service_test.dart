@@ -121,8 +121,22 @@ void main() {
 
     test('currentEntitlement gets /billing and decodes the entitlement', () async {
       Http.fake({
+        // Every key here is copied verbatim from
+        // `SubscriptionResource::toArray()`. The resource has never emitted a
+        // `status` key, so a fixture that invents one certifies a decoder bug
+        // instead of catching it.
         'billing': Http.response({
-          'data': {'plan': 'pro', 'status': 'active'},
+          'data': {
+            'plan': 'pro',
+            'plan_status': 'active',
+            'ai_analysis_trials_remaining': 3,
+            'subscribed': true,
+            'on_grace_period': false,
+            'stripe_price': 'price_pro_monthly',
+            'stripe_status': 'active',
+            'trial_ends_at': null,
+            'ends_at': null,
+          },
         }),
       });
 
@@ -130,6 +144,21 @@ void main() {
 
       expect(entitlement.plan, 'pro');
       expect(entitlement.status, 'active');
+      expect(entitlement.aiAnalysisTrialsRemaining, 3);
+    });
+
+    test('currentEntitlement ignores a legacy top-level status key', () async {
+      Http.fake({
+        'billing': Http.response({
+          'data': {'plan': 'pro', 'status': 'active'},
+        }),
+      });
+
+      final BillingEntitlement entitlement = await service.currentEntitlement();
+
+      // The decoder reads `plan_status` and nothing else: accepting both keys
+      // would be a compatibility shim for a payload that never existed.
+      expect(entitlement.status, isNull);
     });
 
     test('getPlans gets /billing/plans and decodes the catalog', () async {
@@ -358,14 +387,26 @@ void main() {
 
     test('currentEntitlement is a safe read and still calls GET /billing', () async {
       Http.fake({
+        // The real `SubscriptionResource::toArray()` key set again; `plan` can
+        // only ever be a `Plan` enum value (`free`, `pro`, `business`).
         'billing': Http.response({
-          'data': {'plan': 'starter', 'status': 'active'},
+          'data': {
+            'plan': 'business',
+            'plan_status': 'active',
+            'ai_analysis_trials_remaining': null,
+            'subscribed': true,
+            'on_grace_period': false,
+            'stripe_price': 'price_business_monthly',
+            'stripe_status': 'active',
+            'trial_ends_at': null,
+            'ends_at': null,
+          },
         }),
       });
 
       final BillingEntitlement entitlement = await service.currentEntitlement();
 
-      expect(entitlement.plan, 'starter');
+      expect(entitlement.plan, 'business');
       expect(entitlement.status, 'active');
     });
 

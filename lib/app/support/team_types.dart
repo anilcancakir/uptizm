@@ -465,7 +465,16 @@ class PaymentMethod {
 /// React billing mock.
 @immutable
 class UsageStat {
-  /// Display label, e.g. `"Monitors"`.
+  /// The resource's stable wire key (`monitors`, `responders`,
+  /// `checks_this_month`), untranslated and never rendered.
+  ///
+  /// This is the field logic keys on. [label] is the same resource's display
+  /// copy, resolved through the catalogue at decode time and therefore
+  /// different in every language, so a gate that matched on it read zero usage
+  /// for every non-English session and silently opened itself.
+  final String key;
+
+  /// Display label for [key], e.g. `"Monitors"`, already localized.
   final String label;
 
   /// Current usage count.
@@ -478,6 +487,7 @@ class UsageStat {
   final String unit;
 
   const UsageStat({
+    required this.key,
     required this.label,
     required this.used,
     required this.limit,
@@ -488,11 +498,12 @@ class UsageStat {
   /// (`{monitors, responders, checks_this_month}`, each `{used, limit}`; see
   /// `BillingController::usage()`), in the screen's existing display order.
   ///
-  /// Labels and units are display copy, not wire fields; the wire response
-  /// carries only the numbers. They come from the catalogue rather than from
-  /// English literals: the billing page rendered "Monitors", "Responders",
-  /// "Checks this month" and "checks" in English inside an otherwise fully
-  /// Turkish page.
+  /// Each stat keeps the wire key it was read at, because that is the only
+  /// stable handle on a resource: labels and units are display copy, not wire
+  /// fields (the response carries only the numbers), and they come from the
+  /// catalogue rather than from English literals because the billing page
+  /// rendered "Monitors", "Responders", "Checks this month" and "checks" in
+  /// English inside an otherwise fully Turkish page.
   ///
   /// Resolved here, at decode time, matching `formatters.dart` reading its words
   /// from the catalogue in this same layer. A locale change needs a fresh boot
@@ -501,37 +512,47 @@ class UsageStat {
   static List<UsageStat> fromWireMap(Map<String, dynamic> map) {
     return [
       _entryFromWire(
+        map,
+        'monitors',
         trans('uptizm.teams.usage_monitors'),
-        map['monitors'],
         '',
       ),
       _entryFromWire(
+        map,
+        'responders',
         trans('uptizm.teams.usage_responders'),
-        map['responders'],
         '',
       ),
       _entryFromWire(
+        map,
+        'checks_this_month',
         trans('uptizm.teams.usage_checks_this_month'),
-        map['checks_this_month'],
         trans('uptizm.teams.usage_unit_checks'),
       ),
     ];
   }
 
-  /// Decodes one `{used, limit}` wire entry into a [UsageStat] with the
-  /// given display [label]/[unit].
+  /// Decodes the `{used, limit}` entry stored under [key] in [map] into a
+  /// [UsageStat] carrying that same [key] plus the given display
+  /// [label]/[unit].
+  ///
+  /// Reading the wire here rather than at the call site is what keeps the key a
+  /// caller looks up by identical to the key the numbers came from.
   static UsageStat _entryFromWire(
+    Map<String, dynamic> map,
+    String key,
     String label,
-    Object? entry,
     String unit,
   ) {
-    final Map<String, dynamic> map = entry is Map<String, dynamic>
+    final Object? entry = map[key];
+    final Map<String, dynamic> values = entry is Map<String, dynamic>
         ? entry
         : const {};
     return UsageStat(
+      key: key,
       label: label,
-      used: (map['used'] as num?)?.toInt() ?? 0,
-      limit: (map['limit'] as num?)?.toInt(),
+      used: (values['used'] as num?)?.toInt() ?? 0,
+      limit: (values['limit'] as num?)?.toInt(),
       unit: unit,
     );
   }

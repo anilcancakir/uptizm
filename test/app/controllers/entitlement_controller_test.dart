@@ -1,3 +1,5 @@
+import 'dart:ui' show Locale;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 
@@ -8,6 +10,8 @@ import 'package:uptizm/app/services/billing/billing_service.dart';
 import 'package:uptizm/app/support/billing_types.dart' show Plan;
 import 'package:uptizm/app/support/team_types.dart'
     show PaymentMethod, UsageStat;
+
+import '../../support/bundled_lang.dart';
 
 /// In-memory [BillingService] fake feeding the [EntitlementController] the three
 /// reads it depends on (`currentEntitlement`, `getPlans`, `getUsage`) with
@@ -86,14 +90,20 @@ class _FakeBilling implements BillingService {
   Future<PaymentMethod> getPaymentMethod() => throw UnimplementedError();
 }
 
-/// Builds the two usage stats the controller reads (`Monitors`, `Responders`)
-/// plus the always-present checks row, matching `UsageStat.fromWireMap`'s order
-/// and labels.
-List<UsageStat> _usage({required int monitors, required int responders}) => [
-  UsageStat(label: 'Monitors', used: monitors, limit: null, unit: ''),
-  UsageStat(label: 'Responders', used: responders, limit: null, unit: ''),
-  UsageStat(label: 'Checks this month', used: 0, limit: null, unit: 'checks'),
-];
+/// Builds the usage list the controller reads by DECODING the wire shape
+/// `BillingController::usage()` actually sends.
+///
+/// It used to hand-build three `UsageStat`s with English labels, and that is
+/// exactly why a whole green suite missed a live defect: the fixture and the
+/// controller's lookup agreed with each other while neither agreed with the
+/// shipped catalogue. Going through the real decoder means the keys under test
+/// are the keys production produces, in whatever language the session is in.
+List<UsageStat> _usage({required int monitors, required int responders}) =>
+    UsageStat.fromWireMap(<String, dynamic>{
+      'monitors': {'used': monitors, 'limit': null},
+      'responders': {'used': responders, 'limit': null},
+      'checks_this_month': {'used': 0, 'limit': null},
+    });
 
 void main() {
   setUp(() {
@@ -172,6 +182,50 @@ void main() {
         expect(controller.respondersRemaining, 1);
       },
     );
+  });
+
+  // ---------------------------------------------------------------------------
+  // Locale independence: the usage lookup keys on the wire, not on the copy.
+  // ---------------------------------------------------------------------------
+
+  group('EntitlementController in a Turkish session', () {
+    setUp(() async {
+      Translator.instance.setLoader(_BundledLoader('tr'));
+      await Translator.instance.setLocale(const Locale('tr'));
+    });
+
+    tearDown(Translator.reset);
+
+    test('reads usage from the wire keys, not from the labels', () async {
+      // Regression guard for a live defect: the lookup matched the hardcoded
+      // English literal 'Monitors' against a label the decoder had already run
+      // through the catalogue. On a Turkish session the catalogue returns
+      // 'İzleyiciler', nothing matched, every usage read fell through to 0, and
+      // the Free-tier gates stayed permanently open while the meter reported
+      // the full cap. The fix is the lookup axis, not the literal.
+      final List<UsageStat> usage = UsageStat.fromWireMap(const {
+        'monitors': {'used': 10, 'limit': 10},
+        'responders': {'used': 1, 'limit': 1},
+        'checks_this_month': {'used': 83365, 'limit': null},
+      });
+
+      // Guards against a vacuous pass: with no catalogue loaded the labels
+      // would be raw keys, English would match nothing either, and the test
+      // would prove something other than locale independence.
+      expect(usage.first.label, 'İzleyiciler');
+
+      final controller = EntitlementController(
+        billing: _FakeBilling(entitlementPlan: 'free', usage: usage),
+      );
+
+      await controller.reload();
+
+      expect(controller.monitorsUsed, 10);
+      expect(controller.respondersUsed, 1);
+      expect(controller.canCreateMonitor, isFalse);
+      expect(controller.monitorsRemaining, 0);
+      expect(controller.canAddResponder, isFalse);
+    });
   });
 
   group('EntitlementController on paid plans', () {
@@ -407,4 +461,15 @@ void main() {
       expect(fake.entitlementCalls, equals(callsAfterReset));
     });
   });
+}
+
+/// Serves the SHIPPED catalogue for one locale, so the labels the decoder
+/// produces here are the ones a user reads rather than raw keys.
+class _BundledLoader implements TranslationLoader {
+  _BundledLoader(this.locale);
+
+  final String locale;
+
+  @override
+  Future<Map<String, dynamic>> load(Locale _) async => readBundledLang(locale);
 }

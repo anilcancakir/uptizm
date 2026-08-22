@@ -138,10 +138,20 @@ const PaymentMethod paymentMethod = PaymentMethod(
 /// Monitors and responders sit at or near their `Plan` cap (see `billing.dart`'s
 /// Pro-tier limits) so the usage meters read as "close to upgrading";
 /// checks-this-month has no hard cap.
+///
+/// The `key` of each row is the real `GET /billing/usage` wire key, because that
+/// is what the entitlement gates look a resource up by; the English `label` is
+/// preview copy that a real decode resolves through the catalogue instead.
 const List<UsageStat> billingUsage = [
-  UsageStat(label: 'Monitors', used: 47, limit: 50, unit: ''),
-  UsageStat(label: 'Responders', used: 3, limit: 3, unit: ''),
-  UsageStat(label: 'Checks this month', used: 128400, limit: null, unit: 'checks'),
+  UsageStat(key: 'monitors', label: 'Monitors', used: 47, limit: 50, unit: ''),
+  UsageStat(key: 'responders', label: 'Responders', used: 3, limit: 3, unit: ''),
+  UsageStat(
+    key: 'checks_this_month',
+    label: 'Checks this month',
+    used: 128400,
+    limit: null,
+    unit: 'checks',
+  ),
 ];
 
 // ---------------------------------------------------------------------------

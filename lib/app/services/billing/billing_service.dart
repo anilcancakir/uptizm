@@ -72,8 +72,9 @@ class BillingEntitlement {
   /// The active plan identifier (e.g. `'pro'`), or `null` when absent.
   final String? plan;
 
-  /// The Stripe subscription status (e.g. `'active'`, `'canceled'`), or `null`
-  /// when absent.
+  /// The entitlement's status as the backend stores it (e.g. `'active'`,
+  /// `'canceled'`), decoded from the wire's `plan_status`, or `null` when
+  /// absent.
   final String? status;
 
   /// Metered AI monitor setups the team has left, or `null` when the tier
@@ -85,10 +86,14 @@ class BillingEntitlement {
 
   /// Decodes a [BillingEntitlement] from the unwrapped `data` object of the
   /// `GET /billing` response.
+  ///
+  /// [status] reads `plan_status`, which is the only status key
+  /// `SubscriptionResource` has ever emitted; a `status` key does not exist on
+  /// this wire.
   factory BillingEntitlement.fromMap(Map<String, dynamic> map) {
     return BillingEntitlement(
       plan: map['plan'] as String?,
-      status: map['status'] as String?,
+      status: map['plan_status'] as String?,
       aiAnalysisTrialsRemaining:
           (map['ai_analysis_trials_remaining'] as num?)?.toInt(),
       raw: map,

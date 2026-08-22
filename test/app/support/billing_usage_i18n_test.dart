@@ -29,6 +29,9 @@ void main() {
     'checks_this_month': {'used': 83365, 'limit': null},
   };
 
+  /// The field names `BillingController::usage()` sends, in the decoder's order.
+  const List<String> wireKeys = ['monitors', 'responders', 'checks_this_month'];
+
   group('in Turkish', () {
     setUp(() => useLocale('tr'));
 
@@ -41,6 +44,13 @@ void main() {
         'Bu ayki kontroller',
       ]);
       expect(stats.last.unit, 'kontrol');
+    });
+
+    test('the keys stay the untranslated wire keys', () {
+      // The other half of the same defect: the labels above are correct BECAUSE
+      // they are translated, so nothing may key logic on them. `key` is what a
+      // gate looks a resource up by, and it must not move with the language.
+      expect(UsageStat.fromWireMap(wire).map((s) => s.key), wireKeys);
     });
 
     test('the thousands separator is a period', () {
@@ -62,6 +72,13 @@ void main() {
         'Checks this month',
       ]);
       expect(stats.last.unit, 'checks');
+    });
+
+    test('the keys stay the untranslated wire keys', () {
+      // Asserted in both locales deliberately: one locale cannot show that the
+      // keys are language-independent, and English is the locale where a
+      // label-keyed lookup passes by accident.
+      expect(UsageStat.fromWireMap(wire).map((s) => s.key), wireKeys);
     });
 
     test('the thousands separator is a comma', () {

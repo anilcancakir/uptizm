@@ -181,18 +181,26 @@ class EntitlementController extends MagicController
   // Usage (from GET /billing/usage; fixed order monitors, responders, checks)
   // ---------------------------------------------------------------------------
 
-  int _usedFor(String label) {
+  /// Current usage of the resource carried under the wire [key]
+  /// (`GET /billing/usage`'s own field names), or 0 when the usage read has not
+  /// landed yet.
+  ///
+  /// Keyed on [UsageStat.key] and never on [UsageStat.label]: the label is
+  /// display copy the decoder resolves through the catalogue, so matching on it
+  /// found nothing in any non-English session, every gate below read zero usage,
+  /// and a team at its cap kept creating monitors until the backend refused.
+  int _usedFor(String key) {
     for (final stat in _usage) {
-      if (stat.label == label) return stat.used;
+      if (stat.key == key) return stat.used;
     }
     return 0;
   }
 
   /// Monitors currently used by the team.
-  int get monitorsUsed => _usedFor('Monitors');
+  int get monitorsUsed => _usedFor('monitors');
 
   /// Responders (distinct members) currently used by the team.
-  int get respondersUsed => _usedFor('Responders');
+  int get respondersUsed => _usedFor('responders');
 
   // ---------------------------------------------------------------------------
   // Gate predicates
