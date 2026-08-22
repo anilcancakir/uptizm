@@ -1,7 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 
+import 'package:uptizm/app/enums/billing_provider.dart' show BillingProvider, billingProviderFromWire;
 import 'package:uptizm/app/enums/invoice_status.dart' show InvoiceStatus;
+import 'package:uptizm/app/enums/manage_via.dart' show ManageVia, manageViaFromWire;
+import 'package:uptizm/app/enums/plan_status.dart' show PlanStatus, planStatusFromWire;
 import 'package:uptizm/app/services/billing/billing_service.dart';
 import 'package:uptizm/app/services/billing/billing_service_io.dart';
 import 'package:uptizm/app/services/billing/billing_service_stub.dart';
@@ -119,32 +122,53 @@ void main() {
       expect(portalUrl, 'https://billing.stripe.com/portal_abc');
     });
 
-    test('currentEntitlement gets /billing and decodes the entitlement', () async {
+    test('currentEntitlement gets /billing and decodes all thirteen fields', () async {
       Http.fake({
-        // Every key here is copied verbatim from
-        // `SubscriptionResource::toArray()`. The resource has never emitted a
-        // `status` key, so a fixture that invents one certifies a decoder bug
-        // instead of catching it.
+        // The whole payload is copied from the producer's own exact-JSON
+        // assertion for the Play Store rail mid grace period
+        // (`backend/tests/Feature/Billing/BillingControllerTest.php`,
+        // `test_show_points_a_play_store_team_at_the_store_through_its_grace_period`),
+        // which is the only fixture in this file populating every nullable
+        // field a store rail can populate. Inventing a key or a value here is
+        // what left `BillingEntitlement.status` null in production for the life
+        // of the field.
         'billing': Http.response({
           'data': {
-            'plan': 'pro',
-            'plan_status': 'active',
-            'ai_analysis_trials_remaining': 3,
+            'plan': 'business',
+            'plan_status': 'grace',
             'subscribed': true,
-            'on_grace_period': false,
-            'stripe_price': 'price_pro_monthly',
-            'stripe_status': 'active',
+            'renews': false,
+            'provider': 'play_store',
+            'provider_status': 'billing_issue_detected_at',
+            'product_id': 'uptizm_business_annual',
+            'manage_via': 'play_store',
+            'manage_url': 'https://play.google.com/store/account/subscriptions',
+            'current_period_end': '2026-08-25T09:00:00+00:00',
             'trial_ends_at': null,
-            'ends_at': null,
+            'grace_period_ends_at': '2026-08-27T09:00:00+00:00',
+            'ai_analysis_trials_remaining': null,
           },
         }),
       });
 
       final BillingEntitlement entitlement = await service.currentEntitlement();
 
-      expect(entitlement.plan, 'pro');
-      expect(entitlement.status, 'active');
-      expect(entitlement.aiAnalysisTrialsRemaining, 3);
+      expect(entitlement.plan, 'business');
+      expect(entitlement.planStatus, PlanStatus.grace);
+      expect(entitlement.subscribed, isTrue);
+      expect(entitlement.renews, isFalse);
+      expect(entitlement.provider, BillingProvider.playStore);
+      expect(entitlement.providerStatus, 'billing_issue_detected_at');
+      expect(entitlement.productId, 'uptizm_business_annual');
+      expect(entitlement.manageVia, ManageVia.playStore);
+      expect(
+        entitlement.manageUrl,
+        'https://play.google.com/store/account/subscriptions',
+      );
+      expect(entitlement.currentPeriodEnd, DateTime.utc(2026, 8, 25, 9));
+      expect(entitlement.trialEndsAt, isNull);
+      expect(entitlement.gracePeriodEndsAt, DateTime.utc(2026, 8, 27, 9));
+      expect(entitlement.aiAnalysisTrialsRemaining, isNull);
     });
 
     test('currentEntitlement ignores a legacy top-level status key', () async {
@@ -157,8 +181,9 @@ void main() {
       final BillingEntitlement entitlement = await service.currentEntitlement();
 
       // The decoder reads `plan_status` and nothing else: accepting both keys
-      // would be a compatibility shim for a payload that never existed.
-      expect(entitlement.status, isNull);
+      // would be a compatibility shim for a payload that never existed. An
+      // absent lifecycle is `none`, which is also where an unknown value lands.
+      expect(entitlement.planStatus, PlanStatus.none);
     });
 
     test('getPlans gets /billing/plans and decodes the catalog', () async {
@@ -387,27 +412,45 @@ void main() {
 
     test('currentEntitlement is a safe read and still calls GET /billing', () async {
       Http.fake({
-        // The real `SubscriptionResource::toArray()` key set again; `plan` can
-        // only ever be a `Plan` enum value (`free`, `pro`, `business`).
+        // The App Store rail, copied from the producer's exact-JSON assertion
+        // (`test_show_points_an_app_store_team_at_the_store_and_not_at_stripe`).
+        // A store-sold team read from a mobile client is the case this platform
+        // implementation exists for, and `plan` can only ever be a `Plan` enum
+        // value (`free`, `pro`, `business`).
         'billing': Http.response({
           'data': {
-            'plan': 'business',
-            'plan_status': 'active',
-            'ai_analysis_trials_remaining': null,
+            'plan': 'pro',
+            'plan_status': 'trialing',
             'subscribed': true,
-            'on_grace_period': false,
-            'stripe_price': 'price_business_monthly',
-            'stripe_status': 'active',
+            'renews': true,
+            'provider': 'app_store',
+            'provider_status': 'in_trial',
+            'product_id': 'uptizm_pro_monthly',
+            'manage_via': 'app_store',
+            'manage_url': 'https://apps.apple.com/account/subscriptions',
+            'current_period_end': '2026-09-01T09:00:00+00:00',
+            // Stripe-only by construction: the producer reads it from Cashier's
+            // local `subscriptions.trial_ends_at`, so a store trial arrives as
+            // `plan_status: trialing` plus the period end instead.
             'trial_ends_at': null,
-            'ends_at': null,
+            'grace_period_ends_at': null,
+            'ai_analysis_trials_remaining': null,
           },
         }),
       });
 
       final BillingEntitlement entitlement = await service.currentEntitlement();
 
-      expect(entitlement.plan, 'business');
-      expect(entitlement.status, 'active');
+      expect(entitlement.plan, 'pro');
+      expect(entitlement.planStatus, PlanStatus.trialing);
+      expect(entitlement.provider, BillingProvider.appStore);
+      expect(entitlement.manageVia, ManageVia.appStore);
+      expect(
+        entitlement.manageUrl,
+        'https://apps.apple.com/account/subscriptions',
+      );
+      expect(entitlement.currentPeriodEnd, DateTime.utc(2026, 9, 1, 9));
+      expect(entitlement.trialEndsAt, isNull);
     });
 
     test('getPlans is a safe read and still calls GET /billing/plans', () async {
@@ -531,6 +574,229 @@ void main() {
         () => service.getPaymentMethod(),
         throwsA(isA<UnsupportedPlatformException>()),
       );
+    });
+  });
+
+  group('BillingEntitlement.fromMap', () {
+    /// The never-billed payload, copied from the producer's exact-JSON
+    /// assertion (`test_show_emits_the_never_billed_defaults_for_a_free_team`).
+    /// It is the fixture that pins WHICH fields the backend guarantees: the
+    /// five neutral-vocabulary ones carry their defaults, and the other eight
+    /// are nullable, seven of them null here.
+    const Map<String, dynamic> neverBilled = {
+      'plan': 'free',
+      'plan_status': 'none',
+      'subscribed': false,
+      'renews': null,
+      'provider': 'none',
+      'provider_status': null,
+      'product_id': null,
+      'manage_via': 'none',
+      'manage_url': null,
+      'current_period_end': null,
+      'trial_ends_at': null,
+      'grace_period_ends_at': null,
+      'ai_analysis_trials_remaining': 3,
+    };
+
+    test('decodes the five backend-guaranteed fields and nothing more', () {
+      final BillingEntitlement entitlement = BillingEntitlement.fromMap(
+        neverBilled,
+      );
+
+      // The five the producer's docblock guarantees non-null.
+      expect(entitlement.plan, 'free');
+      expect(entitlement.planStatus, PlanStatus.none);
+      expect(entitlement.subscribed, isFalse);
+      expect(entitlement.provider, BillingProvider.none);
+      expect(entitlement.manageVia, ManageVia.none);
+
+      // And the eight nullable ones, seven null on a never-billed team. A
+      // decoder that defaulted any of these would claim a state no rail has
+      // reported: `renews: null` is "nobody said", not "does not renew".
+      expect(entitlement.renews, isNull);
+      expect(entitlement.providerStatus, isNull);
+      expect(entitlement.productId, isNull);
+      expect(entitlement.manageUrl, isNull);
+      expect(entitlement.currentPeriodEnd, isNull);
+      expect(entitlement.trialEndsAt, isNull);
+      expect(entitlement.gracePeriodEndsAt, isNull);
+      expect(entitlement.aiAnalysisTrialsRemaining, 3);
+    });
+
+    test('decodes the Stripe rail, whose four store-shaped fields are null by design', () {
+      // `test_show_emits_the_neutral_wire_for_a_stripe_team_with_a_customer`.
+      final BillingEntitlement entitlement = BillingEntitlement.fromMap({
+        'plan': 'pro',
+        'plan_status': 'active',
+        'subscribed': true,
+        'renews': true,
+        'provider': 'stripe',
+        'provider_status': 'active',
+        'product_id': 'price_pro',
+        'manage_via': 'portal',
+        // Null on the web rail by design: the client calls
+        // `GET /billing/portal`, which mints the session live.
+        'manage_url': null,
+        'current_period_end': '2026-09-10T09:00:00+00:00',
+        'trial_ends_at': '2026-08-27T09:00:00+00:00',
+        'grace_period_ends_at': null,
+        'ai_analysis_trials_remaining': null,
+      });
+
+      expect(entitlement.provider, BillingProvider.stripe);
+      expect(entitlement.manageVia, ManageVia.portal);
+      expect(entitlement.manageUrl, isNull);
+      expect(entitlement.renews, isTrue);
+      expect(entitlement.currentPeriodEnd, DateTime.utc(2026, 9, 10, 9));
+      expect(entitlement.trialEndsAt, DateTime.utc(2026, 8, 27, 9));
+      expect(entitlement.gracePeriodEndsAt, isNull);
+    });
+
+    test('a rail this build has never heard of decodes to the fallback, not an exception', () {
+      final BillingEntitlement entitlement = BillingEntitlement.fromMap({
+        ...neverBilled,
+        'plan_status': 'chargeback',
+        'provider': 'future_rail',
+        'manage_via': 'carrier_billing',
+      });
+
+      // A newer backend shipping a fourth rail must degrade an older client,
+      // not crash it; and the landing place is the non-entitling case on all
+      // three vocabularies, mirroring the PHP `fromWire()` fallbacks.
+      expect(entitlement.planStatus, PlanStatus.none);
+      expect(entitlement.provider, BillingProvider.none);
+      expect(entitlement.manageVia, ManageVia.none);
+    });
+
+    test('a malformed instant degrades to null instead of throwing', () {
+      final BillingEntitlement entitlement = BillingEntitlement.fromMap({
+        ...neverBilled,
+        'current_period_end': 'not-an-instant',
+        'trial_ends_at': '',
+        'grace_period_ends_at': 42,
+      });
+
+      expect(entitlement.currentPeriodEnd, isNull);
+      expect(entitlement.trialEndsAt, isNull);
+      expect(entitlement.gracePeriodEndsAt, isNull);
+    });
+
+    test('raw keeps a field the value object does not enumerate', () {
+      final BillingEntitlement entitlement = BillingEntitlement.fromMap({
+        ...neverBilled,
+        'a_field_a_newer_backend_added': 'read me through raw',
+      });
+
+      expect(entitlement.raw['a_field_a_newer_backend_added'], 'read me through raw');
+      expect(entitlement.raw['plan_status'], 'none');
+    });
+  });
+
+  group('the three server vocabularies', () {
+    /*
+     * Every list below is copied from the PHP case set, not from the Dart enum
+     * beside it, and that is the whole point: the safe fallback is exactly what
+     * hides a missing case, so a Dart enum that lost one would decode a real
+     * wire value to `none` and degrade a live client silently. Asserting
+     * against a list derived from the Dart enum would restate whatever the enum
+     * happens to contain and prove nothing.
+     *
+     * `manual` deserves the note: nothing writes it yet, so it is the value a
+     * hand-written Dart list is most likely to omit.
+     */
+    const List<String> planStatusWire = [
+      // backend/app/Enums/PlanStatus.php:27-55
+      'none',
+      'trialing',
+      'active',
+      'past_due',
+      'grace',
+      'canceled',
+      'expired',
+      'paused',
+    ];
+    const List<String> billingProviderWire = [
+      // backend/app/Enums/BillingProvider.php:26-42
+      'none',
+      'stripe',
+      'app_store',
+      'play_store',
+      'manual',
+    ];
+    const List<String> manageViaWire = [
+      // No PHP enum backs this one; it is computed by
+      // `SubscriptionResource::manageVia()`, whose `match` emits these four.
+      'none',
+      'portal',
+      'app_store',
+      'play_store',
+    ];
+
+    test('every PlanStatus the backend can send decodes to a distinct case', () {
+      for (final String wire in planStatusWire) {
+        final PlanStatus decoded = planStatusFromWire(wire);
+        if (wire != 'none') {
+          expect(
+            decoded,
+            isNot(PlanStatus.none),
+            reason: 'plan_status "$wire" fell back to none: the Dart mirror is '
+                'missing the case and a live client would degrade silently.',
+          );
+        }
+      }
+
+      // Distinctness is the half that catches a case mapped onto its
+      // neighbour rather than onto the fallback.
+      expect(planStatusWire.map(planStatusFromWire).toSet(), hasLength(planStatusWire.length));
+      expect(PlanStatus.values, hasLength(planStatusWire.length));
+    });
+
+    test('every BillingProvider the backend can send decodes to a distinct case', () {
+      for (final String wire in billingProviderWire) {
+        final BillingProvider decoded = billingProviderFromWire(wire);
+        if (wire != 'none') {
+          expect(
+            decoded,
+            isNot(BillingProvider.none),
+            reason: 'provider "$wire" fell back to none: the Dart mirror is '
+                'missing the case and a live client would degrade silently.',
+          );
+        }
+      }
+
+      expect(
+        billingProviderWire.map(billingProviderFromWire).toSet(),
+        hasLength(billingProviderWire.length),
+      );
+      expect(BillingProvider.values, hasLength(billingProviderWire.length));
+    });
+
+    test('every ManageVia the resource can compute decodes to a distinct case', () {
+      for (final String wire in manageViaWire) {
+        final ManageVia decoded = manageViaFromWire(wire);
+        if (wire != 'none') {
+          expect(
+            decoded,
+            isNot(ManageVia.none),
+            reason: 'manage_via "$wire" fell back to none: the Dart mirror is '
+                'missing the case and a live client would show no way to '
+                'manage a paid subscription.',
+          );
+        }
+      }
+
+      expect(manageViaWire.map(manageViaFromWire).toSet(), hasLength(manageViaWire.length));
+      expect(ManageVia.values, hasLength(manageViaWire.length));
+    });
+
+    test('an unknown or absent wire value lands on the fallback per vocabulary', () {
+      expect(planStatusFromWire('chargeback'), PlanStatus.none);
+      expect(planStatusFromWire(null), PlanStatus.none);
+      expect(billingProviderFromWire('future_rail'), BillingProvider.none);
+      expect(billingProviderFromWire(null), BillingProvider.none);
+      expect(manageViaFromWire('carrier_billing'), ManageVia.none);
+      expect(manageViaFromWire(null), ManageVia.none);
     });
   });
 }

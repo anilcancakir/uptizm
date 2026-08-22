@@ -1,3 +1,6 @@
+import '../../enums/billing_provider.dart' show BillingProvider, billingProviderFromWire;
+import '../../enums/manage_via.dart' show ManageVia, manageViaFromWire;
+import '../../enums/plan_status.dart' show PlanStatus, planStatusFromWire;
 import '../../support/billing_types.dart' show Plan;
 import '../../support/team_types.dart' show Invoice, PaymentMethod, UsageStat;
 import 'billing_service_stub.dart'
@@ -57,25 +60,114 @@ class BillingCheckoutSession {
 /// The team's current plan/subscription entitlement, as returned by
 /// `GET /billing`.
 ///
-/// [plan] and [status] surface the two fields the plan document names
-/// explicitly ("current entitlement + subscription"); [raw] keeps the full
-/// decoded payload so a caller can read additional `SubscriptionResource`
-/// fields without this value object needing to enumerate every one of them.
+/// The thirteen fields mirror `SubscriptionResource::toArray()` one for one, in
+/// its rail-neutral vocabulary: nothing here names a payment rail's own dialect
+/// except [providerStatus], which is debug text and must never reach a gate or
+/// a computed field.
+///
+/// FIVE of the thirteen are non-null guaranteed by the producer, and this
+/// decoder relies on it: [plan], [planStatus], [subscribed], [provider] and
+/// [manageVia]. The other eight are nullable, four of them on the Stripe rail BY
+/// DESIGN rather than by accident: [manageUrl] and [gracePeriodEndsAt] have no
+/// Stripe source at all, and [providerStatus] and [productId] stay null until a
+/// rail writes them. A decoder that defaulted any of the eight would claim a
+/// state no rail has reported, which is a different sentence from "not reported".
+///
+/// [raw] keeps the full decoded payload, so a caller can read a field this value
+/// object has not enumerated (a key a newer backend added) without waiting for a
+/// client release.
 class BillingEntitlement {
-  const BillingEntitlement({
+  /// Builds an entitlement, decoding the three neutral vocabularies from their
+  /// RAW WIRE WORDS rather than taking already-decoded cases.
+  ///
+  /// The wire word is the only thing that ever reaches this constructor, so
+  /// putting the `*FromWire()` fallbacks here means an unrecognised value cannot
+  /// enter the object undecoded by any path, including a hand-built test double.
+  /// [status] carries the wire's `plan_status`; the field it feeds is
+  /// [planStatus], named for the key rather than for the parameter.
+  ///
+  /// The nine fields added with the rail-neutral wire are optional so a fake
+  /// entitlement can still be built from the four values a plan gate cares
+  /// about. [subscribed] defaults to `false` and the two vocabularies default to
+  /// their `none` case, which is the same non-entitling landing place their
+  /// `*FromWire()` fallbacks use: an entitlement nobody described must never
+  /// read as a paid one.
+  BillingEntitlement({
     required this.plan,
-    required this.status,
+    required String? status,
+    this.subscribed = false,
+    this.renews,
+    String? provider,
+    this.providerStatus,
+    this.productId,
+    String? manageVia,
+    this.manageUrl,
+    this.currentPeriodEnd,
+    this.trialEndsAt,
+    this.gracePeriodEndsAt,
     required this.aiAnalysisTrialsRemaining,
     required this.raw,
-  });
+  }) : planStatus = planStatusFromWire(status),
+       provider = billingProviderFromWire(provider),
+       manageVia = manageViaFromWire(manageVia);
 
   /// The active plan identifier (e.g. `'pro'`), or `null` when absent.
   final String? plan;
 
-  /// The entitlement's status as the backend stores it (e.g. `'active'`,
-  /// `'canceled'`), decoded from the wire's `plan_status`, or `null` when
-  /// absent.
-  final String? status;
+  /// Where the paid plan stands in its lifecycle, in the neutral vocabulary.
+  final PlanStatus planStatus;
+
+  /// Whether the team currently holds a paid plan.
+  ///
+  /// Trusted from the wire, never recomputed here: the server derives it from
+  /// the entitlement tier plus `PlanStatus::grants()`, and a second client-side
+  /// definition could disagree with the one that actually gates. A customer with
+  /// a failed charge stays subscribed while their rail retries.
+  final bool subscribed;
+
+  /// Whether the subscription rolls over at [currentPeriodEnd].
+  ///
+  /// Nullable on purpose: `null` means no rail has said, which is not the claim
+  /// `false` makes.
+  final bool? renews;
+
+  /// Which rail granted the entitlement.
+  final BillingProvider provider;
+
+  /// The rail's OWN status word, verbatim, including words the neutral
+  /// vocabulary has none for. Debug and support text only: never a gate, never
+  /// an input to a computed field.
+  final String? providerStatus;
+
+  /// The rail's product identifier (a Stripe price id, a store product id), or
+  /// `null` until a rail writes one.
+  final String? productId;
+
+  /// Where the customer manages this subscription, computed server-side from the
+  /// rail so no client has to learn the rail-to-surface mapping.
+  final ManageVia manageVia;
+
+  /// The destination that pairs with a store [manageVia], or `null`.
+  ///
+  /// Null on the Stripe rail by design (the portal session is minted live by
+  /// `GET /billing/portal`), and also possible on a store rail whose management
+  /// URL has not arrived. A null on a store rail renders a statement WITHOUT a
+  /// link rather than a dead button.
+  final String? manageUrl;
+
+  /// When the paid period ends, whether or not it renews, or `null` when no rail
+  /// has reported one.
+  final DateTime? currentPeriodEnd;
+
+  /// When the trial ends. Stripe-only by construction: the producer reads it
+  /// from Cashier's local `subscriptions.trial_ends_at`, and a store trial
+  /// arrives as [planStatus] `trialing` plus [currentPeriodEnd] instead.
+  final DateTime? trialEndsAt;
+
+  /// When the dunning grace period ends, or `null` when the team is not in one.
+  /// Non-null is itself the answer to "is this team in a grace period"; there is
+  /// no separate boolean on this wire.
+  final DateTime? gracePeriodEndsAt;
 
   /// Metered AI monitor setups the team has left, or `null` when the tier
   /// entitles AI analysis outright (nothing to count down).
@@ -94,11 +186,31 @@ class BillingEntitlement {
     return BillingEntitlement(
       plan: map['plan'] as String?,
       status: map['plan_status'] as String?,
+      subscribed: (map['subscribed'] as bool?) ?? false,
+      renews: map['renews'] as bool?,
+      provider: map['provider'] as String?,
+      providerStatus: map['provider_status'] as String?,
+      productId: map['product_id'] as String?,
+      manageVia: map['manage_via'] as String?,
+      manageUrl: map['manage_url'] as String?,
+      currentPeriodEnd: _instantFromWire(map['current_period_end']),
+      trialEndsAt: _instantFromWire(map['trial_ends_at']),
+      gracePeriodEndsAt: _instantFromWire(map['grace_period_ends_at']),
       aiAnalysisTrialsRemaining:
           (map['ai_analysis_trials_remaining'] as num?)?.toInt(),
       raw: map,
     );
   }
+}
+
+/// Decodes one of the entitlement's three ISO8601 instants.
+///
+/// `DateTime.tryParse` rather than `parse`, and an `Object?` rather than a
+/// `String?` in: a malformed or wrongly-typed instant degrades to "not
+/// reported" exactly as an unrecognised enum value degrades to its `none` case.
+/// A billing screen that cannot render a date must still render the plan.
+DateTime? _instantFromWire(Object? raw) {
+  return raw is String ? DateTime.tryParse(raw) : null;
 }
 
 /// A cursor-paginated page of the team's Stripe invoices, as returned by
