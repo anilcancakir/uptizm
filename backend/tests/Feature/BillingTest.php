@@ -19,6 +19,7 @@ use Laravel\Cashier\Subscription;
 use Laravel\Sanctum\Sanctum;
 use Mockery;
 use RuntimeException;
+use Stripe\Exception\ApiConnectionException;
 use Stripe\Invoice as StripeInvoice;
 use Stripe\PaymentMethod as StripePaymentMethod;
 use Tests\TestCase;
@@ -224,15 +225,19 @@ class BillingTest extends TestCase
         $response->assertJsonPath('renewal_date', $renewal->toIso8601String());
     }
 
-    public function test_payment_method_soft_fails_to_nulls_when_cashier_throws(): void
+    public function test_payment_method_soft_fails_to_nulls_when_the_stripe_api_fails(): void
     {
         Log::spy();
 
         [$user, $team] = $this->makeTeam();
 
+        // A Stripe API error, not a bare RuntimeException. The soft-fail is now
+        // scoped to the rail's own failures, so the exception TYPE is the thing
+        // under test: `ApiConnectionException` extends `ApiErrorException`, which
+        // is what the endpoint catches.
         $mockedTeam = Mockery::mock($team);
         $mockedTeam->shouldReceive('defaultPaymentMethod')
-            ->andThrow(new RuntimeException('Stripe is unreachable.'));
+            ->andThrow(new ApiConnectionException('Stripe is unreachable.'));
 
         $user->setRelation('currentTeam', $mockedTeam);
         Sanctum::actingAs($user);
@@ -240,9 +245,13 @@ class BillingTest extends TestCase
         $response = $this->getJson('/api/v1/billing/payment-method');
 
         // Soft-fail is a deliberate degradation: a 200 with null fields, never a
-        // 500 that would blank the whole billing screen on a Stripe outage.
+        // 500 that would blank the whole billing screen on a Stripe outage. What
+        // changed is that the answer now SAYS which of the two it is, because a
+        // body of five nulls was byte-identical to a team with no card on file
+        // and the client was left reconstructing the difference from `manage_via`.
         $response->assertOk();
         $response->assertExactJson([
+            'available' => false,
             'renewal_date' => null,
             'brand' => null,
             'last4' => null,
@@ -251,6 +260,25 @@ class BillingTest extends TestCase
         ]);
 
         Log::shouldHaveReceived('warning')->once();
+    }
+
+    public function test_payment_method_does_not_swallow_a_failure_that_is_not_the_rails(): void
+    {
+        [$user, $team] = $this->makeTeam();
+
+        // The other half of narrowing the catch, and the reason it was narrowed.
+        // A `RuntimeException` off this path is not an outage, it is a bug in our
+        // own code, and the blanket `Throwable` catch that used to swallow it is
+        // what let a real defect sit behind a 200 for months. It propagates now,
+        // and this test is what stops the catch being widened back.
+        $mockedTeam = Mockery::mock($team);
+        $mockedTeam->shouldReceive('defaultPaymentMethod')
+            ->andThrow(new RuntimeException('A bug in our own code.'));
+
+        $user->setRelation('currentTeam', $mockedTeam);
+        Sanctum::actingAs($user);
+
+        $this->getJson('/api/v1/billing/payment-method')->assertStatus(500);
     }
 
     public function test_billing_read_endpoints_require_authentication(): void

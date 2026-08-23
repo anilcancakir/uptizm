@@ -16,6 +16,7 @@ use Laravel\Cashier\Subscription;
 use Laravel\Sanctum\Sanctum;
 use Mockery;
 use Stripe\Checkout\Session as StripeCheckoutSession;
+use Stripe\Exception\ApiConnectionException;
 use Tests\TestCase;
 
 /**
@@ -527,6 +528,63 @@ class BillingControllerTest extends TestCase
                 "{$label} must not pass a stored manage url through",
             );
         }
+    }
+
+    /**
+     * The two failures `paymentMethod()` must tell apart: a Stripe outage
+     * versus a team that genuinely has no card on file. Before `available`
+     * existed the two bodies were byte-identical, so a single-path test
+     * could not fail for the right reason; this drives both against one
+     * team and asserts the bodies DIFFER, then checks each `available`
+     * value and that the four original card fields kept their names.
+     */
+    public function test_payment_method_tells_a_stripe_outage_apart_from_no_card_on_file(): void
+    {
+        [$user, $team] = $this->makeTeam();
+
+        $mockedTeamWithNoCard = Mockery::mock($team);
+        $mockedTeamWithNoCard->shouldReceive('defaultPaymentMethod')
+            ->once()
+            ->andReturn(null);
+
+        $user->setRelation('currentTeam', $mockedTeamWithNoCard);
+        Sanctum::actingAs($user);
+
+        $noCardResponse = $this->getJson('/api/v1/billing/payment-method');
+
+        $noCardResponse->assertOk();
+        $noCardResponse->assertExactJson([
+            'available' => true,
+            'renewal_date' => null,
+            'brand' => null,
+            'last4' => null,
+            'exp_month' => null,
+            'exp_year' => null,
+        ]);
+
+        $mockedTeamDuringOutage = Mockery::mock($team);
+        $mockedTeamDuringOutage->shouldReceive('defaultPaymentMethod')
+            ->once()
+            ->andThrow(new ApiConnectionException('Could not connect to Stripe.'));
+
+        $user->setRelation('currentTeam', $mockedTeamDuringOutage);
+        Sanctum::actingAs($user);
+
+        $outageResponse = $this->getJson('/api/v1/billing/payment-method');
+
+        $outageResponse->assertOk();
+        $outageResponse->assertExactJson([
+            'available' => false,
+            'renewal_date' => null,
+            'brand' => null,
+            'last4' => null,
+            'exp_month' => null,
+            'exp_year' => null,
+        ]);
+
+        // The whole point of the step: the two bodies must not be
+        // byte-identical, which they were before `available` existed.
+        $this->assertNotEquals($noCardResponse->json(), $outageResponse->json());
     }
 
     public function test_billing_is_isolated_per_team(): void

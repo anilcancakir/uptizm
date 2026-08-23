@@ -23,8 +23,8 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Laravel\Cashier\PaymentMethod;
+use Stripe\Exception\ApiErrorException;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
-use Throwable;
 
 /**
  * Team-scoped billing endpoints: JSON checkout/swap/cancel/portal plus the
@@ -358,9 +358,20 @@ class BillingController extends Controller
      * Return the current team's default card and renewal date.
      *
      * This is the ONLY Stripe-live billing endpoint and it is kept off the
-     * entitlement hot path. On any Stripe failure it soft-fails: the error is
-     * logged and every field returns null with a 200, so a Stripe outage
-     * degrades this one card instead of 500-ing the whole billing screen.
+     * entitlement hot path. It soft-fails on a Stripe API error only: the
+     * error is logged and the four card fields return null with a 200, so a
+     * Stripe outage degrades this one card instead of 500-ing the whole
+     * billing screen. Any other exception propagates, because folding an
+     * unrelated bug into the same 200 would hide it behind an outage that
+     * never happened.
+     *
+     * `available` is the field that lets the two failure shapes be told
+     * apart on the wire: `false` means the rail could not be asked (this
+     * catch fired), `true` with the four card fields null means the rail
+     * answered and there is genuinely no card on file. Before this field
+     * the two bodies were byte-identical, so a Stripe outage read to the
+     * client as "no card", and the client had to reconstruct the
+     * difference from `manage_via` instead of being told directly.
      */
     public function paymentMethod(Request $request): JsonResponse
     {
@@ -383,19 +394,24 @@ class BillingController extends Controller
                 : null;
 
             return response()->json([
+                'available' => true,
                 'renewal_date' => $renewalDate?->toIso8601String(),
                 'brand' => $card?->brand,
                 'last4' => $card?->last4,
                 'exp_month' => $card?->exp_month,
                 'exp_year' => $card?->exp_year,
             ]);
-        } catch (Throwable $exception) {
+        } catch (ApiErrorException $exception) {
+            // `ApiConnectionException` extends `ApiErrorException`, so a
+            // downed network or a bad TLS certificate is caught here too;
+            // this is the only outage shape this endpoint soft-fails on.
             Log::warning('Failed to read the team payment method from Stripe.', [
                 'team_id' => $team->id,
                 'exception' => $exception->getMessage(),
             ]);
 
             return response()->json([
+                'available' => false,
                 'renewal_date' => null,
                 'brand' => null,
                 'last4' => null,
