@@ -345,11 +345,20 @@ class WriteTeamEntitlement
      *
      * The real reason the divergence is safe HERE is a feeder invariant, not a
      * guard: no feeder in this application can produce a non-granting status
-     * together with a non-null plan. Both revocation paths write `plan: null`
-     * (which ranks as a downgrade), the invoice re-affirmation hardcodes an
-     * active status, and every status word the store rail maps grants. So the
-     * case is unreachable rather than guarded, exactly as rule 2b's own docblock
-     * admits about the convention it leans on.
+     * together with a non-null plan. Enumerated, because an auditor re-deriving
+     * this has to check all four rather than the two an earlier draft of this
+     * paragraph named. Every revocation writes `plan: null`, which ranks as a
+     * downgrade and is caught by `revokes()` alone: twice in
+     * `StripeWebhookController`, once in `SyncRevenueCatEntitlement` through its
+     * revoked-status path, and once in `ReconcileBillingEntitlements`, which that
+     * earlier draft left out entirely. The remaining writes all carry a
+     * granting status: the invoice re-affirmation hardcodes an active one, and
+     * the store rail's `grantingStatus()` maps only granting cases. Its sibling
+     * `revokedStatus()` does map Paused, Canceled and Expired, and those are
+     * exactly the calls that pass a null plan, which is why the invariant holds
+     * rather than in spite of them. So the case is unreachable rather than
+     * guarded, exactly as rule 2b's own docblock admits about the convention it
+     * leans on.
      *
      * The packaged copy in `magic-starter-laravel` DOES widen rule 2 to this
      * predicate, deliberately, because a consumer's feeder is not bound by that

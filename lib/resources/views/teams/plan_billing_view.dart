@@ -852,9 +852,15 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     // length, straight from the consumer's catalogue, so at phone width the
     // sentence and the pill cannot always share a line. A flex `WDiv` leaves its
     // main-axis size ambiguous and overflows there; the Wrap drops the pill to
-    // its own run. `truncate` is the last resort for one id longer than a whole
-    // line, and it needs no `flex-1`, which is not how Wind hands a Row child a
-    // share of the main axis.
+    // its own run.
+    //
+    // No `truncate` on the sentence, deliberately. Wind maps that token to
+    // `maxLines: 1` with `softWrap: false`, which is unconditional rather than a
+    // last resort, and a Wrap already hands its child a bounded width, so the
+    // sentence soft-wraps to a second line on its own. Clipping it instead would
+    // cut the Turkish string `:id planı, ayrıntılar kullanılamıyor` before its
+    // verb, which is a failure this app has recorded before: a localised sentence
+    // is not a label and cannot be shortened from the right.
     return Wrap(
       spacing: 8,
       runSpacing: 4,
@@ -864,7 +870,7 @@ class _PlanBillingViewState extends State<PlanBillingView> {
           trans('uptizm.teams.billing_plan_unavailable_text', {
             'id': heldPlanId,
           }),
-          className: 'text-sm text-fg-muted truncate',
+          className: 'text-sm text-fg-muted',
         ),
         MSBadge(
           trans('uptizm.teams.billing_plan_current_badge'),

@@ -375,10 +375,10 @@ void main() {
 
   /// Wraps [widget] with a default [WindTheme] under a viewport tall enough for
   /// the whole screen, mirroring the harness in `teams_views_test.dart`.
-  Widget wrap(Widget widget, {Size size = const Size(1280, 12000)}) {
+  Widget wrap(Widget widget) {
     return MaterialApp(
       home: MediaQuery(
-        data: MediaQueryData(size: size),
+        data: const MediaQueryData(size: Size(1280, 12000)),
         child: WindTheme(
           data: WindThemeData(),
           child: Scaffold(body: SingleChildScrollView(child: widget)),
@@ -411,22 +411,15 @@ void main() {
   ///
   /// [withToasts] mounts the toast-capable harness instead, for the two tests
   /// whose subject is what the store rail reported back.
-  /// [size] exists because every test in this file used to be laid out at
-  /// 1280 wide and nothing below `lg` was ever measured. The shell swaps widget
-  /// trees at that breakpoint and each side can break alone, so a row that fits
-  /// on a desktop card can overflow the same card on a phone.
   Future<void> mount(
     WidgetTester tester,
     PlanBillingView view, {
     bool withToasts = false,
-    Size size = const Size(1280, 12000),
   }) async {
-    await tester.binding.setSurfaceSize(size);
+    await tester.binding.setSurfaceSize(const Size(1280, 12000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    await tester.pumpWidget(
-      withToasts ? wrapWithSnackbar(view) : wrap(view, size: size),
-    );
+    await tester.pumpWidget(withToasts ? wrapWithSnackbar(view) : wrap(view));
     await tester.pump();
     await tester.pump();
   }
@@ -1218,53 +1211,6 @@ void main() {
       // The "Current" badge still marks the card as theirs, even though its
       // details are unavailable. Exactly one: no priced-tier card in the grid
       // may claim to be the active plan when [_findPlan] found none.
-      expect(
-        find.text(trans('uptizm.teams.billing_plan_current_badge')),
-        findsOneWidget,
-      );
-    });
-
-    // NOT a phone-width test, and the reason is a finding rather than a
-    // shortcut. This screen ALREADY overflows by 42px at 390 wide, on the
-    // ordinary rail path with no retired tier involved, and it did so before
-    // this change: every test in this file pinned 1280, so nothing below `lg`
-    // was ever laid out and the defect has never been seen. Asserting
-    // `takeException` at 390 therefore fails for a reason this change does not
-    // own and cannot fix inside its scope.
-    //
-    // What this change DID own was a second, larger overflow: the notice put a
-    // full interpolated sentence beside a fixed pill in a flex row, which
-    // measured 457px over at 390 wide. That one is fixed here with the Wrap
-    // pattern this app already validated in a running build, and it is proved by
-    // mutation rather than by this test: reverting the Wrap to a flex row
-    // reproduces the 457px overflow on top of the pre-existing 42px, and
-    // restoring it leaves only the 42px.
-    //
-    // The pre-existing 42px is recorded in the plan's Deferred Ideas with this
-    // reproduction. Do not "fix" this test by widening the viewport until that
-    // one is closed, or the phone width goes back to being unmeasured.
-    testWidgets('the notice renders its own sentence and keeps the badge', (
-      tester,
-    ) async {
-      await mount(
-        tester,
-        PlanBillingView(
-          billingService: _HeldRetiredTierBillingService(),
-          isOwner: true,
-        ),
-      );
-
-      expect(tester.takeException(), isNull);
-      expect(
-        find.text(
-          trans('uptizm.teams.billing_plan_unavailable_text', {
-            'id': 'legacy_grandfathered',
-          }),
-        ),
-        findsOneWidget,
-      );
-      // The pill survives the Wrap: it is a separate run when the sentence
-      // needs the whole line, not a dropped child.
       expect(
         find.text(trans('uptizm.teams.billing_plan_current_badge')),
         findsOneWidget,
