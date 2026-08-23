@@ -82,6 +82,13 @@ class StoreSubscriptionGuardedDeleteTeam extends DeleteTeam
      * a guard on the rail alone would refuse to delete every team that ever
      * bought in a store, forever.
      *
+     * The tier half goes through {@see Team::entitledPlan()} on purpose. A
+     * revoked team now stores NULL rather than `'free'`, and that reader answers
+     * `Plan::Free` for both, so a team the store stopped billing is deletable
+     * whichever of the two shapes its row carries. Reading the raw column here
+     * would have to say what a NULL means all over again, and get the same
+     * answer.
+     *
      * It is `public static` and read from {@see BillingController} as well, which
      * is deliberate rather than convenient: that endpoint asks the same question
      * of the caller's OTHER teams, and two copies of "a store is billing this

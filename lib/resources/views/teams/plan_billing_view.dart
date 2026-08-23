@@ -385,8 +385,10 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   bool _pmError = false;
 
   /// The active plan, resolved from [_currentPlanId]; `null` while [_plans]
-  /// is still empty (loading, or the catalog fetch failed) or while
-  /// [_currentPlanId] itself has not resolved yet.
+  /// is still empty (loading, or the catalog fetch failed), while
+  /// [_currentPlanId] itself has not resolved yet, or when [_currentPlanId]
+  /// names a tier [_plans] no longer serves (see [_findPlan]): a customer
+  /// grandfathered on a retired tier.
   Plan? get _current {
     final String? planId = _currentPlanId;
     if (_plans.isEmpty || planId == null) return null;
@@ -653,7 +655,11 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     final Plan? target = _plans
         .where((Plan plan) => plan.id == requested)
         .firstOrNull;
-    if (target == null || _direction(target) <= 0) return;
+    // A `null` direction means the held tier is unrankable (absent from the
+    // catalogue), so there is no confirmed upgrade to open; refusing here is
+    // the same "no fallback" answer [_ctaLabel] renders for the same state.
+    final int? direction = target == null ? null : _direction(target);
+    if (target == null || direction == null || direction <= 0) return;
 
     _upgradeRequestHandled = true;
     _consumedUpgradeIntent = token;
@@ -758,19 +764,25 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// Builds the current-plan [Card]: name + "Current" badge, the renewal line,
   /// and a responsive two-column grid of [UsageMeter]s over the fetched usage
   /// stats. Renders a loading skeleton in place of the name/badge/renewal
-  /// block while [_current] is `null` (the plan catalog has not resolved yet,
-  /// its fetch failed, or the live entitlement itself has not resolved), so
-  /// no plan name or "Current" claim is ever shown before it is confirmed.
-  /// The usage grid does not depend on [_current] (usage stats are not
-  /// plan-scoped) and renders as soon as [_usage] itself resolves.
+  /// block while still resolving (the plan catalog has not resolved yet, its
+  /// fetch failed, or the live entitlement itself has not resolved), so no
+  /// plan name or "Current" claim is ever shown before it is confirmed. Once
+  /// resolved, [_currentPlanId] naming a tier [_plans] no longer serves gets
+  /// [_buildHeldPlanUnavailableNotice] instead of a real plan's name: the
+  /// defect this replaces showed a grandfathered customer another tier's name,
+  /// price and features as their own. The usage grid does not depend on
+  /// either state (usage stats are not plan-scoped) and renders as soon as
+  /// [_usage] itself resolves.
   Widget _buildCurrentPlanCard() {
+    final String? planId = _currentPlanId;
+    final bool resolving = _plans.isEmpty || planId == null;
     final Plan? current = _current;
 
     return MSCard(
       child: WDiv(
         className: 'flex flex-col gap-5',
         children: [
-          if (current == null)
+          if (resolving)
             const WDiv(
               className: 'flex flex-col gap-1',
               children: [
@@ -778,6 +790,8 @@ class _PlanBillingViewState extends State<PlanBillingView> {
                 MSSkeleton(height: 16, width: 220),
               ],
             )
+          else if (current == null)
+            _buildHeldPlanUnavailableNotice(planId)
           else
             WDiv(
               className: 'flex flex-col gap-1',
@@ -821,6 +835,48 @@ class _PlanBillingViewState extends State<PlanBillingView> {
           ),
         ],
       ),
+    );
+  }
+
+  /// The current-plan name/badge row for a tier [_plans] no longer serves:
+  /// names the held tier id and says its details are unavailable, rather than
+  /// falling back to the catalogue's cheapest entry. Mirrors the rule
+  /// `WriteTeamEntitlement.tierRank()` states server-side: an unrankable tier
+  /// has no direction and is never treated as the cheapest one.
+  Widget _buildHeldPlanUnavailableNotice(String heldPlanId) {
+    // A Wrap rather than a flex row, copying the pattern this app already
+    // validated for the same shape at
+    // `lib/ui/components/notification_center/notification_center.dart:350`. The
+    // sibling branch above puts a plan NAME beside the pill and gets away with a
+    // row because a name is one word; this branch interpolates a tier id of any
+    // length, straight from the consumer's catalogue, so at phone width the
+    // sentence and the pill cannot always share a line. A flex `WDiv` leaves its
+    // main-axis size ambiguous and overflows there; the Wrap drops the pill to
+    // its own run.
+    //
+    // No `truncate` on the sentence, deliberately. Wind maps that token to
+    // `maxLines: 1` with `softWrap: false`, which is unconditional rather than a
+    // last resort, and a Wrap already hands its child a bounded width, so the
+    // sentence soft-wraps to a second line on its own. Clipping it instead would
+    // cut the Turkish string `:id planı, ayrıntılar kullanılamıyor` before its
+    // verb, which is a failure this app has recorded before: a localised sentence
+    // is not a label and cannot be shortened from the right.
+    return Wrap(
+      spacing: 8,
+      runSpacing: 4,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        WText(
+          trans('uptizm.teams.billing_plan_unavailable_text', {
+            'id': heldPlanId,
+          }),
+          className: 'text-sm text-fg-muted',
+        ),
+        MSBadge(
+          trans('uptizm.teams.billing_plan_current_badge'),
+          tone: BadgeTone.primary,
+        ),
+      ],
     );
   }
 
@@ -1662,7 +1718,11 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     final WebBillingService? web = _web;
     if (web == null) return;
 
-    final bool isUpgrade = _direction(plan) > 0;
+    // An unrankable direction (the held tier is absent from the catalogue)
+    // reads as a plan switch rather than an upgrade: the toast is copy on an
+    // already-completed purchase, not a claim about the tier's position.
+    final int? direction = _direction(plan);
+    final bool isUpgrade = direction != null && direction > 0;
     try {
       await web.checkout(
         plan: plan.id,
@@ -1777,7 +1837,10 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// tier or an upgrade/downgrade target, so every priced tier falls back to
   /// the neutral "View plan" label instead (the custom tier still reads
   /// "Contact sales", since that copy never depended on the current plan).
-  /// Mirrors the React `ctaLabel`.
+  /// Once resolved, a [_currentPlanId] [_plans] no longer serves makes
+  /// [_direction] unrankable, so every priced tier falls back to a second
+  /// neutral label rather than claiming Upgrade or Downgrade against a tier
+  /// with no known position. Mirrors the React `ctaLabel`.
   String _ctaLabel(Plan plan) {
     if (plan.monthly == null) {
       return trans('uptizm.teams.billing_plan_button_contact');
@@ -1788,7 +1851,13 @@ class _PlanBillingViewState extends State<PlanBillingView> {
     if (plan.id == _currentPlanId) {
       return trans('uptizm.teams.billing_plan_button_current');
     }
-    return _direction(plan) > 0
+
+    final int? direction = _direction(plan);
+    if (direction == null) {
+      return trans('uptizm.teams.billing_plan_button_unranked');
+    }
+
+    return direction > 0
         ? trans('uptizm.teams.billing_plan_button_upgrade')
         : trans('uptizm.teams.billing_plan_button_downgrade');
   }
@@ -1799,10 +1868,27 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// never calls this until [_currentPlanId] is non-null. Mirrors the React
   /// `PLAN_ORDER.indexOf(plan.id) - PLAN_ORDER.indexOf(currentPlanId)`, against
   /// the live [_currentPlanId] rather than a fixture.
-  int _direction(Plan plan) {
+  ///
+  /// `null` when the direction cannot be decided: [_currentPlanId] names a
+  /// tier [_plans] no longer serves (a customer grandfathered on a retired
+  /// tier), so it has no rank to compare against. Mirrors the rule
+  /// `WriteTeamEntitlement.tierRank()` states server-side: an unrankable tier
+  /// has no direction rather than being treated as the cheapest one.
+  int? _direction(Plan plan) {
     final String? planId = _currentPlanId;
     if (planId == null) return 0;
-    return _planIndex(plan.id) - _planIndex(planId);
+
+    final int? currentIndex = _planIndex(planId);
+    if (currentIndex == null) return null;
+
+    // [plan] is always sourced from [_plans] (the grid, or the `?upgrade=`
+    // catalogue lookup in [_startRequestedUpgrade]), so its own index always
+    // resolves; kept explicit rather than asserted, since a defensive read
+    // costs nothing here.
+    final int? planIndex = _planIndex(plan.id);
+    if (planIndex == null) return null;
+
+    return planIndex - currentIndex;
   }
 
   // ---------------------------------------------------------------------------
@@ -1892,17 +1978,24 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   // Plan lookup
   // ---------------------------------------------------------------------------
 
-  /// The index of the plan with [id] in [_plans], or `0` when not found.
-  int _planIndex(String id) {
+  /// The index of the plan with [id] in [_plans], or `null` when [id] is
+  /// absent from the catalogue: a tier this team is grandfathered on that the
+  /// backend no longer serves. Mirrors the rule `WriteTeamEntitlement
+  /// .tierRank()` states server-side (an unrankable tier has no direction),
+  /// rather than falling back to index `0`, which used to show the customer
+  /// another tier's name, price and features as their own.
+  int? _planIndex(String id) {
     for (int i = 0; i < _plans.length; i++) {
       if (_plans[i].id == id) return i;
     }
-    return 0;
+    return null;
   }
 
-  /// The plan with [id] in [_plans], or `_plans.first` when not found. Only
-  /// called once [_plans] is non-empty (see [_current]).
-  Plan _findPlan(String id) {
-    return _plans[_planIndex(id)];
+  /// The plan with [id] in [_plans], or `null` when [id] is absent from the
+  /// catalogue (see [_planIndex]). Only called once [_plans] is non-empty
+  /// (see [_current]).
+  Plan? _findPlan(String id) {
+    final int? index = _planIndex(id);
+    return index == null ? null : _plans[index];
   }
 }

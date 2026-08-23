@@ -6,6 +6,7 @@ use App\Actions\Billing\WriteTeamEntitlement;
 use App\Enums\BillingProvider;
 use App\Enums\Plan;
 use App\Enums\PlanStatus;
+use App\Models\ProcessedWebhookEvent;
 use App\Models\Team;
 use App\Services\Billing\RevenueCatClient;
 use App\Support\Billing\EntitlementWrite;
@@ -19,6 +20,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
+use Throwable;
 
 /**
  * The store rail's feeder for the team entitlement column.
@@ -70,6 +72,12 @@ use RuntimeException;
  * and the write action drops any claim whose event is not strictly newer than
  * the one already on record for the same rail. A second mechanism here would
  * only be a second thing to get wrong.
+ *
+ * What this job DOES own is releasing that claim when it dies permanently
+ * ({@see self::failed()}). That is not a second dedup mechanism; it is the one
+ * thing the endpoint cannot do, because it commits the claim minutes before the
+ * work is attempted and its own retry budget is spent long before RevenueCat
+ * stops redelivering.
  */
 class SyncRevenueCatEntitlement implements ShouldQueue
 {
@@ -87,6 +95,22 @@ class SyncRevenueCatEntitlement implements ShouldQueue
      * supervisor is a job that dispatches successfully and never runs.
      */
     public const string QUEUE = 'default';
+
+    /**
+     * The namespace the store rail's event ids are claimed under.
+     *
+     * `ProcessedWebhookEvent.event_id` is ONE unique column serving two senders
+     * whose id spaces are unrelated, and the prefix is what keeps a Stripe id
+     * from turning a real store delivery into a permanent no-op.
+     *
+     * `RevenueCatWebhookController` spells the same prefix inline at its claim,
+     * so the two could drift, and it is not imported here to say so: a job has
+     * no business depending on a controller. What keeps them agreeing is the
+     * redelivery test, which claims through the ENDPOINT and then asserts the
+     * release reached the row the endpoint wrote, rather than a key a test
+     * invented.
+     */
+    protected const string CLAIM_PREFIX = 'rc:';
 
     /**
      * RevenueCat abandons a delivery after five attempts inside about three
@@ -170,6 +194,61 @@ class SyncRevenueCatEntitlement implements ShouldQueue
                 $writeEntitlement($claim);
             }
         }
+    }
+
+    /**
+     * Release the event id this delivery claimed, so a REDELIVERY is processed
+     * rather than acknowledged as a no-op.
+     *
+     * The endpoint claims the id and dispatches inside one transaction, which is
+     * the right shape for a queue that refuses the job: the claim rolls back
+     * with the dispatch. But the work happens later, and the budget above
+     * ({@see self::$tries} with {@see self::backoff()}) is spent inside about six
+     * minutes, well inside RevenueCat's 5/10/20/40/80-minute retry schedule. So
+     * without this every remaining delivery of the same id answers 200 having
+     * done nothing, and a dropped `INITIAL_PURCHASE` is the failure this rail
+     * cannot recover from on its own: the store will not resell what the
+     * customer already owns.
+     *
+     * Releasing is safe BY CONSTRUCTION rather than by luck. This job is a
+     * re-read-and-claim: nothing is taken from the event but identity and
+     * ordering, and {@see WriteTeamEntitlement} drops any claim not strictly
+     * newer than what is already on record for the same rail. So a second
+     * processing of the same event converges instead of double-applying, which
+     * is the property that makes releasing the dedup row cheaper than keeping a
+     * burnt one.
+     *
+     * The exception is not handled here. This releases and returns; the failure
+     * stays failed and stays recorded in `failed_jobs`.
+     */
+    public function failed(?Throwable $exception): void
+    {
+        $eventId = $this->event['id'] ?? null;
+
+        // Narrowed rather than trusted: the endpoint only claims an id it has
+        // already read as a non-empty string, so anything else here means no
+        // claim was ever made and there is nothing to release.
+        if (! is_string($eventId) || trim($eventId) === '') {
+            return;
+        }
+
+        // VERBATIM, never trimmed: the endpoint claims `prefix . id` with the id
+        // exactly as the payload spelled it, so trimming here would look for a
+        // key nothing wrote and leave a padded id burnt. `appUserIds()` trims for
+        // the opposite reason, and the two must not be made to match.
+        $released = ProcessedWebhookEvent::query()
+            ->where('event_id', self::CLAIM_PREFIX.$eventId)
+            ->delete();
+
+        $this->warn(
+            'released_burnt_event_id',
+            'A RevenueCat re-read failed permanently; its claimed event id is released so a '
+            .'redelivery is processed instead of acknowledged as a no-op.',
+            [
+                'exception' => $exception === null ? null : $exception::class,
+                'released' => $released,
+            ],
+        );
     }
 
     /**
@@ -520,7 +599,10 @@ class SyncRevenueCatEntitlement implements ShouldQueue
 
         return new EntitlementWrite(
             team: $team,
-            plan: Plan::Free,
+            // No tier: the authoritative read found nothing live, so the store
+            // owes this team nothing. Naming `free` here would claim the store
+            // sold them the cheapest tier, which no store event ever says.
+            plan: null,
             status: $this->revokedStatus($latest),
             provider: $provider,
             eventAt: $this->eventAt(),
@@ -850,7 +932,8 @@ class SyncRevenueCatEntitlement implements ShouldQueue
     }
 
     /**
-     * Report a decision not to write, with the reason and the event behind it.
+     * Report a decision not to write, or the release of a burnt claim
+     * ({@see self::failed()}), with the reason and the event behind it.
      *
      * Warning level for every case, because each one means a paying customer's
      * entitlement did not move when a store said something about it. The

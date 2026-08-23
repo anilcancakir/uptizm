@@ -6,6 +6,7 @@ use App\Enums\BillingProvider;
 use App\Enums\Plan;
 use App\Enums\PlanStatus;
 use App\Jobs\SyncRevenueCatEntitlement;
+use App\Models\ProcessedWebhookEvent;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\Billing\RevenueCatClient;
@@ -15,11 +16,15 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\Client\RequestException;
+use Illuminate\Queue\MaxAttemptsExceededException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
+use Illuminate\Testing\TestResponse;
 use Tests\Support\LoopbackHttpServer;
+use Tests\Support\RawWebhookRequest;
 use Tests\TestCase;
 
 /**
@@ -80,6 +85,23 @@ class SyncRevenueCatEntitlementTest extends TestCase
     protected const APP_STORE_BUSINESS = 'uptizm_business_monthly';
 
     protected const PLAY_PRO = 'uptizm_pro:monthly';
+
+    /**
+     * The signing secret the two redelivery tests sign with. A fake value: the
+     * endpoint refuses a delivery it cannot authenticate, and no real secret
+     * belongs in a public repository.
+     */
+    protected const string WEBHOOK_SECRET = 'rcwhsec_test_secret';
+
+    /**
+     * The path the store rail's endpoint is registered at.
+     *
+     * Spelled out because the two tests below claim the event id THROUGH the
+     * endpoint rather than by writing the dedup row themselves: the prefixed
+     * key is the controller's own spelling, so a release keyed differently
+     * fails here instead of passing against a key the test invented.
+     */
+    protected const string WEBHOOK_ROUTE = 'webhooks/revenuecat';
 
     protected function setUp(): void
     {
@@ -305,7 +327,10 @@ class SyncRevenueCatEntitlementTest extends TestCase
 
         $team->refresh();
 
-        $this->assertSame(Plan::Free, $team->plan, 'An expired subscription kept its paid tier.');
+        // NULL rather than `free`: the authoritative read found nothing live, so
+        // the store owes this team nothing, which is not the same claim as
+        // selling it the cheapest tier.
+        $this->assertNull($team->plan, 'An expired subscription kept its paid tier.');
         $this->assertSame(PlanStatus::Canceled->value, $team->plan_status);
         $this->assertSame(BillingProvider::AppStore->value, $team->plan_provider);
         $this->assertSame('EXPIRATION', $team->plan_provider_status);
@@ -415,8 +440,7 @@ class SyncRevenueCatEntitlementTest extends TestCase
         $source->refresh();
         $destination->refresh();
 
-        $this->assertSame(
-            Plan::Free,
+        $this->assertNull(
             $source->plan,
             'The source team kept a tier whose subscription now funds another team.',
         );
@@ -630,7 +654,7 @@ class SyncRevenueCatEntitlementTest extends TestCase
 
         $team->refresh();
 
-        $this->assertSame(Plan::Free, $team->plan);
+        $this->assertNull($team->plan);
         $this->assertSame(BillingProvider::AppStore->value, $team->plan_provider);
     }
 
@@ -1087,6 +1111,123 @@ class SyncRevenueCatEntitlementTest extends TestCase
     }
 
     /**
+     * A sync that burns its whole retry budget releases the event id the
+     * webhook claimed.
+     *
+     * The endpoint claims the id and dispatches inside ONE transaction, which
+     * is the right shape for a queue that refuses the job. But the work happens
+     * later, and this job's budget (`$tries` with `backoff()`) is spent inside
+     * about six minutes while RevenueCat is still redelivering the same id at
+     * 5/10/20/40/80 minutes. Without a release, every remaining delivery
+     * answers 200 having done nothing, and a dropped `INITIAL_PURCHASE` is the
+     * one failure this rail cannot recover from on its own.
+     *
+     * THE SEAM IS THE WORKER, and that is the whole point of this test. Calling
+     * `failed()` from here would assert a method body while leaving the defect
+     * uncovered, because what was missing is that NOTHING invoked it. So the
+     * delivery goes through the endpoint, the re-read lands on the database
+     * queue as a row, its attempt count is spent, and `queue:work` is what
+     * raises `MaxAttemptsExceededException` and calls `failed()` itself.
+     *
+     * `Http::assertNothingSent()` pins the failure to the BUDGET rather than to
+     * a read: the worker refused the job before `handle()` ran, so the release
+     * is not a side effect of a failed authoritative call.
+     */
+    public function test_a_permanently_failed_sync_releases_the_event_id_the_webhook_claimed(): void
+    {
+        Log::spy();
+
+        Http::fake();
+
+        $event = $this->event('EXPIRATION', $this->makeTeam([
+            'plan' => Plan::Business->value,
+            'plan_status' => PlanStatus::Active->value,
+            'plan_provider' => BillingProvider::AppStore->value,
+            'plan_source_event_at' => $this->grantedAt(),
+            'plan_product_id' => self::APP_STORE_BUSINESS,
+        ]));
+
+        $this->deliverToTheWebhook($event)->assertOk();
+
+        $this->assertSame(
+            1,
+            ProcessedWebhookEvent::query()->count(),
+            'The delivery claimed no event id, so there is nothing for the release to be measured against.',
+        );
+
+        $this->exhaustTheRetryBudget();
+
+        $this->assertSame(
+            0,
+            ProcessedWebhookEvent::query()->count(),
+            'The burnt event id was not released, so every remaining RevenueCat delivery of it is a '
+            .'permanent no-op and the entitlement never moves.',
+        );
+
+        Http::assertNothingSent();
+
+        $this->assertSame(
+            1,
+            DB::table('failed_jobs')->count(),
+            'The release swallowed the failure: a released id has to stay a recorded failure as well.',
+        );
+
+        $this->assertWarned([
+            'reason' => 'released_burnt_event_id',
+            'event_id' => $event['id'],
+            'exception' => MaxAttemptsExceededException::class,
+        ]);
+    }
+
+    /**
+     * A redelivery of the same event id, after that permanent failure, queues
+     * the re-read again.
+     *
+     * Driven through the ENDPOINT on both deliveries rather than against the
+     * model: what has to be true is that
+     * {@see ProcessedWebhookEvent::recordIfNew()} answers "new" a second time,
+     * and asserting the row's absence would only restate the test above. This
+     * one measures the consequence RevenueCat's fourth attempt actually gets.
+     */
+    public function test_a_redelivery_after_a_permanent_failure_queues_the_re_read_again(): void
+    {
+        Http::fake();
+
+        $event = $this->event('EXPIRATION', $this->makeTeam([
+            'plan' => Plan::Business->value,
+            'plan_status' => PlanStatus::Active->value,
+            'plan_provider' => BillingProvider::AppStore->value,
+            'plan_source_event_at' => $this->grantedAt(),
+            'plan_product_id' => self::APP_STORE_BUSINESS,
+        ]));
+
+        $this->deliverToTheWebhook($event)->assertOk();
+
+        $this->assertSame(1, $this->queuedJobs(), 'The first delivery queued no re-read.');
+
+        $this->exhaustTheRetryBudget();
+
+        $this->assertSame(0, $this->queuedJobs(), 'The failed re-read is still on the queue.');
+
+        // RevenueCat's next attempt: the same event id, signed afresh.
+        $this->deliverToTheWebhook($event)->assertOk();
+
+        $this->assertSame(
+            1,
+            $this->queuedJobs(),
+            'The redelivery short-circuited on a claim nobody released, so the store rail answered 200 '
+            .'having done nothing.',
+        );
+
+        $this->assertSame(
+            1,
+            ProcessedWebhookEvent::query()->count(),
+            'The redelivery queued a re-read without claiming its event id, so the delivery after it '
+            .'would queue a second one.',
+        );
+    }
+
+    /**
      * Run one webhook event through the job the way the queue does, with the
      * client and the write action resolved from the container.
      *
@@ -1095,6 +1236,72 @@ class SyncRevenueCatEntitlementTest extends TestCase
     protected function sync(array $event): void
     {
         dispatch_sync(new SyncRevenueCatEntitlement($event));
+    }
+
+    /**
+     * Deliver one event to the store rail's endpoint, signed as RevenueCat
+     * signs it, with the queue on the DATABASE driver.
+     *
+     * The driver is the load-bearing half. `phpunit.xml` runs the suite on
+     * `sync`, where a dispatch is an inline call and there is no attempt count,
+     * no worker and therefore no `failed()` to invoke at all. On the database
+     * driver the re-read is a row a real worker reserves, which is the only
+     * shape in which the framework's own fail path can be exercised.
+     *
+     * @param  array<string, mixed>  $event
+     */
+    protected function deliverToTheWebhook(array $event): TestResponse
+    {
+        config([
+            'revenuecat.webhook_secret' => self::WEBHOOK_SECRET,
+            'queue.default' => 'database',
+        ]);
+
+        return RawWebhookRequest::withPayload(['api_version' => '1.0', 'event' => $event])
+            ->signedWith(self::WEBHOOK_SECRET, CarbonImmutable::now()->getTimestamp())
+            ->deliverTo($this, self::WEBHOOK_ROUTE);
+    }
+
+    /**
+     * Spend the queued re-read's whole retry budget, then let a real worker
+     * decide what that means.
+     *
+     * The budget is read out of the queued PAYLOAD rather than written as a
+     * literal `3`: it is the same `maxTries` the worker will compare against,
+     * so widening `$tries` cannot leave this fixture quietly one attempt short
+     * and start exercising `handle()` instead of the fail path. The reserve
+     * `queue:work` is about to make adds one attempt, so a row already at
+     * `maxTries` is a job whose last attempt has been made.
+     */
+    protected function exhaustTheRetryBudget(): void
+    {
+        $queued = DB::table('jobs')->first();
+
+        $this->assertNotNull($queued, 'Nothing is queued, so there is no retry budget to spend.');
+
+        $payload = (array) json_decode((string) $queued->payload, true, 512, JSON_THROW_ON_ERROR);
+        $maxTries = $payload['maxTries'] ?? null;
+
+        $this->assertIsInt(
+            $maxTries,
+            'The queued job publishes no retry budget, so the worker would run it rather than refuse it.',
+        );
+
+        DB::table('jobs')->where('id', $queued->id)->update(['attempts' => $maxTries]);
+
+        $this->artisan('queue:work', [
+            'connection' => 'database',
+            '--once' => true,
+            '--queue' => SyncRevenueCatEntitlement::QUEUE,
+        ])->assertExitCode(0);
+    }
+
+    /**
+     * How many jobs are waiting on the database queue.
+     */
+    protected function queuedJobs(): int
+    {
+        return DB::table('jobs')->count();
     }
 
     /**

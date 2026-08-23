@@ -1464,6 +1464,8 @@
       "billing_plan_button_downgrade": "Düşür",
       "billing_plan_button_contact": "Satışla iletişime geç",
       "billing_plan_button_unresolved": "Planı görüntüle",
+      "billing_plan_button_unranked": "Planı değiştir",
+      "billing_plan_unavailable_text": ":id planı, ayrıntılar kullanılamıyor",
       "billing_payment_header": "Ödeme yöntemi",
       "billing_payment_none": "Kayıtlı kart yok",
       "billing_payment_expires": "Son kullanma :date",

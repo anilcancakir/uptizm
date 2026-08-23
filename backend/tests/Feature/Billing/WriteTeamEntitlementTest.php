@@ -601,6 +601,101 @@ class WriteTeamEntitlementTest extends TestCase
     }
 
     /**
+     * A rail saying nothing is owed ranks BELOW every tier, so a cross-rail
+     * revocation is a DOWNGRADE and rule 2 drops it.
+     *
+     * This is the behaviour the old `Plan::Free` sentinel could not express. A
+     * revocation used to arrive naming the cheapest tier, so against a stored
+     * `free` it ranked SAME and slipped past rule 2, and against a catalogue
+     * that had never published a `free` row it ranked UNKNOWN, which reaches the
+     * same drop for a different reason and only by luck.
+     *
+     * The direction is asserted rather than only the drop, and that is the whole
+     * point of the test: reading an absent plan as UNRANKABLE instead of as
+     * lowest also drops this write, so a test that asserted nothing but
+     * `assertFalse` would pass with the ranking removed.
+     */
+    public function test_an_incoming_null_plan_ranks_below_every_tier_and_is_dropped_cross_rail(): void
+    {
+        Log::spy();
+
+        $grantedAt = CarbonImmutable::parse('2026-08-22 12:00:00');
+
+        $team = $this->makeTeam([
+            'plan' => Plan::Business->value,
+            'plan_status' => PlanStatus::Active->value,
+            'plan_provider' => BillingProvider::AppStore->value,
+            'plan_source_event_at' => $grantedAt,
+            'plan_product_id' => 'uptizm_business_monthly',
+        ]);
+
+        $applied = $this->write(new EntitlementWrite(
+            team: $team,
+            plan: null,
+            status: PlanStatus::Canceled,
+            provider: BillingProvider::Stripe,
+            eventAt: $grantedAt->addMinute(),
+            authoritative: true,
+            providerStatus: 'canceled',
+        ));
+
+        $this->assertFalse($applied);
+
+        $team->refresh();
+        $this->assertSame(Plan::Business, $team->plan);
+        $this->assertSame(BillingProvider::AppStore->value, $team->plan_provider);
+
+        $this->assertDropWasLogged($team, 'app_store', 'stripe', 'downgrade');
+    }
+
+    /**
+     * A team that holds NOTHING has nothing a write can take away, so the write
+     * applies, and quietly.
+     *
+     * The stored side of the same absence, and it is the half that has to be
+     * read differently: an incoming null is the lowest thing on the ladder,
+     * while a stored null is off the ladder entirely. Ranking it as UNKNOWN
+     * instead would send rule 2 through `revokes()`, which treats an unrankable
+     * direction as a revocation, and every cross-rail write against a team that
+     * holds nothing would be refused, including the purchase that grants it a
+     * tier for the first time.
+     *
+     * The silence is asserted for the same reason the positive control above
+     * asserts it: the cross-rail warning announces a double charge, and a team
+     * on no rail at all is not one.
+     */
+    public function test_an_incoming_null_plan_applies_to_a_team_that_holds_nothing(): void
+    {
+        Log::spy();
+
+        $team = $this->makeTeam([
+            'plan' => null,
+            'plan_status' => null,
+            'plan_provider' => null,
+            'plan_source_event_at' => null,
+        ]);
+
+        $applied = $this->write(new EntitlementWrite(
+            team: $team,
+            plan: null,
+            status: PlanStatus::Canceled,
+            provider: BillingProvider::Stripe,
+            eventAt: CarbonImmutable::parse('2026-08-22 12:00:00'),
+            authoritative: true,
+            providerStatus: 'canceled',
+        ));
+
+        $this->assertTrue($applied);
+
+        $team->refresh();
+        $this->assertNull($team->plan);
+        $this->assertSame(PlanStatus::Canceled->value, $team->plan_status);
+        $this->assertSame(BillingProvider::Stripe->value, $team->plan_provider);
+
+        Log::shouldNotHaveReceived('warning');
+    }
+
+    /**
      * Assert the drop was reported with every fact an operator needs to
      * reconstruct the decision: which team, both rails, both timestamps and
      * the direction the write would have moved the tier.

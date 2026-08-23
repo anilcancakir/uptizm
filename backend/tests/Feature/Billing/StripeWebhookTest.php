@@ -209,8 +209,12 @@ class StripeWebhookTest extends TestCase
      * `incomplete_expired`: an initial payment window that ran out is
      * {@see PlanStatus::Expired}. The rail's own word is not lost, it moves to
      * `plan_provider_status`, which gates nothing and exists for exactly this.
+     *
+     * The tier lands as NULL rather than as `free`. Stripe is saying it is
+     * billing nothing, and the column now says that instead of naming the
+     * cheapest tier on the rail's behalf.
      */
-    public function test_incomplete_expired_subscription_update_downgrades_to_free(): void
+    public function test_incomplete_expired_subscription_update_revokes_the_tier(): void
     {
         $team = $this->makeBillableTeam(['plan' => Plan::Pro->value, 'plan_status' => 'active']);
 
@@ -232,7 +236,7 @@ class StripeWebhookTest extends TestCase
         )->assertOk();
 
         $team->refresh();
-        $this->assertSame(Plan::Free, $team->plan);
+        $this->assertNull($team->plan);
         $this->assertSame(PlanStatus::Expired->value, $team->plan_status);
         $this->assertSame('incomplete_expired', $team->plan_provider_status);
     }
@@ -267,7 +271,7 @@ class StripeWebhookTest extends TestCase
         )->assertOk();
 
         $team->refresh();
-        $this->assertSame(Plan::Free, $team->plan);
+        $this->assertNull($team->plan);
         $this->assertSame(PlanStatus::None->value, $team->plan_status);
         $this->assertSame('a_status_stripe_added_later', $team->plan_provider_status);
     }
@@ -321,7 +325,7 @@ class StripeWebhookTest extends TestCase
             ->withArgs(fn (string $message, array $context): bool => ($context['reason'] ?? null) === 'stale');
     }
 
-    public function test_subscription_deleted_downgrades_the_team_to_free(): void
+    public function test_subscription_deleted_revokes_the_teams_tier(): void
     {
         $team = $this->makeBillableTeam();
 
@@ -341,7 +345,9 @@ class StripeWebhookTest extends TestCase
         )->assertOk();
 
         $team->refresh();
-        $this->assertSame(Plan::Free, $team->plan);
+        // NULL, not `free`: a deleted subscription owes nothing, and the column
+        // stopped naming a tier to say so.
+        $this->assertNull($team->plan);
         $this->assertSame('canceled', $team->plan_status);
         $this->assertSame('canceled', $team->plan_provider_status);
         $this->assertSame(BillingProvider::Stripe->value, $team->plan_provider);

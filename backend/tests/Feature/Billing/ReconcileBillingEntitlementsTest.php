@@ -164,7 +164,7 @@ class ReconcileBillingEntitlementsTest extends TestCase
 
         $team->refresh();
 
-        $this->assertSame(Plan::Free, $team->plan);
+        $this->assertNull($team->plan);
         $this->assertSame(PlanStatus::Expired->value, $team->plan_status);
         $this->assertSame(BillingProvider::AppStore->value, $team->plan_provider);
         $this->assertNull($team->plan_current_period_end);
@@ -177,7 +177,7 @@ class ReconcileBillingEntitlementsTest extends TestCase
             'changed' => ['plan', 'plan_status', 'plan_current_period_end', 'plan_renews'],
             'before.plan' => Plan::Business->value,
             'before.plan_status' => PlanStatus::Active->value,
-            'after.plan' => Plan::Free->value,
+            'after.plan' => null,
             'after.plan_status' => PlanStatus::Expired->value,
         ]);
     }
@@ -264,7 +264,7 @@ class ReconcileBillingEntitlementsTest extends TestCase
 
         $team->refresh();
 
-        $this->assertSame(Plan::Free, $team->plan);
+        $this->assertNull($team->plan);
         $this->assertSame($afterFirstRun['plan_status'], $team->plan_status);
         $this->assertSame($afterFirstRun['plan_provider'], $team->plan_provider);
         $this->assertTrue(
@@ -329,7 +329,7 @@ class ReconcileBillingEntitlementsTest extends TestCase
         $this->artisan('billing:reconcile')->assertExitCode(Command::FAILURE);
 
         $this->assertSame(Plan::Business, $unreadable->refresh()->plan);
-        $this->assertSame(Plan::Free, $drifted->refresh()->plan);
+        $this->assertNull($drifted->refresh()->plan);
     }
 
     /**
@@ -357,7 +357,7 @@ class ReconcileBillingEntitlementsTest extends TestCase
 
         $team->refresh();
 
-        $this->assertSame(Plan::Free, $team->plan);
+        $this->assertNull($team->plan);
         $this->assertSame(PlanStatus::Canceled->value, $team->plan_status);
         $this->assertSame(BillingProvider::Stripe->value, $team->plan_provider);
 
@@ -366,7 +366,7 @@ class ReconcileBillingEntitlementsTest extends TestCase
             'team_id' => $team->id,
             'rail' => 'stripe',
             'before.plan' => Plan::Business->value,
-            'after.plan' => Plan::Free->value,
+            'after.plan' => null,
         ]);
     }
 
@@ -467,6 +467,147 @@ class ReconcileBillingEntitlementsTest extends TestCase
     }
 
     /**
+     * The team every existing paying customer actually IS: `plan_provider` NULL.
+     *
+     * The provenance migration adds all eight columns nullable and backfills
+     * nothing on purpose, so on the day this command first ran against real data
+     * every paying team's provenance was NULL, and `whereIn` is satisfied by no
+     * NULL on either engine. The dropped `INITIAL_PURCHASE` this command exists
+     * to heal leaves the same NULL by construction, so the filter excluded
+     * exactly the rows the command was written for.
+     *
+     * A non-null `stripe_id` is the signal here, deliberately WITHOUT a
+     * subscription row, so this test pins the `stripe_id` half of the
+     * disjunction on its own. What proves the walk is the count the command
+     * reports plus the skip it logs: a team that was never selected reports
+     * neither.
+     */
+    public function test_a_null_provenance_team_with_a_stripe_customer_id_is_walked(): void
+    {
+        $team = $this->unprovenancedTeam();
+
+        Http::preventStrayRequests();
+
+        Log::spy();
+
+        $this->artisan('billing:reconcile')
+            ->expectsOutputToContain('Reconciled 1 team(s)')
+            ->assertExitCode(Command::SUCCESS);
+
+        $this->assertSame(Plan::Business, $team->refresh()->plan);
+
+        $this->assertWarnedOnce([
+            'reason' => 'no_local_subscription',
+            'team_id' => $team->id,
+            'rail' => 'stripe',
+        ]);
+    }
+
+    /**
+     * The skip reports the RAW column, so a revoked team does not read as `free`.
+     *
+     * This is the warning an operator sees most: it fires every run, forever, for
+     * a team carrying a `stripe_id` and no Cashier row, which is the shape the
+     * widened selection deliberately admits. Printing it through
+     * `Team::entitledPlan()` would collapse a NULL column to `free` and show a
+     * tier the team does not hold, in the one line most likely to be believed.
+     * `snapshot()` in this same command and `logDrop()` in the action both read
+     * the raw column, so three log paths agreeing is the point.
+     */
+    public function test_the_no_local_subscription_skip_reports_a_null_plan_as_null(): void
+    {
+        $team = $this->unprovenancedTeam(['plan' => null]);
+
+        Http::preventStrayRequests();
+
+        Log::spy();
+
+        $this->artisan('billing:reconcile')->assertExitCode(Command::SUCCESS);
+
+        $this->assertNull($team->refresh()->plan);
+
+        $this->assertWarnedOnce([
+            'reason' => 'no_local_subscription',
+            'team_id' => $team->id,
+            'stored_plan' => null,
+        ]);
+    }
+
+    /**
+     * The other half of the local signal, and the one that actually heals.
+     *
+     * `stripe_id` is NULL here, so the Cashier row is the only thing selecting
+     * the team, which is what keeps this test from passing through the arm the
+     * test above already pins. The row grants the business tier while the record
+     * says free, which is a paying customer stuck on the free tier: the exact
+     * state a dropped delivery leaves behind and the reason a widened selection
+     * is worth anything at all.
+     */
+    public function test_a_null_provenance_team_with_a_local_subscription_row_is_healed(): void
+    {
+        $team = $this->unprovenancedTeam([
+            'plan' => Plan::Free->value,
+            'plan_status' => PlanStatus::None->value,
+            'stripe_id' => null,
+        ]);
+
+        $this->makeSubscription($team);
+
+        Http::preventStrayRequests();
+
+        Log::spy();
+
+        $this->artisan('billing:reconcile')
+            ->expectsOutputToContain('Reconciled 1 team(s)')
+            ->assertExitCode(Command::SUCCESS);
+
+        $team->refresh();
+
+        $this->assertSame(Plan::Business, $team->plan);
+        $this->assertSame(PlanStatus::Active->value, $team->plan_status);
+        $this->assertSame(BillingProvider::Stripe->value, $team->plan_provider);
+
+        $this->assertWarnedOnce([
+            'reason' => 'entitlement_corrected',
+            'team_id' => $team->id,
+            'rail' => 'stripe',
+            'before.plan' => Plan::Free->value,
+            'after.plan' => Plan::Business->value,
+        ]);
+    }
+
+    /**
+     * NULL provenance is not on its own a reason to walk a team.
+     *
+     * Without a `stripe_id` and without a Cashier row there is nothing any rail
+     * can be asked about: the store rail has no local signal to select on at all
+     * (`app_user_id` only ever arrives on an event), and the Stripe rail reads
+     * the Cashier row that is absent. Walking such a team would put an hourly
+     * `no_local_subscription` warning against every team that never bought
+     * anything, which is the whole free tier.
+     *
+     * The count is the assertion rather than the untouched columns: a team with
+     * nothing to reconcile ends the run untouched whether it was walked or not,
+     * so asserting the columns would pass with the selection wide open.
+     */
+    public function test_a_null_provenance_team_with_no_local_billing_signal_is_never_walked(): void
+    {
+        $team = $this->unprovenancedTeam(['stripe_id' => null]);
+
+        Http::preventStrayRequests();
+
+        Log::spy();
+
+        $this->artisan('billing:reconcile')
+            ->expectsOutputToContain('Reconciled 0 team(s)')
+            ->assertExitCode(Command::SUCCESS);
+
+        $this->assertSame(Plan::Business, $team->refresh()->plan);
+
+        Log::shouldNotHaveReceived('warning');
+    }
+
+    /**
      * An operator-granted plan has no rail to re-read, so the reconciler must
      * not walk it at all. The operator IS the authority; there is nothing to
      * compare against and every possible comparison would revoke.
@@ -509,7 +650,7 @@ class ReconcileBillingEntitlementsTest extends TestCase
 
         $this->artisan('billing:reconcile', ['--team' => $target->id])->assertExitCode(Command::SUCCESS);
 
-        $this->assertSame(Plan::Free, $target->refresh()->plan);
+        $this->assertNull($target->refresh()->plan);
         $this->assertSame(Plan::Business, $bystander->refresh()->plan);
     }
 
@@ -576,6 +717,32 @@ class ReconcileBillingEntitlementsTest extends TestCase
             'plan_product_id' => self::STRIPE_PRICE_BUSINESS,
             'plan_current_period_end' => $this->now()->addMonth(),
             'plan_renews' => true,
+            ...$attributes,
+        ]);
+    }
+
+    /**
+     * A team holding the business tier with NO provenance at all, which is what
+     * every row on this table looked like before the first rail event landed.
+     *
+     * All eight provenance columns are NULL together rather than only
+     * `plan_provider`: they are written in one apply, so a row carrying a
+     * product id and no provider is a state no feeder can produce, and a fixture
+     * that invents one would test a shape production never has.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    protected function unprovenancedTeam(array $attributes = []): Team
+    {
+        return $this->makeTeam([
+            'plan' => Plan::Business->value,
+            'plan_status' => PlanStatus::Active->value,
+            'plan_provider' => null,
+            'plan_source_event_at' => null,
+            'plan_provider_status' => null,
+            'plan_product_id' => null,
+            'plan_current_period_end' => null,
+            'plan_renews' => null,
             ...$attributes,
         ]);
     }

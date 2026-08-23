@@ -1464,6 +1464,8 @@
       "billing_plan_button_downgrade": "Downgrade",
       "billing_plan_button_contact": "Contact sales",
       "billing_plan_button_unresolved": "View plan",
+      "billing_plan_button_unranked": "Change plan",
+      "billing_plan_unavailable_text": "Plan :id, details unavailable",
       "billing_payment_header": "Payment method",
       "billing_payment_none": "No card on file",
       "billing_payment_expires": "Expires :date",
