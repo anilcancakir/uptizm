@@ -844,14 +844,27 @@ class _PlanBillingViewState extends State<PlanBillingView> {
   /// `WriteTeamEntitlement.tierRank()` states server-side: an unrankable tier
   /// has no direction and is never treated as the cheapest one.
   Widget _buildHeldPlanUnavailableNotice(String heldPlanId) {
-    return WDiv(
-      className: 'flex flex-row items-center gap-2',
+    // A Wrap rather than a flex row, copying the pattern this app already
+    // validated for the same shape at
+    // `lib/ui/components/notification_center/notification_center.dart:350`. The
+    // sibling branch above puts a plan NAME beside the pill and gets away with a
+    // row because a name is one word; this branch interpolates a tier id of any
+    // length, straight from the consumer's catalogue, so at phone width the
+    // sentence and the pill cannot always share a line. A flex `WDiv` leaves its
+    // main-axis size ambiguous and overflows there; the Wrap drops the pill to
+    // its own run. `truncate` is the last resort for one id longer than a whole
+    // line, and it needs no `flex-1`, which is not how Wind hands a Row child a
+    // share of the main axis.
+    return Wrap(
+      spacing: 8,
+      runSpacing: 4,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         WText(
           trans('uptizm.teams.billing_plan_unavailable_text', {
             'id': heldPlanId,
           }),
-          className: 'text-sm text-fg-muted',
+          className: 'text-sm text-fg-muted truncate',
         ),
         MSBadge(
           trans('uptizm.teams.billing_plan_current_badge'),

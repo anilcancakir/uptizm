@@ -504,6 +504,36 @@ class ReconcileBillingEntitlementsTest extends TestCase
     }
 
     /**
+     * The skip reports the RAW column, so a revoked team does not read as `free`.
+     *
+     * This is the warning an operator sees most: it fires every run, forever, for
+     * a team carrying a `stripe_id` and no Cashier row, which is the shape the
+     * widened selection deliberately admits. Printing it through
+     * `Team::entitledPlan()` would collapse a NULL column to `free` and show a
+     * tier the team does not hold, in the one line most likely to be believed.
+     * `snapshot()` in this same command and `logDrop()` in the action both read
+     * the raw column, so three log paths agreeing is the point.
+     */
+    public function test_the_no_local_subscription_skip_reports_a_null_plan_as_null(): void
+    {
+        $team = $this->unprovenancedTeam(['plan' => null]);
+
+        Http::preventStrayRequests();
+
+        Log::spy();
+
+        $this->artisan('billing:reconcile')->assertExitCode(Command::SUCCESS);
+
+        $this->assertNull($team->refresh()->plan);
+
+        $this->assertWarnedOnce([
+            'reason' => 'no_local_subscription',
+            'team_id' => $team->id,
+            'stored_plan' => null,
+        ]);
+    }
+
+    /**
      * The other half of the local signal, and the one that actually heals.
      *
      * `stripe_id` is NULL here, so the Cashier row is the only thing selecting

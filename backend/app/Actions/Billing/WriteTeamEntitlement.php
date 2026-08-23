@@ -336,11 +336,26 @@ class WriteTeamEntitlement
      * still loses held for a downgrade and not for a cancellation. Access is
      * what is being arbitrated, so the tie-break asks about access.
      *
-     * Deliberately NOT folded into `revokes()`, which rule 2 also uses. Rule 2
-     * asks whether a rail may revoke what ANOTHER rail granted, and a cross-rail
-     * status change is already answered there by rule 2b's standing test.
-     * Widening the shared predicate would move rule 2's behaviour as a side
-     * effect of fixing rule 1b's.
+     * Deliberately NOT folded into `revokes()`, which rule 2 also uses, so rule 2
+     * still ranks TIERS only. An earlier version of this paragraph justified that
+     * by claiming rule 2b's standing test already answers a cross-rail status
+     * change, and that is FALSE: rule 2b honours an AUTHORITATIVE claim by
+     * design, so an authoritative cross-rail write carrying the same tier on a
+     * lapsed status passes both rules and lands.
+     *
+     * The real reason the divergence is safe HERE is a feeder invariant, not a
+     * guard: no feeder in this application can produce a non-granting status
+     * together with a non-null plan. Both revocation paths write `plan: null`
+     * (which ranks as a downgrade), the invoice re-affirmation hardcodes an
+     * active status, and every status word the store rail maps grants. So the
+     * case is unreachable rather than guarded, exactly as rule 2b's own docblock
+     * admits about the convention it leans on.
+     *
+     * The packaged copy in `magic-starter-laravel` DOES widen rule 2 to this
+     * predicate, deliberately, because a consumer's feeder is not bound by that
+     * invariant. Anyone pointing this application at the package must expect that
+     * difference, and anyone adding a feeder here that revokes without nulling
+     * the plan must widen rule 2 first.
      */
     protected function takesAccessAway(string $direction, EntitlementWrite $write, Team $team): bool
     {

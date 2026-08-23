@@ -379,7 +379,12 @@ class ReconcileBillingEntitlements extends Command
         // `incomplete_expired` branch deleted.
         if (! $subscription instanceof Subscription) {
             $this->skip($team, 'no_local_subscription', 'stripe', [
-                'stored_plan' => $team->entitledPlan()->value,
+                // The RAW column, matching `snapshot()` below and `logDrop()` in
+                // the action. `entitledPlan()` would print `free` over a NULL row,
+                // and this is the skip an operator sees most: it fires every run
+                // for a team carrying a `stripe_id` and no Cashier row, so a
+                // wrong value here is the one that gets believed.
+                'stored_plan' => $team->plan?->value,
             ]);
 
             return true;
