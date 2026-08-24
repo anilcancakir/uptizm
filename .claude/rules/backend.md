@@ -54,16 +54,13 @@ Run it per rule: two rules matching one file is the overlap this enumeration exi
 
 It is built on `fluttersdk/magic-starter-laravel`, resolved from Packagist at a pinned version (`^0.0.5`). That package's conventions (teams, 2FA, Sanctum tokens, contract-action overrides, UUID-optional migrations) are authoritative for the auth and team surface, so they are not restated here.
 
-The dependency used to be a symlinked `path` repository to `../../magic-starter-laravel`. It is not any more, because a path repo writes a `"type": "path"` entry into `composer.lock` that no other machine can install, which broke `composer install` on the server. To develop both repos together, add the path repo locally and revert it before committing:
+The dependency used to be a symlinked `path` repository to `../../magic-starter-laravel`. It is not any more, because a path repo writes a `repositories` block into `composer.json` and a `"type": "path"` entry into `composer.lock`, both tracked, and neither installs on a machine without the sibling beside it: Composer throws rather than falling back. CI clones no siblings and the deploy runs `composer install` from those same two files on the box, so committing it breaks both, and it broke the server once already.
 
-```bash
-composer config repositories.magic-starter path ../../magic-starter-laravel
-# work, then:
-composer config --unset repositories.magic-starter
-composer update fluttersdk/magic-starter-laravel
-```
+To develop both repos together, run `bin/link-siblings`. It symlinks `backend/vendor/fluttersdk/*` at the local checkouts and leaves every tracked file alone, which is the same shape the Dart half gets from a gitignored `pubspec_overrides.yaml`. `--status` reports what is linked and **which branch** the sibling is on, because a linked sibling serves whatever is checked out over there and a local green run against an unmerged branch is not the answer an adopter gets. `--off` restores the published version.
 
-Prefer tagging and publishing the sibling instead: its releases are cheap (`0.0.x` tags) and a published version keeps the lock portable.
+Its one limit is named in its output rather than left to be discovered: `composer.lock` still describes the PUBLISHED version's dependency graph, so a `require` the local checkout has added is not in `vendor/` and would fatal at runtime. The link step diffs the two and says so.
+
+Prefer tagging and publishing the sibling when the work is done: its releases are cheap (`0.0.x` tags) and a published version needs no local wiring at all.
 
 ## Stack
 

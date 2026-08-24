@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+#
+# Points the backend's fluttersdk dependencies at their local checkouts, without
+# touching a tracked file.
+#
+# Usage:
+#   bin/link-siblings           link every fluttersdk package to ../<pkg>
+#   bin/link-siblings --status  report what is linked and what is installed
+#   bin/link-siblings --off     unlink and restore the published versions
+#
+# ## Why this exists rather than a Composer path repository
+#
+# The Dart half already has a clean answer: `pubspec.yaml` stays on the tracked
+# `path: ../<pkg>` entries and a gitignored `pubspec_overrides.yaml` carries the
+# local wiring, so nothing a developer needs locally can be committed by
+# accident. The PHP half had no equivalent. Wiring it the documented way
+#
+#     composer config repositories.magic-starter path ../../magic-starter-laravel
+#     composer require "fluttersdk/magic-starter-laravel:dev-master as 0.0.6"
+#
+# writes a `repositories` block into `composer.json` AND a `"type": "path"` entry
+# into `composer.lock`, and both files are tracked. That combination is not
+# merely untidy, it is fatal on every machine that does not have the sibling
+# checked out next to the repo: Composer aborts with "The `url` supplied for the
+# path repository does not exist" (`PathRepository.php`, and it is an exception
+# rather than a fallback). CI clones no siblings and the deploy runs
+# `composer install` from the same two files on the box, so committing it breaks
+# both. It has already broken the server once.
+#
+# So the local wiring lives entirely in `vendor/`, which is gitignored. A
+# Composer path repository installs a package by symlinking it into `vendor/`
+# anyway; this does that one step and leaves the manifest alone. The psr-4 root
+# is unchanged, so nothing has to be regenerated.
+#
+# ## The one thing it cannot do
+#
+# `composer.lock` still describes the PUBLISHED version's dependency graph. If
+# the local checkout has added a `require` that the published version does not
+# have, that dependency is not in `vendor/` and the symlink will fatal at
+# runtime on a missing class. That is worth knowing rather than discovering, so
+# the link step diffs the two `require` maps and names anything missing. Fixing
+# it is a `composer require` of the new dependency, or a publish.
+
+set -u -o pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT" || exit 1
+
+BACKEND="$REPO_ROOT/backend"
+MODE="link"
+
+case "${1:-}" in
+    --status) MODE="status" ;;
+    --off) MODE="off" ;;
+    --help | -h)
+        sed -n '3,8p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+        exit 0
+        ;;
+    "") ;;
+    *)
+        echo "link-siblings: unknown argument '$1'. Try --help." >&2
+        exit 1
+        ;;
+esac
+
+if [ ! -f "$BACKEND/composer.json" ]; then
+    echo "link-siblings: $BACKEND/composer.json is absent." >&2
+    exit 1
+fi
+
+# The package list comes from the manifest rather than from a literal here, so a
+# second fluttersdk dependency is picked up without editing this script.
+packages() {
+    python3 - "$BACKEND/composer.json" <<'PY'
+import json, sys
+
+with open(sys.argv[1]) as handle:
+    manifest = json.load(handle)
+
+for name in manifest.get('require', {}):
+    if name.startswith('fluttersdk/'):
+        print(name)
+PY
+}
+
+# Requires the local checkout declares that the installed vendor tree does not
+# carry. See the header: this is the gap a stale lock leaves behind.
+missing_requires() {
+    python3 - "$1" "$BACKEND/vendor/composer/installed.json" <<'PY'
+import json, os, sys
+
+sibling, installed_path = sys.argv[1], sys.argv[2]
+
+with open(os.path.join(sibling, 'composer.json')) as handle:
+    required = json.load(handle).get('require', {})
+
+with open(installed_path) as handle:
+    installed = json.load(handle)
+
+# Every name Composer can satisfy, which is NOT the set of directories under
+# vendor/: `laravel/framework` is one directory that REPLACES all forty-odd
+# `illuminate/*` packages, so a directory test reports every Illuminate
+# component the sibling requires as missing. That was this check's first shape
+# and it cried wolf on nine of them.
+available = set()
+for package in installed.get('packages', installed):
+    available.add(package['name'])
+    available.update(package.get('replace', {}))
+    available.update(package.get('provide', {}))
+
+for name in required:
+    if name == 'php' or name.startswith(('ext-', 'lib-', 'composer-')):
+        continue
+    if name not in available:
+        print(name)
+PY
+}
+
+installed_version() {
+    python3 - "$BACKEND/composer.lock" "$1" <<'PY'
+import json, sys
+
+with open(sys.argv[1]) as handle:
+    lock = json.load(handle)
+
+for package in lock.get('packages', []) + lock.get('packages-dev', []):
+    if package['name'] == sys.argv[2]:
+        print(package['version'])
+        break
+else:
+    print('absent')
+PY
+}
+
+status=0
+
+for package in $(packages); do
+    target="$BACKEND/vendor/$package"
+    sibling="$REPO_ROOT/../${package#fluttersdk/}"
+
+    case "$MODE" in
+        status)
+            if [ -L "$target" ]; then
+                # The BRANCH, not just the path. A linked sibling serves whatever
+                # is checked out over there, so a local run can be exercising an
+                # unmerged branch without anything saying so, and the answer it
+                # gives is then not the answer an adopter would get.
+                echo "linked    $package -> $(readlink "$target") [$(git -C "$sibling" branch --show-current 2>/dev/null || echo 'not a git checkout')]"
+            elif [ -d "$target" ]; then
+                echo "installed $package $(installed_version "$package")"
+            else
+                echo "absent    $package (run: cd backend && composer install)"
+                status=1
+            fi
+            ;;
+
+        off)
+            if [ ! -L "$target" ]; then
+                echo "link-siblings: $package is not linked, nothing to undo"
+                continue
+            fi
+            rm "$target"
+            echo "link-siblings: unlinked $package, reinstalling the published version"
+            (cd "$BACKEND" && composer install --no-interaction --quiet) || status=1
+            ;;
+
+        link)
+            if [ ! -f "$sibling/composer.json" ]; then
+                echo "link-siblings: $sibling is not a checkout of $package." >&2
+                echo "link-siblings: clone it beside this repository first." >&2
+                status=1
+                continue
+            fi
+
+            if [ -L "$target" ]; then
+                echo "link-siblings: $package already linked"
+            else
+                if [ ! -d "$BACKEND/vendor" ]; then
+                    echo "link-siblings: backend/vendor is absent. Run: (cd backend && composer install)" >&2
+                    exit 1
+                fi
+
+                rm -rf "$target"
+                mkdir -p "$(dirname "$target")"
+                # Relative, so the link survives the repository being moved and
+                # reads the same from inside a sibling worktree.
+                ln -s "../../../../${package#fluttersdk/}" "$target"
+                echo "link-siblings: linked $package -> $(readlink "$target")"
+            fi
+
+            gap="$(missing_requires "$sibling")"
+            if [ -n "$gap" ]; then
+                echo "link-siblings: WARNING, the local checkout requires packages this vendor tree does not have:" >&2
+                echo "$gap" | sed 's/^/link-siblings:   /' >&2
+                echo "link-siblings: composer.lock still describes $(installed_version "$package"). Install them, or publish." >&2
+                status=1
+            fi
+            ;;
+    esac
+done
+
+if [ "$MODE" = "link" ] && [ "$status" -eq 0 ]; then
+    echo "link-siblings: tracked files untouched; run --off before any composer.lock change"
+fi
+
+exit "$status"
