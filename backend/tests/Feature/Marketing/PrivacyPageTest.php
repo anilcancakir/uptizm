@@ -159,7 +159,23 @@ class PrivacyPageTest extends TestCase
          * every template names Stripe, Google and an AI vendor whether or not the deployment
          * calls them. Here the list is built from the same gates the runtime uses, so a
          * deployment with no AI key and no Stripe secret names neither.
+         *
+         * The unconfigured limb sets its own absences rather than inheriting the ambient
+         * environment. It read them off the developer's `.env` before, so the moment
+         * anybody put a real `STRIPE_SECRET` in theirs the limb failed on a page that was
+         * telling the truth, and its pass had never been evidence of anything but an
+         * unconfigured machine. CI is that machine, which is why it stayed quiet.
          */
+        // BOTH Stripe credentials, because the gate is an `or`: the publishable key
+        // alone already means a browser talks to Stripe, so nulling only the secret
+        // leaves billing disclosed. {@see ShowPrivacyController::billingRecipient()}
+        config([
+            'cashier.key' => null,
+            'cashier.secret' => null,
+            'ai.providers.anthropic.key' => null,
+            'magic-starter.onesignal.app_id' => null,
+        ]);
+
         $this->get('/privacy')
             ->assertSee('Cloudflare')
             ->assertDontSee('Stripe')

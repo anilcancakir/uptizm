@@ -519,10 +519,23 @@ void main() {
   });
 
   group('the configured web origin makes checkout reachable', () {
-    testWidgets('the shipped origin is uptizm.com, and the CTA renders', (
+    testWidgets('the shipped default is the APP host, and the CTA renders', (
       WidgetTester tester,
     ) async {
-      expect(MagicStarterConfig.billingWebOrigin(), 'https://uptizm.com');
+      // The default `CHECKOUT_WEB_ORIGIN` falls back to, since `flutter test`
+      // loads no `.env`.
+      //
+      // It used to be `https://uptizm.com`, asserted here as "the shipped
+      // origin", and that was the marketing site: production serves the landing
+      // page and `/s/{slug}` status pages there and the Flutter build at
+      // `app.uptizm.com`, so there is no `/teams/billing` on that host. A
+      // customer completing a checkout would have been returned to a 404. This
+      // assertion pinned it as correct.
+      //
+      // Named rather than merely non-empty, because the negative control below
+      // only proves the CTA is gated on the key being SET, and an origin can be
+      // set, absolute, and still point at the wrong host.
+      expect(MagicStarterConfig.billingWebOrigin(), 'https://app.uptizm.com');
 
       signInAsOwner();
 

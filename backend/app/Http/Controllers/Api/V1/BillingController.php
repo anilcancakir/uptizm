@@ -23,7 +23,9 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Laravel\Cashier\PaymentMethod;
+use Laravel\Cashier\Subscription;
 use Stripe\Exception\ApiErrorException;
+use Stripe\StripeObject;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 /**
@@ -120,7 +122,15 @@ class BillingController extends Controller
 
         abort_if($priceId === null, HttpResponse::HTTP_UNPROCESSABLE_ENTITY, 'No Stripe price is mapped to this plan.');
 
-        $checkout = $team->checkout([$priceId => 1], [
+        // Through the subscription builder, NOT `Billable::checkout()`. That one
+        // routes to `Checkout::create`, which defaults to `mode: payment`
+        // (vendor/laravel/cashier/src/Checkout.php:62), and Stripe rejects a
+        // recurring price in payment mode outright: "You specified `payment` mode
+        // but passed a recurring price." Every price this maps to is recurring,
+        // so that call could never open a session; the builder is what asks for
+        // `mode: subscription`. The subscription name matches `swap` and `cancel`,
+        // which both operate on `subscription('default')`.
+        $checkout = $team->newSubscription('default', $priceId)->checkout([
             'success_url' => $validated['success_url'],
             'cancel_url' => $validated['cancel_url'],
         ]);
@@ -393,6 +403,22 @@ class BillingController extends Controller
                 ? $paymentMethod->asStripePaymentMethod()->card
                 : null;
 
+            // A hosted checkout does not leave a card where Cashier looks for
+            // one: Stripe attaches the payment method to the SUBSCRIPTION it
+            // creates and leaves the customer's
+            // `invoice_settings.default_payment_method` null, while
+            // `defaultPaymentMethod()` reads the customer alone. So every team
+            // that bought through the hosted page was told there was no card on
+            // file, moments after paying with one.
+            //
+            // Second rather than first, and the order carries the correctness: a
+            // portal update sets the customer's default and Stripe does not
+            // rewrite the subscription's, so consulting the subscription first
+            // would show the card the customer had just replaced.
+            if ($card === null && $subscription !== null) {
+                $card = $this->subscriptionCard($subscription);
+            }
+
             return response()->json([
                 'available' => true,
                 'renewal_date' => $renewalDate?->toIso8601String(),
@@ -521,6 +547,27 @@ class BillingController extends Controller
                 'provider' => $provider->value,
             ],
         ], HttpResponse::HTTP_CONFLICT));
+    }
+
+    /**
+     * The card the subscription itself carries, or null.
+     *
+     * Expanded in the one retrieval rather than fetched and then resolved: an
+     * unexpanded `default_payment_method` is a bare id, and turning that into a
+     * card would cost a second round trip on a read that already makes one.
+     */
+    protected function subscriptionCard(Subscription $subscription): ?StripeObject
+    {
+        $paymentMethod = $subscription->asStripeSubscription(['default_payment_method'])
+            ->default_payment_method;
+
+        if (! $paymentMethod instanceof StripeObject) {
+            return null;
+        }
+
+        $card = $paymentMethod->card ?? null;
+
+        return $card instanceof StripeObject ? $card : null;
     }
 
     /**
