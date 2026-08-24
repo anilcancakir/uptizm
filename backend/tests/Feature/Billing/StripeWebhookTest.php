@@ -65,6 +65,13 @@ class StripeWebhookTest extends TestCase
      */
     protected const int EVENT_AT = 1787400000;
 
+    /**
+     * The subscription id every event in one test refers to unless it says
+     * otherwise, so a `created` and the `deleted` that follows are the SAME
+     * subscription.
+     */
+    protected const string SUBSCRIPTION_ID = 'sub_webhook_test';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -323,6 +330,65 @@ class StripeWebhookTest extends TestCase
         Log::shouldHaveReceived('warning')
             ->once()
             ->withArgs(fn (string $message, array $context): bool => ($context['reason'] ?? null) === 'stale');
+    }
+
+    /**
+     * A deletion revokes only when nothing else is still granting.
+     *
+     * A team can hold more than one Stripe subscription: a checkout opened
+     * beside an existing one, a migration, a portal-side change. A deletion says
+     * THAT subscription stopped billing, not that the customer stopped paying,
+     * so revoking on the older one's event takes the tier away from somebody the
+     * newer one is still charging.
+     *
+     * Measured against a live Stripe test account before this guard existed: a
+     * cancelled monthly subscription plus a fresh annual one, the monthly
+     * deleted at its period end, and the entitlement went to `plan=null,
+     * subscribed=false` while Stripe was charging $348 a year. The hourly
+     * reconciler healed it, which is exactly why nothing noticed.
+     *
+     * The NEGATIVE control is the test below, where the deleted subscription is
+     * the only one and the revocation lands. Neither means anything alone.
+     */
+    public function test_a_deletion_does_not_revoke_while_another_subscription_still_grants(): void
+    {
+        $team = $this->makeBillableTeam();
+
+        $this->postSignedWebhook(
+            $this->subscriptionEvent('evt_first', 'customer.subscription.created', $team, 'price_pro', 'active'),
+        )->assertOk();
+
+        $this->postSignedWebhook(
+            $this->subscriptionEvent(
+                'evt_second',
+                'customer.subscription.created',
+                $team,
+                'price_business',
+                'active',
+                created: static::EVENT_AT + 30,
+                subscriptionId: 'sub_second',
+            ),
+        )->assertOk();
+
+        $this->postSignedWebhook(
+            $this->subscriptionEvent(
+                'evt_first_deleted',
+                'customer.subscription.deleted',
+                $team,
+                'price_pro',
+                'canceled',
+                created: static::EVENT_AT + 60,
+            ),
+        )->assertOk();
+
+        $team->refresh();
+
+        // The tier the SURVIVING subscription pays for. Asserted as the tier
+        // rather than merely "not null", because a revocation followed by a
+        // re-grant would also leave a non-null value and is different behaviour
+        // from never revoking.
+        $this->assertSame(Plan::Business, $team->plan);
+        $this->assertNotSame('canceled', $team->plan_status);
     }
 
     public function test_subscription_deleted_revokes_the_teams_tier(): void
@@ -696,16 +762,24 @@ class StripeWebhookTest extends TestCase
         int $created = self::EVENT_AT,
         ?int $currentPeriodEnd = null,
         ?bool $cancelAtPeriodEnd = null,
+        string $subscriptionId = self::SUBSCRIPTION_ID,
     ): array {
         $object = [
-            'id' => 'sub_'.Str::random(10),
+            // STABLE across the events of one test, not random per event. It was
+            // random, which meant a `created` event seeded one subscription and
+            // the `deleted` event that followed named a different one that had
+            // never existed locally. Nothing noticed while the revocation looked
+            // only at the customer, so the deletion test was asserting a
+            // revocation for a subscription it had never created. A test that
+            // wants two subscriptions now says so by passing ids.
+            'id' => $subscriptionId,
             'customer' => $team->stripe_id,
             'status' => $status,
             'metadata' => ['type' => 'default'],
             'items' => [
                 'data' => [
                     [
-                        'id' => 'si_'.Str::random(10),
+                        'id' => 'si_'.$subscriptionId,
                         'quantity' => 1,
                         'price' => [
                             'id' => $priceId,

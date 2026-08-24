@@ -298,6 +298,31 @@ class StripeWebhookController extends CashierWebhookController
             return;
         }
 
+        // A deletion says THIS subscription stopped billing, not that the
+        // customer stopped paying. A team can hold more than one Stripe
+        // subscription (a checkout opened beside an existing one, a migration, a
+        // portal-side change), and revoking on the older one's deletion takes
+        // the tier away from somebody the newer one is still charging.
+        //
+        // Measured against a live Stripe test account: a cancelled monthly
+        // subscription plus a fresh annual one, the monthly deleted at its
+        // period end, and the entitlement went to `plan=null, subscribed=false`
+        // while Stripe was charging $348 a year. The hourly reconciler healed it,
+        // which is why nothing ever noticed: the damage is an hour of a paying
+        // customer refused by every cap gate rather than a permanent loss.
+        //
+        // Cashier's own deleted handler has already marked the deleted row
+        // canceled by the time this runs, so a surviving granting row can only
+        // be a DIFFERENT subscription.
+        if ($this->stillGrantedByAnotherSubscription($team)) {
+            Log::warning('Skipped a Stripe revocation: another subscription still grants.', [
+                'team_id' => $team->id,
+                'deleted_subscription' => $object['id'] ?? null,
+            ]);
+
+            return;
+        }
+
         $this->claim(new EntitlementWrite(
             team: $team,
             // No tier, rather than the cheapest one. A deleted subscription is
@@ -365,6 +390,31 @@ class StripeWebhookController extends CashierWebhookController
     /**
      * Hand one claim to the single entitlement write path.
      */
+    /**
+     * Whether the team holds another Stripe subscription that still grants.
+     *
+     * Read from the LOCAL rows rather than the rail: Cashier's own webhook
+     * handlers keep them in step, this runs inside a webhook transaction, and a
+     * network read here would put a Stripe round trip inside every deletion.
+     *
+     * `StripeSubscriptionState::grants()` is the same predicate every other
+     * feeder uses, so a status added to that list is honoured here without a
+     * second edit. A team with no local rows answers false and revokes
+     * normally, which is the ordinary single-subscription case.
+     */
+    protected function stillGrantedByAnotherSubscription(Team $team): bool
+    {
+        foreach ($team->subscriptions as $subscription) {
+            $status = $subscription->stripe_status;
+
+            if (is_string($status) && StripeSubscriptionState::grants($status)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     protected function claim(EntitlementWrite $write): void
     {
         ($this->writeTeamEntitlement)($write);
