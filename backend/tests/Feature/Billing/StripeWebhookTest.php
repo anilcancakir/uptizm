@@ -420,6 +420,57 @@ class StripeWebhookTest extends TestCase
         $this->assertSame(static::EVENT_AT + 60, $team->plan_source_event_at->getTimestamp());
     }
 
+    /**
+     * A granting subscription of ANOTHER type does not hold the tier open.
+     *
+     * The revocation guard scopes to `default` because that is the type every
+     * other feeder reads: the reconciler asks `subscription('default')`
+     * directly, so a `seats` row keeping the tier here would leave the two out
+     * of step, this one holding the plan and the reconciler taking it away on
+     * its next run, against one team and with neither wrong on its own terms.
+     *
+     * The negative control for the type scoping specifically. The surviving-
+     * subscription test above cannot provide it: both of its rows are `default`,
+     * so an unscoped guard passes it.
+     */
+    public function test_a_granting_subscription_of_another_type_does_not_hold_the_tier_open(): void
+    {
+        $team = $this->makeBillableTeam();
+
+        $this->postSignedWebhook(
+            $this->subscriptionEvent('evt_type_seed', 'customer.subscription.created', $team, 'price_pro', 'active'),
+        )->assertOk();
+
+        $this->postSignedWebhook(
+            $this->subscriptionEvent(
+                'evt_seats',
+                'customer.subscription.created',
+                $team,
+                'price_business',
+                'active',
+                created: static::EVENT_AT + 30,
+                subscriptionId: 'sub_seats',
+                subscriptionType: 'seats',
+            ),
+        )->assertOk();
+
+        $this->postSignedWebhook(
+            $this->subscriptionEvent(
+                'evt_default_deleted',
+                'customer.subscription.deleted',
+                $team,
+                'price_pro',
+                'canceled',
+                created: static::EVENT_AT + 60,
+            ),
+        )->assertOk();
+
+        $team->refresh();
+
+        $this->assertNull($team->plan);
+        $this->assertSame('canceled', $team->plan_status);
+    }
+
     public function test_invoice_payment_succeeded_reaffirms_the_active_entitlement(): void
     {
         $team = $this->makeBillableTeam();
@@ -763,6 +814,7 @@ class StripeWebhookTest extends TestCase
         ?int $currentPeriodEnd = null,
         ?bool $cancelAtPeriodEnd = null,
         string $subscriptionId = self::SUBSCRIPTION_ID,
+        string $subscriptionType = 'default',
     ): array {
         $object = [
             // STABLE across the events of one test, not random per event. It was
@@ -775,7 +827,7 @@ class StripeWebhookTest extends TestCase
             'id' => $subscriptionId,
             'customer' => $team->stripe_id,
             'status' => $status,
-            'metadata' => ['type' => 'default'],
+            'metadata' => ['type' => $subscriptionType],
             'items' => [
                 'data' => [
                     [

@@ -581,18 +581,40 @@ class BillingController extends Controller
      * The sentence names the ACTION rather than the obstacle, because it fires
      * most often on a subscription the customer believes they have cancelled:
      * "you already have a subscription" would read as a contradiction to them,
-     * and "still active" is the fact that reconciles it.
+     * and "has not ended yet" is the fact that reconciles it. It avoids "still
+     * active", which is false for one of the four states that reach here:
+     * `past_due` grants while Stripe retries a declined card.
+     *
+     * The cost of the local read, stated because it is a REGRESSION in one case
+     * rather than a limitation: nothing here heals a row Stripe has moved past,
+     * and the reconciler's Stripe half never calls the API either. A dropped
+     * `customer.subscription.deleted` therefore leaves `stripe_status = 'active'`
+     * forever, and where that customer could once simply buy again they are now
+     * refused, with `swap` failing at the API against a subscription that no
+     * longer exists. Rare, since Stripe retries deliveries for days, but it
+     * needs an operator rather than time: check Stripe before anything else when
+     * a customer is stuck behind this refusal.
      */
     protected function guardExistingCardSubscription(Team $team): void
     {
         foreach ($team->subscriptions as $subscription) {
+            // Scoped to `default`, the only type any other write here can
+            // reach: `swap` and `cancel` both resolve `subscription('default')`,
+            // which Cashier filters by type. Refusing on a granting
+            // subscription of some other type would close the escape hatch this
+            // refusal points at, since `swap` would find nothing and answer 409
+            // `no_subscription`, leaving that customer unable to buy at all.
+            if ($subscription->type !== 'default') {
+                continue;
+            }
+
             $status = $subscription->stripe_status;
 
             if (is_string($status) && StripeSubscriptionState::grants($status)) {
                 $this->abortWithBillingConflict(
                     self::REASON_SUBSCRIPTION_EXISTS,
                     BillingProvider::Stripe,
-                    'Your subscription is still active, so change your plan instead of buying a second one.',
+                    'Your subscription has not ended yet, so change your plan instead of buying a second one.',
                 );
             }
         }

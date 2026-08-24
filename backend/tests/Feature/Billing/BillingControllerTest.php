@@ -108,6 +108,46 @@ class BillingControllerTest extends TestCase
     }
 
     /**
+     * A granting subscription of ANOTHER Cashier type does not block a checkout.
+     *
+     * The guard iterates the team's Cashier rows, and Cashier's named types are
+     * a first-class feature: a row under any other type is one `swap` and
+     * `cancel` cannot reach, since both resolve `subscription('default')` and
+     * Cashier filters that by type. So refusing here would close the escape
+     * hatch the refusal itself points at: `swap` would find nothing, answer 409
+     * `no_subscription`, and that customer could not buy at all.
+     *
+     * The negative control the pair above cannot provide: both of its limbs are
+     * `default` rows, so an unscoped guard passes it.
+     */
+    public function test_a_granting_subscription_of_another_type_does_not_block_a_checkout(): void
+    {
+        [$user, $team] = $this->makeTeam();
+
+        $this->makeSubscription($team, 'price_pro')->update(['type' => 'seats']);
+
+        $builder = Mockery::mock(SubscriptionBuilder::class);
+        $builder->shouldReceive('checkout')->once()->andReturn(
+            new Checkout($team, StripeCheckoutSession::constructFrom([
+                'id' => 'cs_test_other_type',
+                'url' => 'https://checkout.stripe.com/other_type',
+            ])),
+        );
+
+        $mockedTeam = Mockery::mock($team);
+        $mockedTeam->shouldReceive('newSubscription')->once()->andReturn($builder);
+        $user->setRelation('currentTeam', $mockedTeam);
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/v1/billing/checkout', [
+            'plan' => Plan::Pro->value,
+            'cycle' => 'monthly',
+            'success_url' => 'https://app.test/billing?checkout=success',
+            'cancel_url' => 'https://app.test/billing?checkout=cancelled',
+        ])->assertOk()->assertJsonPath('session_id', 'cs_test_other_type');
+    }
+
+    /**
      * Each cycle reaches its own price, and a cycle this deployment does not
      * sell is refused rather than substituted.
      *

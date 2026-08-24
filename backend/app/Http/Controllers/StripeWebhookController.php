@@ -388,9 +388,6 @@ class StripeWebhookController extends CashierWebhookController
     }
 
     /**
-     * Hand one claim to the single entitlement write path.
-     */
-    /**
      * Whether the team holds another Stripe subscription that still grants.
      *
      * Read from the LOCAL rows rather than the rail: Cashier's own webhook
@@ -401,10 +398,21 @@ class StripeWebhookController extends CashierWebhookController
      * feeder uses, so a status added to that list is honoured here without a
      * second edit. A team with no local rows answers false and revokes
      * normally, which is the ordinary single-subscription case.
+     *
+     * Scoped to `default` for the same reason as its sibling on the checkout
+     * path, in the opposite direction: a granting row of another type would
+     * hold a tier open that nothing is paying for, and would put this feeder out
+     * of step with the reconciler, which reads `subscription('default')`
+     * directly and would revoke on its next run. Two feeders disagreeing about
+     * one team is worse than either answer.
      */
     protected function stillGrantedByAnotherSubscription(Team $team): bool
     {
         foreach ($team->subscriptions as $subscription) {
+            if ($subscription->type !== 'default') {
+                continue;
+            }
+
             $status = $subscription->stripe_status;
 
             if (is_string($status) && StripeSubscriptionState::grants($status)) {
@@ -415,6 +423,9 @@ class StripeWebhookController extends CashierWebhookController
         return false;
     }
 
+    /**
+     * Hand one claim to the single entitlement write path.
+     */
     protected function claim(EntitlementWrite $write): void
     {
         ($this->writeTeamEntitlement)($write);
