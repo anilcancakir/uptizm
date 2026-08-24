@@ -145,8 +145,8 @@ class AppServiceProvider extends ServiceProvider {
   /// rail's webhook will both resolve.
   ///
   /// Public only so a test can call the real handler; see the test group in
-  /// `test/resources/views/teams/plan_billing_view_test.dart`, which asserts the
-  /// id at the point the identify happens rather than on a flag set before it.
+  /// `test/app/providers/store_identity_test.dart`, which asserts the id at the
+  /// point the identify happens rather than on a flag set before it.
   @visibleForTesting
   static Future<void> switchTeamAndIdentifyStore(dynamic teamId) async {
     final bool switched = await MagicStarterTeamController.instance.switchTeam(
@@ -182,7 +182,7 @@ class AppServiceProvider extends ServiceProvider {
   /// auth, and the next login overwrites it.
   ///
   /// Public only so a test can call it; see the test group in
-  /// `test/resources/views/teams/plan_billing_view_test.dart`.
+  /// `test/app/providers/store_identity_test.dart`.
   @visibleForTesting
   static void syncStoreIdentity() {
     // Wrapped the way [_syncRealtime] is: the notifier's listeners are

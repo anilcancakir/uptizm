@@ -7,59 +7,42 @@ import 'package:magic_payments/magic_payments.dart'
     show
         BillingCheckoutSession,
         BillingEntitlement,
-        BillingException,
         BillingInvoicesPage,
         BillingService,
         PaymentMethod,
         Payments,
         PaymentsManager,
-        UnsupportedPlatformException,
         UsageStat,
         WebBillingService;
 import 'package:uptizm/app/controllers/escalation_controller.dart';
 import 'package:uptizm/app/models/escalation_policy.dart';
-import 'package:uptizm/app/mocks/billing.dart' show plans;
-import 'package:uptizm/app/mocks/teams_data.dart' show planWireRows;
+import 'package:uptizm/app/providers/app_service_provider.dart';
+import 'package:uptizm/config/magic_starter.dart' show magicStarterConfig;
 import 'package:uptizm/resources/views/teams/escalation_policies_view.dart';
 import 'package:uptizm/resources/views/teams/escalation_policy_editor_view.dart';
 import 'package:uptizm/resources/views/teams/on_call_schedule_view.dart';
-import 'package:uptizm/resources/views/teams/plan_billing_view.dart';
 
+import '../../support/bundled_lang.dart';
 import '../../support/skeleton_matchers.dart';
 
-/// In-memory [BillingService] fake for [PlanBillingView] wiring tests.
+/// A build that can serve WEB checkout, standing in for the rail alone.
 ///
-/// Records every [checkout] call's `plan` and lets a test configure a canned
-/// [entitlementPlan] (`currentEntitlement`) or a [checkoutError] to throw from
-/// [checkout], so a widget test can assert the live-wiring branch (web
-/// checkout, rail-refused, error) without a real network driver.
+/// `flutter test` runs on the `dart:io` arm, whose web rail is legitimately
+/// null, and the billing screen gates its portal and checkout affordances on
+/// that rail existing. Registering this through the manager's own override seam
+/// leaves `Payments.billing` (the READS, which are what the case below is
+/// about) resolving the real HTTP driver.
 ///
-/// It implements BOTH the read contract and [WebBillingService], because the
-/// subject calls both: `checkout` and `openPortal` moved onto the rail contract,
-/// and the view refuses to render a purchase affordance at all when the rail is
-/// absent. A read-only fake here would have made every CTA assertion below pass
-/// vacuously against a screen that offered nothing.
-class _FakeBillingService implements BillingService, WebBillingService {
-  _FakeBillingService({this.entitlementPlan, this.checkoutError});
-
-  /// The plan id [currentEntitlement] resolves to; `null` mirrors an absent
-  /// entitlement field.
-  final String? entitlementPlan;
-
-  /// When set, [checkout] throws this instead of returning a session.
-  final BillingException? checkoutError;
-
-  /// Every `plan` passed to [checkout], in call order.
-  final List<String> checkoutPlans = [];
-
+/// It implements the read contract too because [WebBillingService] does not
+/// extend it and the manager's web role is typed on the rail; every read here
+/// answers empty and none of them is ever called.
+class _WebRailStandIn implements BillingService, WebBillingService {
   @override
   Future<BillingCheckoutSession> checkout({
     required String plan,
     required String successUrl,
     required String cancelUrl,
   }) async {
-    checkoutPlans.add(plan);
-    if (checkoutError != null) throw checkoutError!;
     return const BillingCheckoutSession(
       checkoutUrl: 'https://checkout.stripe.com/test_session',
       sessionId: 'session_test',
@@ -77,20 +60,11 @@ class _FakeBillingService implements BillingService, WebBillingService {
 
   @override
   Future<BillingEntitlement> currentEntitlement() async {
-    // Through the real decoder, from the wire words the producer emits:
-    // `plan_status` is the only status key this wire has ever carried.
-    return BillingEntitlement.fromMap(<String, dynamic>{
-      'plan': entitlementPlan,
-      'plan_status': 'active',
-    });
+    return BillingEntitlement.fromMap(const <String, dynamic>{});
   }
 
-  /// Returns the design-lab plan catalog as the WIRE ROWS the contract answers
-  /// with, preserving the cheapest-to-priciest order the widget under test
-  /// relies on for its CTA assertions, so the plans grid renders without a real
-  /// network driver.
   @override
-  Future<List<Map<String, dynamic>>> getPlans() async => planWireRows(plans);
+  Future<List<Map<String, dynamic>>> getPlans() async => const [];
 
   @override
   Future<List<UsageStat>> getUsage() async => const [];
@@ -104,12 +78,28 @@ class _FakeBillingService implements BillingService, WebBillingService {
   Future<PaymentMethod> getPaymentMethod() async => const PaymentMethod();
 }
 
+/// Serves uptizm's OWN shipped catalogue, for the billing group below.
+///
+/// The billing screen renders `magic_starter.billing.*` keys now, and reading
+/// the shipped asset rather than an inline map is what keeps a copy assertion
+/// an assertion about the product.
+class _BundledLangLoader implements TranslationLoader {
+  const _BundledLangLoader(this.locale);
+
+  /// The catalogue to serve, regardless of the locale the translator asks for.
+  final String locale;
+
+  @override
+  Future<Map<String, dynamic>> load(Locale _) async => readBundledLang(locale);
+}
+
 /// In-memory language loader supplying every [trans] key exercised by the
 /// uptizm team-operations views' smoke tests (notification channels,
-/// escalation policies + editor, on-call schedule, plan & billing). Team
-/// create/settings/members and invitation acceptance moved to magic_starter,
-/// so their keys are gone. Short, wrappable strings avoid RenderFlex overflow
-/// at the test viewport.
+/// escalation policies + editor, on-call schedule). Team create/settings/
+/// members, invitation acceptance and plan & billing moved to magic_starter, so
+/// their keys are gone; the billing group below reads the SHIPPED catalogue
+/// instead, because the screen it mounts is the package's. Short, wrappable
+/// strings avoid RenderFlex overflow at the test viewport.
 class _TeamsViewsLangLoader implements TranslationLoader {
   @override
   Future<Map<String, dynamic>> load(Locale locale) async {
@@ -216,42 +206,6 @@ class _TeamsViewsLangLoader implements TranslationLoader {
       'uptizm.teams.oncall_empty_title': 'No on-call schedule yet',
       'uptizm.teams.oncall_empty_description': 'Create one to page someone.',
       'uptizm.teams.oncall_create_button': 'Create schedule',
-
-      // Plan & billing.
-      'uptizm.teams.billing_title': 'Plan & billing',
-      'uptizm.teams.billing_description': 'Your plan and usage.',
-      'uptizm.teams.billing_plan_current_badge': 'Current',
-      'uptizm.teams.billing_renewal_text':
-          ':price/mo billed :cycle · renews :date',
-      'uptizm.teams.billing_renewal_cycle_annual': 'annually',
-      'uptizm.teams.billing_renewal_cycle_monthly': 'monthly',
-      'uptizm.teams.billing_plans_heading': 'Plans',
-      'uptizm.teams.billing_plans_monthly': 'Monthly',
-      'uptizm.teams.billing_plans_annual': 'Annual',
-      'uptizm.teams.billing_plan_recommended_badge': 'Recommended',
-      'uptizm.teams.billing_plan_price_monthly': '/mo',
-      'uptizm.teams.billing_plan_price_custom': 'Custom',
-      'uptizm.teams.billing_plan_billing_custom': 'Tailored to your scale',
-      'uptizm.teams.billing_plan_billing_annual': 'billed annually',
-      'uptizm.teams.billing_plan_billing_free': 'free forever',
-      'uptizm.teams.billing_plan_billing_monthly': 'billed monthly',
-      'uptizm.teams.billing_plan_button_current': 'Current plan',
-      'uptizm.teams.billing_plan_button_contact': 'Contact sales',
-      'uptizm.teams.billing_plan_button_upgrade': 'Upgrade',
-      'uptizm.teams.billing_plan_button_downgrade': 'Downgrade',
-      'uptizm.teams.billing_plan_button_unresolved': 'View plan',
-      'uptizm.teams.billing_payment_header': 'Payment method',
-      'uptizm.teams.billing_payment_expires': 'Expires :date',
-      'uptizm.teams.billing_payment_update_button': 'Update',
-      'uptizm.teams.billing_invoices_header': 'Billing history',
-      'uptizm.teams.billing_invoice_receipt_button': 'Receipt',
-      'uptizm.teams.billing_toast_contact_title': "We'll be in touch",
-      'uptizm.teams.billing_toast_contact_description': 'Sales will reach out.',
-      'uptizm.teams.billing_toast_upgrade_title': 'Upgrading to :name',
-      'uptizm.teams.billing_toast_switch_title': 'Switching to :name',
-      'uptizm.teams.billing_toast_change_description': 'Billed :cycle.',
-      'uptizm.teams.billing_toast_deferred_title': 'Billing coming soon',
-      'uptizm.teams.billing_toast_checkout_failed_title': 'Checkout failed',
     };
   }
 }
@@ -265,9 +219,10 @@ void main() {
     // boot (mirrors settings_views_test.dart).
     Magic.singleton('magic_starter', () => MagicStarterManager());
     // Bind LogManager so Log.warning() works inside MagicFeedback.showSnackbar
-    // (the PlanBillingView CTA calls Magic.success/error/MagicFeedback.info,
-    // which fall through to a warning log when no navigator context is
-    // mounted, as here; mirrors monitor_controller_test.dart).
+    // (a view calling Magic.success/error/MagicFeedback.info falls through to a
+    // warning log when no navigator context is mounted, as here; mirrors
+    // monitor_controller_test.dart). The billing group below also needs it for
+    // the reads that log and degrade rather than throwing.
     Magic.singleton('log', () => LogManager());
     // Bind a fake network driver so EscalationController's wired reload/
     // create/save/delete actions resolve the `network` service instead of
@@ -300,31 +255,6 @@ void main() {
         data: MediaQueryData(size: size),
         child: WindTheme(
           data: WindThemeData(),
-          child: Scaffold(body: SingleChildScrollView(child: widget)),
-        ),
-      ),
-    );
-  }
-
-  /// Wraps [widget] like [wrap], but pins the [MaterialApp]'s navigator key to
-  /// [MagicRouter.instance.navigatorKey] so [MagicFeedback] (`Magic.success`/
-  /// `Magic.error`/`MagicFeedback.info`) resolves a mounted context and
-  /// actually renders its `SnackBar`, instead of degrading to a logged
-  /// warning. Needed by the notification-channels honest-toast assertions and
-  /// the billing-toast assertions below; the shared [wrap] stays as-is for
-  /// every other group in this file.
-  Widget wrapWithSnackbar(Widget widget, {Size size = const Size(1280, 8000)}) {
-    // WindTheme sits ABOVE the MaterialApp so the Navigator overlay (where
-    // MagicFeedback now inserts its toast) can resolve it, mirroring the real
-    // app's root-level WindTheme. A WindTheme under `home` is a sibling of the
-    // overlay, so a Wind-built toast would throw "No WindTheme found in
-    // context".
-    return WindTheme(
-      data: WindThemeData(),
-      child: MaterialApp(
-        navigatorKey: MagicRouter.instance.navigatorKey,
-        home: MediaQuery(
-          data: MediaQueryData(size: size),
           child: Scaffold(body: SingleChildScrollView(child: widget)),
         ),
       ),
@@ -592,172 +522,32 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // PlanBillingView
+  // The billing surface, which magic_starter renders and uptizm feeds
   // ---------------------------------------------------------------------------
 
-  group('PlanBillingView', () {
-    testWidgets('renders the title and the billing-history heading', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(1280, 8000));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-
-      await tester.pumpWidget(
-        wrap(const PlanBillingView(), size: const Size(1280, 8000)),
+  group('the billing surface reads uptizm own endpoints', () {
+    setUp(() async {
+      // The shipped config, loaded the way `Magic.init` does: the feature flag
+      // decides whether `teams.billing` is registered at all, and the origin
+      // decides whether a checkout call to action is reachable. Set BEFORE the
+      // `magic_starter` singleton is first resolved, since the manager reads
+      // both in its constructor.
+      Config.set(
+        'magic_starter',
+        magicStarterConfig['magic_starter'] as Map<String, dynamic>,
       );
-      await tester.pump();
 
-      expect(tester.takeException(), isNull);
-      expect(find.text(trans('uptizm.teams.billing_title')), findsOneWidget);
-      expect(
-        find.text(trans('uptizm.teams.billing_invoices_header')),
-        findsOneWidget,
-      );
+      // The shipped catalogue, because the screen renders the package's
+      // `magic_starter.billing.*` keys now and this file's inline loader
+      // deliberately no longer carries them.
+      Translator.instance.setLoader(const _BundledLangLoader('en'));
+      await Translator.instance.setLocale(const Locale('en'));
     });
 
     testWidgets(
-      'selecting an upgrade plan on web calls BillingService.checkout',
+      'the five live billing endpoints are hit and their shapes render',
       (tester) async {
-        await tester.binding.setSurfaceSize(const Size(1280, 8000));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
-
-        final _FakeBillingService billing = _FakeBillingService(
-          entitlementPlan: 'pro',
-        );
-
-        await tester.pumpWidget(
-          wrap(
-            PlanBillingView(billingService: billing),
-            size: const Size(1280, 8000),
-          ),
-        );
-        await tester.pump();
-
-        // Business sits above the fixture default ("pro"), so its CTA reads
-        // "Upgrade" and is enabled.
-        await tester.tap(
-          find.text(trans('uptizm.teams.billing_plan_button_upgrade')),
-        );
-        await tester.pump();
-
-        expect(tester.takeException(), isNull);
-        expect(billing.checkoutPlans, ['business']);
-      },
-    );
-
-    testWidgets(
-      'mobile-deferred: UnsupportedPlatformException surfaces an info toast, '
-      'not an error',
-      (tester) async {
-        await tester.binding.setSurfaceSize(const Size(1280, 8000));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
-
-        final _FakeBillingService billing = _FakeBillingService(
-          entitlementPlan: 'pro',
-          checkoutError: const UnsupportedPlatformException(
-            'In-app purchases are not yet available on this platform.',
-          ),
-        );
-
-        await tester.pumpWidget(
-          wrapWithSnackbar(PlanBillingView(billingService: billing)),
-        );
-        await tester.pump();
-
-        await tester.tap(
-          find.text(trans('uptizm.teams.billing_plan_button_upgrade')),
-        );
-        await tester.pump();
-
-        // The checkout call still fires (and fails); the failure must not
-        // crash the screen, and must surface the friendly deferred title
-        // rather than the checkout-failed error title.
-        expect(tester.takeException(), isNull);
-        expect(billing.checkoutPlans, ['business']);
-        expect(
-          find.text(trans('uptizm.teams.billing_toast_deferred_title')),
-          findsOneWidget,
-        );
-        expect(
-          find.text(trans('uptizm.teams.billing_toast_checkout_failed_title')),
-          findsNothing,
-        );
-        // Flush the overlay toast's auto-dismiss timer so it does not leak past
-        // the test (the framework's !timersPending invariant).
-        await tester.pump(const Duration(seconds: 5));
-        await tester.pumpAndSettle();
-      },
-    );
-
-    testWidgets('a failed checkout surfaces the checkout-failed error toast', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(1280, 8000));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-
-      final _FakeBillingService billing = _FakeBillingService(
-        entitlementPlan: 'pro',
-        checkoutError: const BillingException('No payment method.'),
-      );
-
-      await tester.pumpWidget(
-        wrapWithSnackbar(PlanBillingView(billingService: billing)),
-      );
-      await tester.pump();
-
-      await tester.tap(
-        find.text(trans('uptizm.teams.billing_plan_button_upgrade')),
-      );
-      await tester.pump();
-
-      expect(tester.takeException(), isNull);
-      expect(
-        find.text(trans('uptizm.teams.billing_toast_checkout_failed_title')),
-        findsOneWidget,
-      );
-      // Flush the overlay toast's auto-dismiss timer so it does not leak past
-      // the test (the framework's !timersPending invariant).
-      await tester.pump(const Duration(seconds: 5));
-      await tester.pumpAndSettle();
-    });
-
-    testWidgets('the loaded entitlement plan becomes the current plan', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(1280, 8000));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-
-      final _FakeBillingService billing = _FakeBillingService(
-        entitlementPlan: 'business',
-      );
-
-      await tester.pumpWidget(
-        wrap(
-          PlanBillingView(billingService: billing),
-          size: const Size(1280, 8000),
-        ),
-      );
-      await tester.pump();
-      await tester.pump();
-
-      expect(tester.takeException(), isNull);
-      // Business is now the current plan, so exactly one CTA reads
-      // "Current plan" (Business's own), and both Free and Pro's CTAs read
-      // "Downgrade" since Business now outranks them.
-      expect(
-        find.text(trans('uptizm.teams.billing_plan_button_current')),
-        findsOneWidget,
-      );
-      expect(
-        find.text(trans('uptizm.teams.billing_plan_button_downgrade')),
-        findsNWidgets(2),
-      );
-    });
-
-    testWidgets(
-      'fetches the 4 live billing endpoints and renders the decoded shapes',
-      (tester) async {
-        await tester.binding.setSurfaceSize(const Size(1280, 10000));
+        await tester.binding.setSurfaceSize(const Size(1280, 12000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
         final FakeNetworkDriver fake = Http.fake({
@@ -769,6 +559,7 @@ void main() {
                 'tagline': 'Kick the tires.',
                 'monthly': 0,
                 'annual': 0,
+                'currency': 'usd',
                 'ai_line': 'AI anomaly inbox.',
                 'features': <String>[],
                 'recommended': false,
@@ -780,6 +571,7 @@ void main() {
                 'tagline': 'Startups.',
                 'monthly': 34,
                 'annual': 29,
+                'currency': 'usd',
                 'ai_line': 'Full AI incident analysis.',
                 'features': <String>[],
                 'recommended': true,
@@ -806,34 +598,58 @@ void main() {
             'next_cursor': null,
           }),
           'billing/payment-method': Http.response({
+            'available': true,
             'renewal_date': null,
             'brand': null,
             'last4': null,
             'exp_month': null,
             'exp_year': null,
           }),
+          // Under its `data` envelope, which is the entitlement read's own
+          // contract: the driver refuses a bare object, and stubbing one would
+          // leave this case asserting against the degraded arm.
+          'billing': Http.response({
+            'data': {
+              'plan': 'free',
+              'plan_status': 'active',
+              'subscribed': false,
+              'renews': false,
+              'provider': 'stripe',
+              'manage_via': 'none',
+            },
+          }),
         });
 
-        // Nothing is injected here on purpose: the point of this case is the
-        // REAL read driver hitting the four endpoints. But `flutter test` runs on
-        // the `dart:io` arm, whose web rail is legitimately null, and the screen
-        // now gates its portal affordances on that rail existing. So the rail is
+        // Nothing is injected on purpose, and that is the whole point of this
+        // case: `AppServiceProvider.registerBillingSurface` builds the
+        // controller with no `billingService`, so the reads resolve
+        // `Payments.billing`, the REAL `magic_payments` HTTP driver, and the
+        // paths asserted below are the front/back contract with uptizm's own
+        // `api/v1`. Every other billing case in this repo hands the controller
+        // a fake and therefore cannot see a path change at all.
+        //
+        // The web rail is the one exception: `flutter test` runs on the
+        // `dart:io` arm, whose web rail is legitimately null, and it is
         // registered through the manager's own override seam, which leaves
-        // `Payments.billing` (the reads under test) untouched.
-        Payments.extend(
-          PaymentsManager.webRole,
-          () => _FakeBillingService(),
-        );
+        // `Payments.billing` untouched.
+        Payments.extend(PaymentsManager.webRole, _WebRailStandIn.new);
+        AppServiceProvider.registerBillingSurface();
 
         await tester.pumpWidget(
-          wrap(const PlanBillingView(), size: const Size(1280, 10000)),
+          wrap(
+            MagicStarter.view.make('teams.billing'),
+            size: const Size(1280, 12000),
+          ),
         );
         await tester.pump();
         await tester.pump();
 
         expect(tester.takeException(), isNull);
 
-        // The 4 endpoints were all hit.
+        // The five reads the screen fires at mount, each by its own path.
+        fake.assertSent(
+          (r) => r.method == 'GET' && r.url.endsWith('billing'),
+        );
         fake.assertSent(
           (r) => r.method == 'GET' && r.url.contains('billing/plans'),
         );
@@ -847,28 +663,23 @@ void main() {
           (r) => r.method == 'GET' && r.url.contains('billing/payment-method'),
         );
 
-        // Plans grid renders both tiers. `GET /billing` (the entitlement
-        // read) is not stubbed here, so it degrades silently and
-        // [_currentPlanId] stays unresolved: the current-plan card renders
-        // its loading skeleton instead of guessing, so "Pro" only appears
-        // once (in the plans grid).
-        expect(find.text('Free'), findsOneWidget);
+        // And the decoded shapes reach the screen: both catalogue rows, the
+        // usage readout, and the invoice row.
+        expect(find.text('Free'), findsWidgets);
         expect(find.text('Pro'), findsOneWidget);
-
-        // Usage meters render the used/limit readout.
         expect(find.textContaining('47'), findsWidgets);
-
-        // Invoices list renders the fetched row.
         expect(find.text('INV-0001'), findsOneWidget);
 
-        // The all-null payment-method payload (Stripe soft-fail) renders an
-        // empty/updatable state instead of crashing: no masked card number,
-        // but the "Update" action is still present.
+        // A payload the rail ANSWERED with no card on it renders no masked
+        // number and says there is no card, rather than reporting a failure the
+        // read did not have. `available: true` is what tells the two apart, and
+        // it is uptizm's backend that emits it.
         expect(find.textContaining('••••'), findsNothing);
         expect(
-          find.text(trans('uptizm.teams.billing_payment_update_button')),
+          find.text(trans('magic_starter.billing.payment_none')),
           findsOneWidget,
         );
+        expect(find.text(trans('common.error_occurred')), findsNothing);
       },
     );
   });
