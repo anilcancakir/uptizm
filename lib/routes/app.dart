@@ -1,4 +1,5 @@
 import 'package:magic/magic.dart';
+import 'package:magic_starter/magic_starter.dart';
 
 import '../resources/views/dashboard/dashboard_view.dart';
 import '../resources/views/incidents/incident_create_view.dart';
@@ -19,7 +20,6 @@ import '../resources/views/teams/escalation_policies_view.dart';
 import '../resources/views/teams/escalation_policy_editor_view.dart';
 import '../resources/views/teams/notification_channels_view.dart';
 import '../resources/views/teams/on_call_schedule_view.dart';
-import '../resources/views/teams/plan_billing_view.dart';
 import '../ui/layouts/app_layout.dart';
 
 /// Application Route Definitions.
@@ -72,7 +72,8 @@ import '../ui/layouts/app_layout.dart';
 ///   [AppLayout]; the `:id` path parameter is passed positionally to the
 ///   builder (edits an existing policy).
 /// - `/teams/on-call` — [OnCallScheduleView] inside [AppLayout].
-/// - `/teams/billing` — [PlanBillingView] inside [AppLayout].
+/// - `/teams/billing` — magic_starter's [MagicStarterBillingView], resolved by
+///   key through the view registry, inside [AppLayout].
 /// - `/welcome` — [WelcomeView] registered OUTSIDE [AppLayout] (no sidebar/top
 ///   bar shell) and UNGATED, so a fresh unauthenticated launch can reach the
 ///   onboarding carousel.
@@ -267,9 +268,18 @@ void registerAppRoutes() {
         () => const OnCallScheduleView(),
       ).title('uptizm.titles.on_call').transition(RouteTransition.none);
 
+      // Plan & billing: magic_starter owns this screen now. It is reached
+      // through the view registry rather than by constructing the widget,
+      // which is the seam an app overrides the starter's screens through, and
+      // the key `teams.billing` is registered by `MagicStarterManager` behind
+      // `magic_starter.features.billing`. Everything the package deliberately
+      // does not know (uptizm's usage copy, its thousands separator, its
+      // cross-team store check, its ownership read and the two product lines
+      // on each plan card) is supplied by
+      // `AppServiceProvider.registerBillingSurface`.
       MagicRoute.page(
         '/teams/billing',
-        () => const PlanBillingView(),
+        () => MagicStarter.view.make('teams.billing'),
       ).title('uptizm.titles.billing').transition(RouteTransition.none);
     },
   );

@@ -36,7 +36,7 @@ The Flutter client is `flutter run -d chrome`, and `.env` has to stay a bundled 
 
 ## Off-limits
 
-- Generated files are regenerated, never edited: `lib/config/wind_theme.g.dart` (`design:sync`), `lib/preview/_previews.g.dart` (`previews:refresh`), `lib/app/commands/_index.g.dart` (`commands:refresh`), `.artisan/plugins.json`, and everything `bin/sync-instructions` writes under `.github/`.
+- Generated files are regenerated, never edited: `lib/config/wind_theme.g.dart` (`design:sync`), `lib/_previews.g.dart` (`previews:refresh`), `lib/app/commands/_index.g.dart` (`commands:refresh`), `.artisan/plugins.json`, and everything `bin/sync-instructions` writes under `.github/`.
 - `backend/vendor/`, `build/`, `.dart_tool/`.
 - The twelve `fluttersdk` packages under `../` are separate public repositories. Reading them to understand behavior is expected and encouraged; changing one is a PR in that repo under its own rules, never an edit from here. `design:sync`, `design:lint`, `make:component`, and `previews:refresh` are `magic`'s commands, not this project's.
 - Secrets never enter the repo. This repository is public: `.env.production` holds only values that ship to every browser anyway, and server credentials live on the box.

@@ -33,7 +33,6 @@ import 'ui/components/status_dot/status_dot.preview.dart';
 import 'ui/components/status_page_preview/status_page_preview.preview.dart';
 import 'ui/components/string_value_list/string_value_list.preview.dart';
 import 'ui/components/uptime_bar/uptime_bar.preview.dart';
-import 'ui/components/usage_meter/usage_meter.preview.dart';
 
 List<PreviewEntry> previewEntries() {
   return <PreviewEntry>[
@@ -181,11 +180,6 @@ List<PreviewEntry> previewEntries() {
       label: 'UptimeBar',
       slug: 'uptime_bar',
       builder: (_) => const UptimeBarPreview(),
-    ),
-    PreviewEntry(
-      label: 'UsageMeter',
-      slug: 'usage_meter',
-      builder: (_) => const UsageMeterPreview(),
     ),
   ];
 }

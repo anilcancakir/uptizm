@@ -21,8 +21,21 @@ Map<String, dynamic> get magicStarterConfig => {
       'email_verification': true,
       'guest_auth': false,
       'timezones': true,
+      'billing': true,
     },
     'auth': {'email': true, 'phone': false},
+    // The absolute origin the hosted checkout redirects back to, and the
+    // return target of the billing portal.
+    //
+    // A fixed constant rather than `Uri.base`, which is not a valid checkout
+    // redirect target off the web platform and throws on a non-http(s) scheme
+    // (e.g. under `flutter test`'s `file://` origin). The starter deliberately
+    // gives this key NO default: Stripe requires an absolute url, so an unset
+    // origin would yield a relative one, session creation would fail, and the
+    // refusal is written to the log rather than shown to the customer. The
+    // checkout call to action is gated on this being set, which is why leaving
+    // it out hides the button instead of shipping one that fails on tap.
+    'billing': {'web_origin': 'https://uptizm.com'},
     'defaults': {'locale': 'en', 'timezone': 'UTC'},
     'supported_locales': ['en', 'tr'],
     'routes': {
