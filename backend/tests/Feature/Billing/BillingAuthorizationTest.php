@@ -105,7 +105,7 @@ class BillingAuthorizationTest extends TestCase
         $member->setRelation('currentTeam', $team);
         Sanctum::actingAs($member);
 
-        $response = $this->postJson('/api/v1/billing/swap', ['plan' => Plan::Business->value]);
+        $response = $this->postJson('/api/v1/billing/swap', ['plan' => Plan::Business->value, 'cycle' => 'monthly']);
 
         $response->assertStatus(403);
         $this->assertSame('price_pro', $subscription->refresh()->stripe_price);
@@ -130,6 +130,7 @@ class BillingAuthorizationTest extends TestCase
 
         $response = $this->postJson('/api/v1/billing/checkout', [
             'plan' => Plan::Pro->value,
+            'cycle' => 'monthly',
             'success_url' => 'https://app.test/billing?checkout=success',
             'cancel_url' => 'https://app.test/billing?checkout=cancelled',
         ]);
@@ -229,7 +230,7 @@ class BillingAuthorizationTest extends TestCase
 
         Sanctum::actingAs($owner);
 
-        $response = $this->postJson('/api/v1/billing/swap', ['plan' => Plan::Business->value]);
+        $response = $this->postJson('/api/v1/billing/swap', ['plan' => Plan::Business->value, 'cycle' => 'monthly']);
 
         $response->assertStatus(409);
         $response->assertJsonPath('billing.reason', 'managed_by_store');
@@ -256,6 +257,7 @@ class BillingAuthorizationTest extends TestCase
 
         $response = $this->postJson('/api/v1/billing/checkout', [
             'plan' => Plan::Business->value,
+            'cycle' => 'monthly',
             'success_url' => 'https://app.test/billing?checkout=success',
             'cancel_url' => 'https://app.test/billing?checkout=cancelled',
         ]);

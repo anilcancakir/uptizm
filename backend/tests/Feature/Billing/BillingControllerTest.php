@@ -44,6 +44,86 @@ class BillingControllerTest extends TestCase
         ]]);
     }
 
+    /**
+     * Each cycle reaches its own price, and a cycle this deployment does not
+     * sell is refused rather than substituted.
+     *
+     * THE PAIR IS THE TEST. Two prices for one tier makes "pro is sellable"
+     * true for both requests, so an implementation that ignored the cycle, or
+     * that took whichever price it found first, passes a single-limb assertion
+     * and charges the customer the other figure. That is what shipped: a screen
+     * offering "Annual, save ~15%" at $29/mo while Stripe billed $34.00 monthly.
+     *
+     * The refusing limb matters just as much. A tier priced one way only has to
+     * REFUSE the other way, because substituting means charging an amount the
+     * customer was never shown.
+     */
+    public function test_each_cycle_checks_out_against_its_own_price(): void
+    {
+        config(['cashier.plans' => [
+            'price_pro_monthly' => ['tier' => Plan::Pro->value, 'cycle' => 'monthly'],
+            'price_pro_annual' => ['tier' => Plan::Pro->value, 'cycle' => 'annual'],
+            // Sold monthly only, which is what makes the annual refusal below a
+            // config fact rather than a client fault.
+            'price_business' => Plan::Business->value,
+        ]]);
+
+        [$user, $team] = $this->makeTeam();
+
+        foreach ([
+            ['monthly', 'price_pro_monthly'],
+            ['annual', 'price_pro_annual'],
+        ] as [$cycle, $expectedPrice]) {
+            $builder = Mockery::mock(SubscriptionBuilder::class);
+            $builder->shouldReceive('checkout')->once()->andReturn(
+                new Checkout($team, StripeCheckoutSession::constructFrom([
+                    'id' => 'cs_test_'.$cycle,
+                    'url' => 'https://checkout.stripe.com/'.$cycle,
+                ])),
+            );
+
+            $mockedTeam = Mockery::mock($team);
+            $mockedTeam->shouldReceive('newSubscription')
+                ->once()
+                ->with('default', $expectedPrice)
+                ->andReturn($builder);
+
+            $user->setRelation('currentTeam', $mockedTeam);
+            Sanctum::actingAs($user);
+
+            $this->postJson('/api/v1/billing/checkout', [
+                'plan' => Plan::Pro->value,
+                'cycle' => $cycle,
+                'success_url' => 'https://app.test/billing?checkout=success',
+                'cancel_url' => 'https://app.test/billing?checkout=cancelled',
+            ])->assertOk()->assertJsonPath('session_id', 'cs_test_'.$cycle);
+        }
+
+        // `business` has no annual price, so the request is refused rather than
+        // billed at its monthly one. The team mock takes no `newSubscription`
+        // expectation here on purpose: Mockery would fail the test if the
+        // controller opened a session anyway.
+        $unmapped = Mockery::mock($team);
+        $unmapped->shouldReceive('newSubscription')->never();
+        $user->setRelation('currentTeam', $unmapped);
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/v1/billing/checkout', [
+            'plan' => Plan::Business->value,
+            'cycle' => 'annual',
+            'success_url' => 'https://app.test/billing?checkout=success',
+            'cancel_url' => 'https://app.test/billing?checkout=cancelled',
+        ])->assertStatus(422);
+
+        // And an absent cycle is refused rather than defaulted, which is what
+        // stops a client from buying whichever price was listed first.
+        $this->postJson('/api/v1/billing/checkout', [
+            'plan' => Plan::Pro->value,
+            'success_url' => 'https://app.test/billing?checkout=success',
+            'cancel_url' => 'https://app.test/billing?checkout=cancelled',
+        ])->assertStatus(422)->assertJsonValidationErrors('cycle');
+    }
+
     public function test_checkout_returns_the_unwrapped_url_and_session_id(): void
     {
         [$user, $team] = $this->makeTeam();
@@ -82,6 +162,7 @@ class BillingControllerTest extends TestCase
 
         $response = $this->postJson('/api/v1/billing/checkout', [
             'plan' => Plan::Pro->value,
+            'cycle' => 'monthly',
             'success_url' => 'https://app.test/billing?checkout=success',
             'cancel_url' => 'https://app.test/billing?checkout=cancelled',
         ]);
@@ -104,6 +185,7 @@ class BillingControllerTest extends TestCase
 
         $response = $this->postJson('/api/v1/billing/checkout', [
             'plan' => Plan::Business->value,
+            'cycle' => 'monthly',
             'success_url' => 'https://app.test/billing?checkout=success',
             'cancel_url' => 'https://app.test/billing?checkout=cancelled',
         ]);
@@ -135,7 +217,7 @@ class BillingControllerTest extends TestCase
         $user->setRelation('currentTeam', $team);
         Sanctum::actingAs($user);
 
-        $response = $this->postJson('/api/v1/billing/swap', ['plan' => Plan::Business->value]);
+        $response = $this->postJson('/api/v1/billing/swap', ['plan' => Plan::Business->value, 'cycle' => 'monthly']);
 
         $response->assertOk();
 
@@ -156,7 +238,7 @@ class BillingControllerTest extends TestCase
         [$user] = $this->makeTeam();
         Sanctum::actingAs($user);
 
-        $response = $this->postJson('/api/v1/billing/swap', ['plan' => Plan::Business->value]);
+        $response = $this->postJson('/api/v1/billing/swap', ['plan' => Plan::Business->value, 'cycle' => 'monthly']);
 
         $response->assertStatus(404);
     }
@@ -300,6 +382,7 @@ class BillingControllerTest extends TestCase
                 'plan_status' => 'active',
                 'subscribed' => true,
                 'renews' => true,
+                'cycle' => 'monthly',
                 'provider' => 'stripe',
                 'provider_status' => 'active',
                 'product_id' => 'price_pro',
@@ -353,6 +436,7 @@ class BillingControllerTest extends TestCase
                 'plan_status' => 'trialing',
                 'subscribed' => true,
                 'renews' => true,
+                'cycle' => null,
                 'provider' => 'app_store',
                 'provider_status' => 'in_trial',
                 'product_id' => 'uptizm_pro_monthly',
@@ -405,6 +489,7 @@ class BillingControllerTest extends TestCase
                 // still owed (PlanStatus::grants()).
                 'subscribed' => true,
                 'renews' => false,
+                'cycle' => null,
                 'provider' => 'play_store',
                 'provider_status' => 'billing_issue_detected_at',
                 'product_id' => 'uptizm_business_annual',
@@ -450,6 +535,7 @@ class BillingControllerTest extends TestCase
                 // Unknown rather than false: no rail has said whether this
                 // subscription rolls over.
                 'renews' => null,
+                'cycle' => 'monthly',
                 'provider' => 'stripe',
                 'provider_status' => null,
                 'product_id' => 'price_pro',
@@ -488,6 +574,7 @@ class BillingControllerTest extends TestCase
                 'plan_status' => 'none',
                 'subscribed' => false,
                 'renews' => null,
+                'cycle' => null,
                 'provider' => 'none',
                 'provider_status' => null,
                 'product_id' => null,

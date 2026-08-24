@@ -8,6 +8,7 @@ use App\Enums\Plan;
 use App\Enums\PlanStatus;
 use App\Models\Team;
 use App\Services\Billing\PlanGate;
+use App\Support\Billing\StripeSubscriptionState;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Laravel\Cashier\Concerns\ManagesCustomer;
@@ -61,6 +62,12 @@ class SubscriptionResource extends JsonResource
             // Nullable on purpose: null means the rail has not said whether this
             // subscription rolls over, which is not the claim `false` makes.
             'renews' => $team->plan_renews,
+            // Derived from the price the subscription sits on rather than stored
+            // beside it, so it cannot drift from the price that is billing them.
+            // Null on three honest occasions and none of them defaulted: no rail, a
+            // price whose cycle `cashier.plans` never declared, and a STORE
+            // subscription, whose product id this Stripe catalogue cannot name.
+            'cycle' => StripeSubscriptionState::cycleForPrice($team->plan_product_id)?->value,
             'provider' => $provider->value,
             // Debug and support text only. It carries a rail's own word,
             // including words the neutral vocabulary has none for, so it must

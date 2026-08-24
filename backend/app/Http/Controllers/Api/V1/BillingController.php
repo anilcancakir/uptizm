@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Actions\StoreSubscriptionGuardedDeleteTeam;
+use App\Enums\BillingCycle;
 use App\Enums\BillingProvider;
 use App\Enums\Plan;
 use App\Exceptions\PlanUpgradeRequiredException;
@@ -14,6 +15,7 @@ use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\Team;
 use App\Policies\BillingPolicy;
+use App\Support\Billing\StripeSubscriptionState;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
@@ -114,11 +116,17 @@ class BillingController extends Controller
 
         $validated = $request->validate([
             'plan' => ['required', Rule::in([Plan::Pro->value, Plan::Business->value])],
+            // The cycle decides WHICH of the tier's prices is charged, so it is
+            // required rather than defaulted. A default is the whole defect this
+            // field closes: a client showing an annual figure and a server
+            // picking the monthly price is how a customer gets billed an amount
+            // nothing on screen displayed.
+            'cycle' => ['required', Rule::enum(BillingCycle::class)],
             'success_url' => ['required', 'string', 'url'],
             'cancel_url' => ['required', 'string', 'url'],
         ]);
 
-        $priceId = $this->resolvePriceId($validated['plan']);
+        $priceId = $this->resolvePriceId($validated['plan'], $validated['cycle']);
 
         abort_if($priceId === null, HttpResponse::HTTP_UNPROCESSABLE_ENTITY, 'No Stripe price is mapped to this plan.');
 
@@ -150,6 +158,11 @@ class BillingController extends Controller
 
         $validated = $request->validate([
             'plan' => ['required', Rule::in([Plan::Pro->value, Plan::Business->value])],
+            // Required here too, and not for symmetry: moving a customer from
+            // monthly to annual on the SAME tier is a real change, and a swap
+            // that could not express it would answer 200 while leaving them on
+            // the price they were trying to leave.
+            'cycle' => ['required', Rule::enum(BillingCycle::class)],
         ]);
 
         $this->guardStoreOwnedSubscription($team);
@@ -158,7 +171,7 @@ class BillingController extends Controller
 
         abort_if($subscription === null, HttpResponse::HTTP_NOT_FOUND, 'No active subscription to swap.');
 
-        $priceId = $this->resolvePriceId($validated['plan']);
+        $priceId = $this->resolvePriceId($validated['plan'], $validated['cycle']);
 
         abort_if($priceId === null, HttpResponse::HTTP_UNPROCESSABLE_ENTITY, 'No Stripe price is mapped to this plan.');
 
@@ -574,10 +587,15 @@ class BillingController extends Controller
      * Resolve a Stripe price id for the given plan via the config plan map,
      * returning null when the plan has no mapped price.
      */
-    protected function resolvePriceId(string $plan): ?string
+    protected function resolvePriceId(string $plan, string $cycle): ?string
     {
-        $priceId = array_search($plan, config('cashier.plans', []), true);
+        $tier = Plan::tryFrom($plan);
+        $billingCycle = BillingCycle::tryFrom($cycle);
 
-        return $priceId === false ? null : $priceId;
+        if ($tier === null || $billingCycle === null) {
+            return null;
+        }
+
+        return StripeSubscriptionState::priceFor($tier, $billingCycle);
     }
 }
