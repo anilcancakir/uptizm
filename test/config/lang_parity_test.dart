@@ -26,4 +26,37 @@ void main() {
           : '',
     );
   });
+
+  test('magic_starter.billing values differ between en.json and tr.json', () {
+    final Map<String, dynamic> enKeys = readBundledLang('en');
+    final Map<String, dynamic> trKeys = readBundledLang('tr');
+
+    // Keys whose value is legitimately identical across locales, each with
+    // the reason it was not translated. A key-presence check passes on a
+    // catalogue where someone pasted the English sentence, which is exactly
+    // what this guard exists to catch; keep this list explicit and empty
+    // unless a key is provably untranslatable (e.g. a store brand name with
+    // no local equivalent).
+    final Map<String, String> allowedIdentical = <String, String>{};
+
+    final Iterable<String> billingKeys = enKeys.keys.where(
+      (String key) => key.startsWith('magic_starter.billing.'),
+    );
+
+    for (final String key in billingKeys) {
+      if (allowedIdentical.containsKey(key)) {
+        continue;
+      }
+
+      final Object? enValue = enKeys[key];
+      final Object? trValue = trKeys[key];
+
+      expect(
+        trValue,
+        isNot(equals(enValue)),
+        reason: 'tr.json "$key" matches en.json verbatim ("$enValue"). '
+            'Translate it, or add it to allowedIdentical with a reason.',
+      );
+    }
+  });
 }
