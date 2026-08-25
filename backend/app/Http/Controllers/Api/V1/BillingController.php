@@ -166,7 +166,7 @@ class BillingController extends Controller
         // so that call could never open a session; the builder is what asks for
         // `mode: subscription`. The subscription name matches `swap` and `cancel`,
         // which both operate on `subscription('default')`.
-        $checkout = $team->newSubscription('default', $priceId)->checkout([
+        $checkout = $team->newSubscription(StripeSubscriptionState::SUBSCRIPTION_TYPE, $priceId)->checkout([
             'success_url' => $validated['success_url'],
             'cancel_url' => $validated['cancel_url'],
         ]);
@@ -195,7 +195,7 @@ class BillingController extends Controller
 
         $this->guardStoreOwnedSubscription($team);
 
-        $subscription = $team->subscription('default');
+        $subscription = $team->subscription(StripeSubscriptionState::SUBSCRIPTION_TYPE);
 
         abort_if($subscription === null, HttpResponse::HTTP_NOT_FOUND, 'No active subscription to swap.');
 
@@ -218,7 +218,7 @@ class BillingController extends Controller
 
         $this->guardStoreOwnedSubscription($team);
 
-        $subscription = $team->subscription('default');
+        $subscription = $team->subscription(StripeSubscriptionState::SUBSCRIPTION_TYPE);
 
         // Reached only on a rail we control, so a missing row really does mean
         // there is nothing to cancel. The store case above would otherwise land
@@ -429,7 +429,7 @@ class BillingController extends Controller
         $team = $this->resolveTeam($request);
 
         try {
-            $subscription = $team->subscription('default');
+            $subscription = $team->subscription(StripeSubscriptionState::SUBSCRIPTION_TYPE);
 
             // renewal_date favours the local trial end (a cheap DB read) and
             // only falls back to the live currentPeriodEnd() Stripe call when
@@ -604,7 +604,7 @@ class BillingController extends Controller
             // subscription of some other type would close the escape hatch this
             // refusal points at, since `swap` would find nothing and answer 409
             // `no_subscription`, leaving that customer unable to buy at all.
-            if ($subscription->type !== 'default') {
+            if ($subscription->type !== StripeSubscriptionState::SUBSCRIPTION_TYPE) {
                 continue;
             }
 

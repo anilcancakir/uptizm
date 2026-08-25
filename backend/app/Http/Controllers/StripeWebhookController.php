@@ -94,7 +94,7 @@ class StripeWebhookController extends CashierWebhookController
     {
         return $this->processOnce($payload, function (array $payload): Response {
             $response = parent::handleCustomerSubscriptionCreated($payload);
-            $this->syncEntitlementFromSubscription($payload['data']['object'], $this->eventAt($payload));
+            $this->syncEntitlementFromSubscription($payload, $this->eventAt($payload));
 
             return $response;
         });
@@ -111,7 +111,7 @@ class StripeWebhookController extends CashierWebhookController
             // Parent returns null on the incomplete_expired branch (it deletes
             // the subscription); the projection still downgrades to free there.
             $response = parent::handleCustomerSubscriptionUpdated($payload);
-            $this->syncEntitlementFromSubscription($payload['data']['object'], $this->eventAt($payload));
+            $this->syncEntitlementFromSubscription($payload, $this->eventAt($payload));
 
             return $response ?? $this->successMethod();
         });
@@ -178,11 +178,57 @@ class StripeWebhookController extends CashierWebhookController
      *
      * @param  array<string, mixed>  $object
      */
-    protected function syncEntitlementFromSubscription(array $object, CarbonInterface $eventAt): void
+    /**
+     * The Cashier subscription type a webhook payload declares.
+     *
+     * Mirrors Cashier's own resolution order (`vendor/laravel/cashier/src/Http/
+     * Controllers/WebhookController.php:86`), so a subscription this controller
+     * skips is exactly one Cashier would file under another type:
+     * `metadata.type`, then the legacy `metadata.name`, then
+     * `newSubscriptionType()`.
+     *
+     * That last step is a CALL and not the literal `'default'` it returns by
+     * default. It is Cashier's protected extension point, and copying the order
+     * without copying the call would make this disagree with Cashier for anyone
+     * who overrides it.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    protected function subscriptionType(array $payload): string
     {
+        $object = $payload['data']['object'] ?? [];
+        $metadata = is_array($object) ? ($object['metadata'] ?? []) : [];
+        $type = is_array($metadata) ? ($metadata['type'] ?? $metadata['name'] ?? null) : null;
+
+        if (is_string($type) && $type !== '') {
+            return $type;
+        }
+
+        return (string) $this->newSubscriptionType($payload);
+    }
+
+    protected function syncEntitlementFromSubscription(array $payload, CarbonInterface $eventAt): void
+    {
+        $object = $payload['data']['object'] ?? [];
+
+        if (! is_array($object)) {
+            return;
+        }
+
         $team = $this->resolveTeam($object['customer'] ?? null);
 
         if (! $team) {
+            return;
+        }
+
+        // Scoped to `default` like every other feeder. A grant written from a
+        // subscription of another type puts a tier on the team that nothing
+        // downstream maintains: the guards and the reconciler read `default`
+        // only, so it survives until the next `default` event and then
+        // vanishes, which reads as the entitlement flickering rather than as a
+        // config gap. The type comes off the EVENT because
+        // `customer.subscription.created` is what creates the local row.
+        if ($this->subscriptionType($payload) !== StripeSubscriptionState::SUBSCRIPTION_TYPE) {
             return;
         }
 
@@ -231,7 +277,7 @@ class StripeWebhookController extends CashierWebhookController
             return;
         }
 
-        $subscription = $team->subscription('default');
+        $subscription = $team->subscription(StripeSubscriptionState::SUBSCRIPTION_TYPE);
 
         if (! $subscription) {
             return;
@@ -409,7 +455,7 @@ class StripeWebhookController extends CashierWebhookController
     protected function stillGrantedByAnotherSubscription(Team $team): bool
     {
         foreach ($team->subscriptions as $subscription) {
-            if ($subscription->type !== 'default') {
+            if ($subscription->type !== StripeSubscriptionState::SUBSCRIPTION_TYPE) {
                 continue;
             }
 
