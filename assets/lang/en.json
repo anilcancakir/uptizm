@@ -994,7 +994,8 @@
       "time_days_ago": ":countd ago",
       "time_started": "started :age",
       "time_resolved": "resolved :age",
-      "thousands_separator": ","
+      "thousands_separator": ",",
+      "list_and_more": ":count more"
     },
     "incidents": {
       "list_title": "Incidents",
