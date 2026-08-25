@@ -6,6 +6,7 @@ import 'package:magic_starter/magic_starter.dart';
 import 'package:magic_payments/magic_payments.dart'
     show
         BillingCheckoutSession,
+        BillingCycle,
         BillingEntitlement,
         BillingInvoicesPage,
         BillingService,
@@ -40,6 +41,7 @@ class _WebRailStandIn implements BillingService, WebBillingService {
   @override
   Future<BillingCheckoutSession> checkout({
     required String plan,
+    required BillingCycle cycle,
     required String successUrl,
     required String cancelUrl,
   }) async {
@@ -50,7 +52,7 @@ class _WebRailStandIn implements BillingService, WebBillingService {
   }
 
   @override
-  Future<void> swap({required String plan}) async {}
+  Future<void> swap({required String plan, required BillingCycle cycle}) async {}
 
   @override
   Future<void> cancel() async {}

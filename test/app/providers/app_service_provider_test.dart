@@ -26,6 +26,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_payments/magic_payments.dart'
     show
         BillingCheckoutSession,
+        BillingCycle,
         BillingEntitlement,
         BillingInvoicesPage,
         BillingService,
@@ -128,12 +129,18 @@ class _WebRailBillingService extends _ReadsBillingService
   /// asserted where it is spent rather than only where it is read.
   final List<String> successUrls = <String>[];
 
+  /// Every cycle passed to [checkout], so a test can assert the customer is
+  /// charged on the cycle whose figure the card showed them.
+  final List<BillingCycle> checkoutCycles = <BillingCycle>[];
+
   @override
   Future<BillingCheckoutSession> checkout({
     required String plan,
+    required BillingCycle cycle,
     required String successUrl,
     required String cancelUrl,
   }) async {
+    checkoutCycles.add(cycle);
     successUrls.add(successUrl);
 
     return const BillingCheckoutSession(
@@ -143,7 +150,7 @@ class _WebRailBillingService extends _ReadsBillingService
   }
 
   @override
-  Future<void> swap({required String plan}) async {}
+  Future<void> swap({required String plan, required BillingCycle cycle}) async {}
 
   @override
   Future<void> cancel() async {}

@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\BillingCycle;
 use App\Enums\Plan;
 use Laravel\Cashier\Console\WebhookCommand;
 use Laravel\Cashier\Invoices\DompdfInvoiceRenderer;
@@ -21,12 +22,40 @@ return [
     | keys are stripped so an unset price id can never map an absent price to a
     | paid tier.
     |
+    | A TIER IS NOT A PRICE, which is why each entry names a BillingCycle as
+    | well. `pro` is sold monthly at its full rate and annually at a discount,
+    | so it is one tier and two prices, and a checkout asks for the price behind
+    | the exact (tier, cycle) pair the billing screen just showed the customer.
+    | Before the cycle travelled, the map held one price per tier and the screen
+    | offered an annual discount over a monthly charge: measured against a live
+    | Stripe test account, $29/mo on screen and $34.00 charged.
+    |
+    | A bare value ('price_x' => 'pro') is still accepted by
+    | StripeSubscriptionState::catalogue() and read as MONTHLY, so an annual
+    | price has to declare itself. The pair lookup is exact, so a cycle this
+    | deployment has not mapped is refused with a 422 rather than billed at the
+    | tier's other price.
+    |
     */
 
     'plans' => array_filter(
         [
-            (string) env('CASHIER_PRICE_PRO') => Plan::Pro->value,
-            (string) env('CASHIER_PRICE_BUSINESS') => Plan::Business->value,
+            (string) env('CASHIER_PRICE_PRO') => [
+                'tier' => Plan::Pro->value,
+                'cycle' => BillingCycle::Monthly->value,
+            ],
+            (string) env('CASHIER_PRICE_PRO_ANNUAL') => [
+                'tier' => Plan::Pro->value,
+                'cycle' => BillingCycle::Annual->value,
+            ],
+            (string) env('CASHIER_PRICE_BUSINESS') => [
+                'tier' => Plan::Business->value,
+                'cycle' => BillingCycle::Monthly->value,
+            ],
+            (string) env('CASHIER_PRICE_BUSINESS_ANNUAL') => [
+                'tier' => Plan::Business->value,
+                'cycle' => BillingCycle::Annual->value,
+            ],
         ],
         static fn (string $priceId): bool => $priceId !== '',
         ARRAY_FILTER_USE_KEY,

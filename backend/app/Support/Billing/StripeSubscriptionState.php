@@ -2,6 +2,7 @@
 
 namespace App\Support\Billing;
 
+use App\Enums\BillingCycle;
 use App\Enums\Plan;
 use App\Enums\PlanStatus;
 
@@ -95,8 +96,91 @@ final class StripeSubscriptionState
             return null;
         }
 
-        $map = (array) config('cashier.plans', []);
+        return Plan::tryFrom(self::catalogue()[$priceId]['tier'] ?? '');
+    }
 
-        return Plan::tryFrom((string) ($map[$priceId] ?? ''));
+    /**
+     * The billing cycle a Stripe price is charged on, or null when the config
+     * does not say.
+     *
+     * Null is reported and never guessed. A tier is not a price: `pro` sold
+     * monthly and annually is two prices, and a screen that assumed one told a
+     * customer what they were paying on no evidence. That shipped, and a billing
+     * page read "billed annually" over a monthly charge.
+     */
+    public static function cycleForPrice(?string $priceId): ?BillingCycle
+    {
+        if ($priceId === null || $priceId === '') {
+            return null;
+        }
+
+        return self::catalogue()[$priceId]['cycle'] ?? null;
+    }
+
+    /**
+     * The Stripe price that sells [$plan] on [$cycle], or null when none does.
+     *
+     * An exact pair match, never a nearest one. A checkout asks for the price
+     * behind the figure it has just shown the customer, so answering with the
+     * tier's other price charges an amount the screen never displayed. A tier
+     * this deployment sells one way only therefore refuses the other way rather
+     * than substituting.
+     */
+    public static function priceFor(Plan $plan, BillingCycle $cycle): ?string
+    {
+        foreach (self::catalogue() as $priceId => $entry) {
+            if ($entry['tier'] === $plan->value && $entry['cycle'] === $cycle) {
+                return $priceId;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The `cashier.plans` map, normalised and with unusable entries stripped.
+     *
+     * Two forms are accepted, matching `magic-starter-laravel`'s own reader so
+     * that plan 4's swap onto the package is a deletion rather than a rewrite:
+     *
+     *     'price_pro'        => 'pro',
+     *     'price_pro_annual' => ['tier' => 'pro', 'cycle' => 'annual'],
+     *
+     * A bare value is read as MONTHLY, which is a guess this array cannot check
+     * (Stripe knows the interval, the config does not), so a price that is
+     * annual has to say so or every screen reports the wrong one over a real
+     * charge. An unrecognised cycle word is DROPPED rather than defaulted: a
+     * typo costs a 422 on that tier instead of a charge on the wrong price.
+     *
+     * The empty-key filter is `config/cashier.php`'s own and stays: an unset
+     * `CASHIER_PRICE_*` writes `'' => 'pro'`, and a reverse lookup would then
+     * hand back the empty string as a real tier's price id.
+     *
+     * @return array<string, array{tier: string, cycle: BillingCycle}>
+     */
+    public static function catalogue(): array
+    {
+        $catalogue = [];
+
+        foreach ((array) config('cashier.plans', []) as $priceId => $entry) {
+            $priceId = (string) $priceId;
+
+            if ($priceId === '') {
+                continue;
+            }
+
+            $tier = is_array($entry) ? ($entry['tier'] ?? null) : $entry;
+            $cycle = is_array($entry)
+                ? BillingCycle::tryFrom((string) ($entry['cycle'] ?? BillingCycle::Monthly->value))
+                : BillingCycle::Monthly;
+
+            if (! is_string($tier) || $tier === '' || $cycle === null) {
+                continue;
+            }
+
+            $catalogue[$priceId] = ['tier' => $tier, 'cycle' => $cycle];
+        }
+
+        return $catalogue;
     }
 }
