@@ -105,9 +105,22 @@ attempt cold again. `--timeout` does not help; the serve-wait fires first.
 The path that works:
 
 ```sh
-flutter run -d chrome --web-port=3100 --host-vmservice-port=8181 \
-  --web-browser-flag="--window-size=1680,1050"
+flutter run -d chrome --web-port=3100 --host-vmservice-port=8181
 ```
+
+**Do not pass a window size through `--web-browser-flag`.** The flag it needs,
+`--window-size=1680,1050`, contains a comma, and `--web-browser-flag` is an
+`addMultiOption` whose `splitCommas` defaults to true
+(`args-2.7.0/lib/src/parser.dart:341` is a bare `value.split(',')` with no escape
+handling, so `\,` does not help either). Chrome therefore receives two arguments:
+`--window-size=1680`, and a bare `1050`. A bare argument is a URL to Chrome, and
+its fixup reads `1050` as a 32-bit integer address, so the browser opens
+`http://0.0.4.26/` in the first tab and puts the app in the second. Measured
+2026-08-25; the recipe here used to carry that flag.
+
+Set the size after launch instead, with `./bin/fsa dusk:resize --width=W
+--height=H`, which is the same CDP path the responsive section below already
+prescribes.
 
 Start it so it survives the shell that launched it. Then read
 `Debug service listening on ws://127.0.0.1:8181/<token>=/ws` from the log and
@@ -125,7 +138,8 @@ they are different widget trees. Useful widths: 390 (phone, no sidebar), 768
 (tablet portrait, still the mobile shell), 1200 (sidebar, container starts at 272),
 1440 or wider (desktop).
 
-Resize through `Browser.getWindowForTarget` + `Browser.setWindowBounds`.
+Resize through `./bin/fsa dusk:resize --width=W --height=H`, which drives
+`Browser.getWindowForTarget` + `Browser.setWindowBounds`.
 **Not** `Emulation.setDeviceMetricsOverride`: Flutter web reads its logical size
 from the host element, so that override grows the screenshot canvas while the app
 keeps laying out at the old width, and everything renders doubled and clipped.
