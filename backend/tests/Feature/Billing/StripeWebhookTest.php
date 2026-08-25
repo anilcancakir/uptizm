@@ -65,6 +65,13 @@ class StripeWebhookTest extends TestCase
      */
     protected const int EVENT_AT = 1787400000;
 
+    /**
+     * The subscription id every event in one test refers to unless it says
+     * otherwise, so a `created` and the `deleted` that follows are the SAME
+     * subscription.
+     */
+    protected const string SUBSCRIPTION_ID = 'sub_webhook_test';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -325,6 +332,65 @@ class StripeWebhookTest extends TestCase
             ->withArgs(fn (string $message, array $context): bool => ($context['reason'] ?? null) === 'stale');
     }
 
+    /**
+     * A deletion revokes only when nothing else is still granting.
+     *
+     * A team can hold more than one Stripe subscription: a checkout opened
+     * beside an existing one, a migration, a portal-side change. A deletion says
+     * THAT subscription stopped billing, not that the customer stopped paying,
+     * so revoking on the older one's event takes the tier away from somebody the
+     * newer one is still charging.
+     *
+     * Measured against a live Stripe test account before this guard existed: a
+     * cancelled monthly subscription plus a fresh annual one, the monthly
+     * deleted at its period end, and the entitlement went to `plan=null,
+     * subscribed=false` while Stripe was charging $348 a year. The hourly
+     * reconciler healed it, which is exactly why nothing noticed.
+     *
+     * The NEGATIVE control is the test below, where the deleted subscription is
+     * the only one and the revocation lands. Neither means anything alone.
+     */
+    public function test_a_deletion_does_not_revoke_while_another_subscription_still_grants(): void
+    {
+        $team = $this->makeBillableTeam();
+
+        $this->postSignedWebhook(
+            $this->subscriptionEvent('evt_first', 'customer.subscription.created', $team, 'price_pro', 'active'),
+        )->assertOk();
+
+        $this->postSignedWebhook(
+            $this->subscriptionEvent(
+                'evt_second',
+                'customer.subscription.created',
+                $team,
+                'price_business',
+                'active',
+                created: static::EVENT_AT + 30,
+                subscriptionId: 'sub_second',
+            ),
+        )->assertOk();
+
+        $this->postSignedWebhook(
+            $this->subscriptionEvent(
+                'evt_first_deleted',
+                'customer.subscription.deleted',
+                $team,
+                'price_pro',
+                'canceled',
+                created: static::EVENT_AT + 60,
+            ),
+        )->assertOk();
+
+        $team->refresh();
+
+        // The tier the SURVIVING subscription pays for. Asserted as the tier
+        // rather than merely "not null", because a revocation followed by a
+        // re-grant would also leave a non-null value and is different behaviour
+        // from never revoking.
+        $this->assertSame(Plan::Business, $team->plan);
+        $this->assertNotSame('canceled', $team->plan_status);
+    }
+
     public function test_subscription_deleted_revokes_the_teams_tier(): void
     {
         $team = $this->makeBillableTeam();
@@ -354,6 +420,64 @@ class StripeWebhookTest extends TestCase
         $this->assertSame(static::EVENT_AT + 60, $team->plan_source_event_at->getTimestamp());
     }
 
+    /**
+     * A granting subscription of ANOTHER type does not hold the tier open.
+     *
+     * The revocation guard scopes to `default` because that is the type every
+     * other feeder reads: the reconciler asks `subscription('default')`
+     * directly, so a `seats` row keeping the tier here would leave the two out
+     * of step, this one holding the plan and the reconciler taking it away on
+     * its next run, against one team and with neither wrong on its own terms.
+     *
+     * The negative control for the type scoping specifically. The surviving-
+     * subscription test above cannot provide it: both of its rows are `default`,
+     * so an unscoped guard passes it.
+     */
+    public function test_a_granting_subscription_of_another_type_does_not_hold_the_tier_open(): void
+    {
+        $team = $this->makeBillableTeam();
+
+        $this->postSignedWebhook(
+            $this->subscriptionEvent('evt_type_seed', 'customer.subscription.created', $team, 'price_pro', 'active'),
+        )->assertOk();
+
+        $this->postSignedWebhook(
+            $this->subscriptionEvent(
+                'evt_seats',
+                'customer.subscription.created',
+                $team,
+                'price_business',
+                'active',
+                created: static::EVENT_AT + 30,
+                subscriptionId: 'sub_seats',
+                subscriptionType: 'seats',
+            ),
+        )->assertOk();
+
+        // It did not GRANT either, which is the other half of the same rule: a
+        // tier written from a `seats` subscription is one no guard and no
+        // reconciler will maintain, so it survives until the next `default`
+        // event and then vanishes. The team is still on the tier its `default`
+        // subscription bought.
+        $this->assertSame(Plan::Pro, $team->refresh()->plan);
+
+        $this->postSignedWebhook(
+            $this->subscriptionEvent(
+                'evt_default_deleted',
+                'customer.subscription.deleted',
+                $team,
+                'price_pro',
+                'canceled',
+                created: static::EVENT_AT + 60,
+            ),
+        )->assertOk();
+
+        $team->refresh();
+
+        $this->assertNull($team->plan);
+        $this->assertSame('canceled', $team->plan_status);
+    }
+
     public function test_invoice_payment_succeeded_reaffirms_the_active_entitlement(): void
     {
         $team = $this->makeBillableTeam();
@@ -372,6 +496,48 @@ class StripeWebhookTest extends TestCase
         $team->refresh();
         $this->assertSame(Plan::Pro, $team->plan);
         $this->assertSame('active', $team->plan_status);
+    }
+
+    /**
+     * The type resolution defers to Cashier's own extension point, not a literal.
+     *
+     * Cashier's third fallback is `newSubscriptionType($payload)`, a protected
+     * method that merely HAPPENS to return `default`. Overriding it on this
+     * controller has Cashier filing unlabelled subscriptions under that name,
+     * and a hardcoded `default` here would grant on every one of them while
+     * `swap`, `cancel` and the reconciler kept looking for `default`.
+     *
+     * Asserted on the method rather than through a request, because the
+     * override is the point and binding a second controller onto the webhook
+     * route would be testing Laravel's router. The metadata limbs are what make
+     * the set meaningful: the fallback has to be LAST, not preferred.
+     */
+    public function test_the_subscription_type_defers_to_cashiers_extension_point(): void
+    {
+        $controller = new class(app(WriteTeamEntitlement::class)) extends StripeWebhookController
+        {
+            public function typeFor(array $payload): string
+            {
+                return $this->subscriptionType($payload);
+            }
+
+            protected function newSubscriptionType($payload)
+            {
+                return 'adopter_named_type';
+            }
+        };
+
+        $this->assertSame(
+            'adopter_named_type',
+            $controller->typeFor(['data' => ['object' => []]]),
+            'an unlabelled subscription follows the override, not a literal',
+        );
+
+        $this->assertSame(
+            'default',
+            $controller->typeFor(['data' => ['object' => ['metadata' => ['type' => 'default']]]]),
+            'declared metadata still wins, so the fallback stays a fallback',
+        );
     }
 
     /**
@@ -696,16 +862,25 @@ class StripeWebhookTest extends TestCase
         int $created = self::EVENT_AT,
         ?int $currentPeriodEnd = null,
         ?bool $cancelAtPeriodEnd = null,
+        string $subscriptionId = self::SUBSCRIPTION_ID,
+        string $subscriptionType = 'default',
     ): array {
         $object = [
-            'id' => 'sub_'.Str::random(10),
+            // STABLE across the events of one test, not random per event. It was
+            // random, which meant a `created` event seeded one subscription and
+            // the `deleted` event that followed named a different one that had
+            // never existed locally. Nothing noticed while the revocation looked
+            // only at the customer, so the deletion test was asserting a
+            // revocation for a subscription it had never created. A test that
+            // wants two subscriptions now says so by passing ids.
+            'id' => $subscriptionId,
             'customer' => $team->stripe_id,
             'status' => $status,
-            'metadata' => ['type' => 'default'],
+            'metadata' => ['type' => $subscriptionType],
             'items' => [
                 'data' => [
                     [
-                        'id' => 'si_'.Str::random(10),
+                        'id' => 'si_'.$subscriptionId,
                         'quantity' => 1,
                         'price' => [
                             'id' => $priceId,

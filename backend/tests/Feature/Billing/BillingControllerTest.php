@@ -5,6 +5,7 @@ namespace Tests\Feature\Billing;
 use App\Enums\BillingProvider;
 use App\Enums\Plan;
 use App\Enums\PlanStatus;
+use App\Http\Controllers\Api\V1\BillingController;
 use App\Models\Team;
 use App\Models\User;
 use DateTimeInterface;
@@ -42,6 +43,108 @@ class BillingControllerTest extends TestCase
             'price_pro' => Plan::Pro->value,
             'price_business' => Plan::Business->value,
         ]]);
+    }
+
+    /**
+     * A team this rail already bills cannot open a SECOND subscription.
+     *
+     * `newSubscription()` does not care that one exists, so without the guard a
+     * customer who cancels and buys again holds two live Stripe subscriptions
+     * and pays both. Measured end to end against a live Stripe test account, and
+     * the double charge is not the worst of it: Cashier stores both under
+     * `type = 'default'`, so `subscription('default')` becomes ambiguous for
+     * `swap`, `cancel` and the period read, and the eventual deletion of the
+     * older one revoked the entitlement the newer one was paying for.
+     *
+     * THE PAIR IS THE TEST, and the accepting limb is what stops this guard
+     * being a wall. Keyed on "has any subscription row" it would lock out every
+     * customer who has ever subscribed, including one whose subscription
+     * genuinely ended, and there is no resume endpoint for them to use.
+     */
+    public function test_a_team_with_a_live_subscription_cannot_buy_a_second_one(): void
+    {
+        [$user, $team] = $this->makeTeam();
+
+        // A cancelled subscription inside its paid period still grants, and it
+        // is the case this guard exists for.
+        $this->makeSubscription($team, 'price_pro');
+
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/v1/billing/checkout', [
+            'plan' => Plan::Pro->value,
+            'cycle' => 'monthly',
+            'success_url' => 'https://app.test/billing?checkout=success',
+            'cancel_url' => 'https://app.test/billing?checkout=cancelled',
+        ])
+            ->assertStatus(409)
+            ->assertJsonPath('billing.reason', BillingController::REASON_SUBSCRIPTION_EXISTS)
+            ->assertJsonPath('billing.provider', BillingProvider::Stripe->value);
+
+        // The accepting limb: a subscription that no longer grants is not a
+        // subscription, and this customer has to be able to buy again. The team
+        // mock would fail the test if the controller never reached the rail.
+        $team->subscriptions()->update(['stripe_status' => 'canceled']);
+
+        $builder = Mockery::mock(SubscriptionBuilder::class);
+        $builder->shouldReceive('checkout')->once()->andReturn(
+            new Checkout($team, StripeCheckoutSession::constructFrom([
+                'id' => 'cs_test_after_cancel',
+                'url' => 'https://checkout.stripe.com/after_cancel',
+            ])),
+        );
+
+        $mockedTeam = Mockery::mock($team);
+        $mockedTeam->shouldReceive('newSubscription')->once()->andReturn($builder);
+        $user->setRelation('currentTeam', $mockedTeam);
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/v1/billing/checkout', [
+            'plan' => Plan::Pro->value,
+            'cycle' => 'monthly',
+            'success_url' => 'https://app.test/billing?checkout=success',
+            'cancel_url' => 'https://app.test/billing?checkout=cancelled',
+        ])->assertOk()->assertJsonPath('session_id', 'cs_test_after_cancel');
+    }
+
+    /**
+     * A granting subscription of ANOTHER Cashier type does not block a checkout.
+     *
+     * The guard iterates the team's Cashier rows, and Cashier's named types are
+     * a first-class feature: a row under any other type is one `swap` and
+     * `cancel` cannot reach, since both resolve `subscription('default')` and
+     * Cashier filters that by type. So refusing here would close the escape
+     * hatch the refusal itself points at: `swap` would find nothing, answer 409
+     * `no_subscription`, and that customer could not buy at all.
+     *
+     * The negative control the pair above cannot provide: both of its limbs are
+     * `default` rows, so an unscoped guard passes it.
+     */
+    public function test_a_granting_subscription_of_another_type_does_not_block_a_checkout(): void
+    {
+        [$user, $team] = $this->makeTeam();
+
+        $this->makeSubscription($team, 'price_pro')->update(['type' => 'seats']);
+
+        $builder = Mockery::mock(SubscriptionBuilder::class);
+        $builder->shouldReceive('checkout')->once()->andReturn(
+            new Checkout($team, StripeCheckoutSession::constructFrom([
+                'id' => 'cs_test_other_type',
+                'url' => 'https://checkout.stripe.com/other_type',
+            ])),
+        );
+
+        $mockedTeam = Mockery::mock($team);
+        $mockedTeam->shouldReceive('newSubscription')->once()->andReturn($builder);
+        $user->setRelation('currentTeam', $mockedTeam);
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/v1/billing/checkout', [
+            'plan' => Plan::Pro->value,
+            'cycle' => 'monthly',
+            'success_url' => 'https://app.test/billing?checkout=success',
+            'cancel_url' => 'https://app.test/billing?checkout=cancelled',
+        ])->assertOk()->assertJsonPath('session_id', 'cs_test_other_type');
     }
 
     /**

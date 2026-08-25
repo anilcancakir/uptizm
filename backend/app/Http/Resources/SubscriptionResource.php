@@ -80,7 +80,7 @@ class SubscriptionResource extends JsonResource
             // not Cashier's `ends_at`, which answers a different question (the
             // date a cancellation takes effect) and has no store-rail meaning.
             'current_period_end' => $team->plan_current_period_end?->toIso8601String(),
-            'trial_ends_at' => $team->subscription('default')?->trial_ends_at?->toIso8601String(),
+            'trial_ends_at' => $team->subscription(StripeSubscriptionState::SUBSCRIPTION_TYPE)?->trial_ends_at?->toIso8601String(),
             'grace_period_ends_at' => $team->plan_grace_period_ends_at?->toIso8601String(),
             // Metered AI monitor setups left, or null on a tier that entitles AI
             // analysis outright, so the client can show the allowance before the

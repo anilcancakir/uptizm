@@ -40,6 +40,18 @@ final class StripeSubscriptionState
      *
      * @var array<int, string>
      */
+    /**
+     * The Cashier subscription TYPE this application's Stripe rail acts on.
+     *
+     * Cashier's named types are a real feature and a team could hold several, so
+     * every feeder has to agree on which one it means: the checkout guard
+     * refuses on it, the revocation guard holds a tier open for it, the grant
+     * path writes from it, and `swap` and `cancel` reach it through
+     * `subscription()`. One constant rather than the literal in four files with
+     * comments in each arguing that the four must match.
+     */
+    public const string SUBSCRIPTION_TYPE = 'default';
+
     public const array GRANTING_STATUSES = [
         'active',
         'trialing',
