@@ -13,6 +13,7 @@ use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Laravel\Cashier\Checkout;
 use Laravel\Cashier\Subscription;
+use Laravel\Cashier\SubscriptionBuilder;
 use Laravel\Sanctum\Sanctum;
 use Mockery;
 use Stripe\Checkout\Session as StripeCheckoutSession;
@@ -53,14 +54,28 @@ class BillingControllerTest extends TestCase
         ]);
         $fakeCheckout = new Checkout($team, $session);
 
-        $mockedTeam = Mockery::mock($team);
-        $mockedTeam->shouldReceive('checkout')
+        // The subscription builder, NOT `Billable::checkout()`. Cashier's
+        // `Checkout::create` defaults to `mode: payment`, so passing a recurring
+        // price to the billable's own `checkout()` is rejected by Stripe with
+        // "You specified `payment` mode but passed a recurring price". Every
+        // plan sold here is recurring, so that path can never succeed, and this
+        // expectation is what keeps it from returning: mocking the old call
+        // shape pinned the broken one as correct, and no assertion could fail
+        // because Stripe was never asked whether the call was valid.
+        $builder = Mockery::mock(SubscriptionBuilder::class);
+        $builder->shouldReceive('checkout')
             ->once()
-            ->with(['price_pro' => 1], [
+            ->with([
                 'success_url' => 'https://app.test/billing?checkout=success',
                 'cancel_url' => 'https://app.test/billing?checkout=cancelled',
             ])
             ->andReturn($fakeCheckout);
+
+        $mockedTeam = Mockery::mock($team);
+        $mockedTeam->shouldReceive('newSubscription')
+            ->once()
+            ->with('default', 'price_pro')
+            ->andReturn($builder);
 
         $user->setRelation('currentTeam', $mockedTeam);
         Sanctum::actingAs($user);
