@@ -433,48 +433,6 @@ class StripeWebhookTest extends TestCase
      * subscription test above cannot provide it: both of its rows are `default`,
      * so an unscoped guard passes it.
      */
-    /**
-     * The type resolution defers to Cashier's own extension point, not a literal.
-     *
-     * Cashier's third fallback is `newSubscriptionType($payload)`, a protected
-     * method that merely HAPPENS to return `default`. Overriding it on this
-     * controller has Cashier filing unlabelled subscriptions under that name,
-     * and a hardcoded `default` here would grant on every one of them while
-     * `swap`, `cancel` and the reconciler kept looking for `default`.
-     *
-     * Asserted on the method rather than through a request, because the
-     * override is the point and binding a second controller onto the webhook
-     * route would be testing Laravel's router. The metadata limbs are what make
-     * the set meaningful: the fallback has to be LAST, not preferred.
-     */
-    public function test_the_subscription_type_defers_to_cashiers_extension_point(): void
-    {
-        $controller = new class(app(WriteTeamEntitlement::class)) extends StripeWebhookController
-        {
-            public function typeFor(array $payload): string
-            {
-                return $this->subscriptionType($payload);
-            }
-
-            protected function newSubscriptionType($payload)
-            {
-                return 'adopter_named_type';
-            }
-        };
-
-        $this->assertSame(
-            'adopter_named_type',
-            $controller->typeFor(['data' => ['object' => []]]),
-            'an unlabelled subscription follows the override, not a literal',
-        );
-
-        $this->assertSame(
-            'default',
-            $controller->typeFor(['data' => ['object' => ['metadata' => ['type' => 'default']]]]),
-            'declared metadata still wins, so the fallback stays a fallback',
-        );
-    }
-
     public function test_a_granting_subscription_of_another_type_does_not_hold_the_tier_open(): void
     {
         $team = $this->makeBillableTeam();
@@ -538,6 +496,48 @@ class StripeWebhookTest extends TestCase
         $team->refresh();
         $this->assertSame(Plan::Pro, $team->plan);
         $this->assertSame('active', $team->plan_status);
+    }
+
+    /**
+     * The type resolution defers to Cashier's own extension point, not a literal.
+     *
+     * Cashier's third fallback is `newSubscriptionType($payload)`, a protected
+     * method that merely HAPPENS to return `default`. Overriding it on this
+     * controller has Cashier filing unlabelled subscriptions under that name,
+     * and a hardcoded `default` here would grant on every one of them while
+     * `swap`, `cancel` and the reconciler kept looking for `default`.
+     *
+     * Asserted on the method rather than through a request, because the
+     * override is the point and binding a second controller onto the webhook
+     * route would be testing Laravel's router. The metadata limbs are what make
+     * the set meaningful: the fallback has to be LAST, not preferred.
+     */
+    public function test_the_subscription_type_defers_to_cashiers_extension_point(): void
+    {
+        $controller = new class(app(WriteTeamEntitlement::class)) extends StripeWebhookController
+        {
+            public function typeFor(array $payload): string
+            {
+                return $this->subscriptionType($payload);
+            }
+
+            protected function newSubscriptionType($payload)
+            {
+                return 'adopter_named_type';
+            }
+        };
+
+        $this->assertSame(
+            'adopter_named_type',
+            $controller->typeFor(['data' => ['object' => []]]),
+            'an unlabelled subscription follows the override, not a literal',
+        );
+
+        $this->assertSame(
+            'default',
+            $controller->typeFor(['data' => ['object' => ['metadata' => ['type' => 'default']]]]),
+            'declared metadata still wins, so the fallback stays a fallback',
+        );
     }
 
     /**
