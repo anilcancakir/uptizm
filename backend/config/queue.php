@@ -82,7 +82,11 @@ return [
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('REDIS_QUEUE', 'default'),
             'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 90),
-            'block_for' => null,
+            // Block on Redis instead of waking every --sleep seconds. Idle workers stop
+            // polling and a queued job is picked up immediately rather than up to a
+            // sleep cycle later. Never set this to 0: that blocks SIGTERM handling until
+            // the next job arrives, which stalls Horizon restarts and deploys.
+            'block_for' => (int) env('REDIS_QUEUE_BLOCK_FOR', 5),
             'after_commit' => false,
         ],
 
@@ -141,7 +145,7 @@ return [
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('REDIS_ANALYZE_QUEUE', 'analyze'),
             'retry_after' => (int) env('REDIS_ANALYZE_QUEUE_RETRY_AFTER', 200),
-            'block_for' => null,
+            'block_for' => (int) env('REDIS_ANALYZE_QUEUE_BLOCK_FOR', 5),
             'after_commit' => false,
         ],
 
