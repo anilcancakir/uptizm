@@ -8,6 +8,14 @@ import 'package:uptizm/app/models/monitor.dart';
 
 import '../../support/bundled_lang.dart';
 
+/// Reads the shipped catalogue so the two capping assertions below are about
+/// the sentence an operator sees rather than a raw dotted key.
+class _BundledEnglishLangLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async =>
+      readBundledLang('en');
+}
+
 void main() {
   setUp(() {
     MagicApp.reset();
@@ -319,6 +327,93 @@ void main() {
     expect(summary, contains('fleet_operational_ratio'));
     expect(summary, contains('fleet_pending_suffix'));
     expect(summary, isNot(contains('fleet_all_operational')));
+  });
+
+  test('fleetSummary caps the names it lists and counts the rest', () async {
+    // Driven live against 400 seeded monitors, the banner listed every single
+    // one by name and filled the screen with a wall of text. It reads fine at
+    // 15, which is why nothing caught it, and a monitoring product is exactly
+    // where a customer arrives with hundreds.
+    final List<Map<String, dynamic>> many = <Map<String, dynamic>>[
+      for (int i = 0; i < 40; i++)
+        <String, dynamic>{
+          'id': 'm$i',
+          'name': 'Service ${i.toString().padLeft(3, '0')}',
+          'last_status': 'down',
+        },
+    ];
+    Http.fake({
+      'dashboard/stats': Http.response({
+        'data': {
+          'monitors_up': 0,
+          'monitors_down': 40,
+          'monitors_degraded': 0,
+          'monitors_paused': 0,
+          'monitors_pending': 0,
+          'monitors_total': 40,
+          'open_incidents': 0,
+        },
+      }),
+      'dashboard/active-incidents': Http.response({'data': []}),
+      'dashboard/monitors-snapshot': Http.response({'data': many}),
+      'dashboard/ai-inbox': Http.response({'data': []}),
+    });
+    final DashboardController controller = DashboardController.instance;
+
+    Translator.instance.setLoader(_BundledEnglishLangLoader());
+    await Translator.instance.setLocale(const Locale('en'));
+
+    await controller.reload();
+    final String summary = controller.fleetSummary;
+
+    // The first few are named, because "which one" is the question the banner
+    // exists to answer, and the tail becomes a number. Read against the SHIPPED
+    // catalogue, so the assertion is about the copy an operator sees.
+    expect(summary, contains('Service 000'));
+    expect(summary, contains('Service 002'));
+    expect(summary, isNot(contains('Service 003')));
+    expect(summary, isNot(contains('Service 039')));
+    expect(summary, contains('37 more'),
+        reason: 'the remainder is counted, not enumerated');
+  });
+
+  test('fleetSummary still names every monitor when there are few', () async {
+    // The cap must not cost the small case anything: three down monitors are
+    // still three names, with no "and 0 more" tail.
+    Http.fake({
+      'dashboard/stats': Http.response({
+        'data': {
+          'monitors_up': 0,
+          'monitors_down': 3,
+          'monitors_degraded': 0,
+          'monitors_paused': 0,
+          'monitors_pending': 0,
+          'monitors_total': 3,
+          'open_incidents': 0,
+        },
+      }),
+      'dashboard/active-incidents': Http.response({'data': []}),
+      'dashboard/monitors-snapshot': Http.response({
+        'data': [
+          {'id': 'a', 'name': 'Alpha', 'last_status': 'down'},
+          {'id': 'b', 'name': 'Beta', 'last_status': 'down'},
+          {'id': 'c', 'name': 'Gamma', 'last_status': 'down'},
+        ],
+      }),
+      'dashboard/ai-inbox': Http.response({'data': []}),
+    });
+    final DashboardController controller = DashboardController.instance;
+
+    Translator.instance.setLoader(_BundledEnglishLangLoader());
+    await Translator.instance.setLocale(const Locale('en'));
+
+    await controller.reload();
+    final String summary = controller.fleetSummary;
+
+    expect(summary, contains('Alpha'));
+    expect(summary, contains('Beta'));
+    expect(summary, contains('Gamma'));
+    expect(summary, isNot(contains('more')));
   });
 
   test('fleetSummary reads grammatically for a single monitor', () async {

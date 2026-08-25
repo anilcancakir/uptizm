@@ -994,7 +994,8 @@
       "time_days_ago": ":count gün önce",
       "time_started": ":age başladı",
       "time_resolved": ":age çözüldü",
-      "thousands_separator": "."
+      "thousands_separator": ".",
+      "list_and_more": ":count tane daha"
     },
     "incidents": {
       "list_title": "Olaylar",

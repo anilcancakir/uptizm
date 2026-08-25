@@ -588,10 +588,32 @@ class DashboardController extends MagicController
     return '${parts.join(', ')}. $incidentSentence';
   }
 
-  /// Joins names as `A`, `A and B`, or `A, B and C`, with a localized connector.
+  /// How many names the banner spells out before it starts counting.
+  ///
+  /// Driven against 400 monitors, the banner listed every one of them and
+  /// filled the screen. It reads fine at fifteen, which is why nothing caught
+  /// it, and a monitoring product is exactly where a customer arrives with
+  /// hundreds. Three keeps the sentence answering "which one", which is what
+  /// it is for, without letting the tail grow without bound.
+  static const int _maxNamesListed = 3;
+
+  /// Joins names as `A`, `A and B`, `A, B and C`, or `A, B, C and 97 more`,
+  /// with a localized connector.
   String _joinNames(List<String> names) {
     if (names.length == 1) return names.first;
     final String and = trans('uptizm.common.list_and');
+
+    if (names.length > _maxNamesListed) {
+      // The remainder is a count, not a list. The connector stays in the
+      // localised fragment so Turkish keeps its word order: the English reads
+      // "A, B, C and 97 more" and the Turkish "A, B, C ve 97 tane daha", and
+      // both then take the trailing verb the caller's suffix supplies.
+      final String head = names.take(_maxNamesListed).join(', ');
+      return '$head $and ${trans('uptizm.common.list_and_more', {
+            'count': '${names.length - _maxNamesListed}',
+          })}';
+    }
+
     if (names.length == 2) return '${names[0]} $and ${names[1]}';
     return '${names.sublist(0, names.length - 1).join(', ')} $and ${names.last}';
   }
