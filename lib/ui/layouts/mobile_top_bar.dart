@@ -105,7 +105,7 @@ class MobileTopBar extends StatelessWidget {
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
         child: WDiv(
-          className: 'bg-surface/80 border-b border-color-border',
+          className: 'bg-surface-glass-80 border-b border-color-border',
           children: [
             SizedBox(height: topInset),
             WDiv(

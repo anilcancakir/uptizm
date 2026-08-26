@@ -84,4 +84,36 @@ const Map<String, String> uptizmStatusAliases = <String, String>{
   // ---------------------------------------------------------------------------
   'text-primary': 'text-[#008560] dark:text-[#00C292]',
   'border-primary': 'border-[#008560] dark:border-[#00C292]',
+  // text-destructive: the destructive foreground, same hex as `bg-destructive`
+  // and therefore as `text-down`. design:sync emits `bg-destructive` and
+  // `text-on-destructive` but no `text-` peer, and magic_starter's theme
+  // derivation asks for exactly this role (`_windRole(theme,
+  // 'text-destructive')`) when it builds the modal and form error styles. With
+  // the key absent the starter fell through to its own stock red instead of
+  // uptizm's, so every modal and form error message was off-palette.
+  'text-destructive': 'text-[#DF202E] dark:text-[#FF645F]',
+  // ---------------------------------------------------------------------------
+  // Translucent surface fills, for the glass bars and the assistant scrim.
+  //
+  // `bg-surface/80` does NOT work: the alias expander matches a token's whole
+  // body against the map, so `bg-surface/80` misses the `bg-surface` key and
+  // falls through to the background parser, which strips the `/80` and asks
+  // `isValidColor('surface')`. That is false (surface is an alias, not a
+  // registered MaterialColor family; only `primary` is one), so the parser
+  // returns null and NOTHING PAINTS AT ALL. The same trap is described for
+  // `bg-ai-wash` above, which solves it by flattening to a solid colour.
+  //
+  // Flattening is wrong here: these fills sit over a BackdropFilter and have to
+  // stay translucent or they hide the blur they exist to soften. So the opacity
+  // modifier is kept, but moved onto an ARBITRARY hex, which the parser can
+  // resolve without consulting the alias map at all. An 8-digit AARRGGBB hex
+  // would be the tidier spelling and does NOT work: `hexToColor` accepts one,
+  // but `_backgroundColorRegex` only admits 3 or 6 digits, so the value never
+  // reaches it and nothing paints. The hexes are the page surface (light
+  // #F9FAFB, dark #07090C), which is what `bg-surface` itself expands to.
+  // ---------------------------------------------------------------------------
+  'bg-surface-glass-95': 'bg-[#F9FAFB]/95 dark:bg-[#07090C]/95',
+  'bg-surface-glass-90': 'bg-[#F9FAFB]/90 dark:bg-[#07090C]/90',
+  'bg-surface-glass-80': 'bg-[#F9FAFB]/80 dark:bg-[#07090C]/80',
+  'bg-surface-scrim': 'bg-[#F9FAFB]/30 dark:bg-[#07090C]/30',
 };

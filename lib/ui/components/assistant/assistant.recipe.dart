@@ -27,7 +27,7 @@ const WindRecipe assistantFabRecipe = WindRecipe(
 /// lab's `rounded-2xl` panel) and a hairline border. Two modes:
 ///
 /// - `floating` (default) — the overlay panel: a fixed-width card over a
-///   high-opacity surface fallback (`bg-surface/95`) so it stays legible when
+///   high-opacity surface fallback (`bg-surface-glass-95`) so it stays legible when
 ///   the [Assistant] composites it over a [BackdropFilter] blur (PORTING.md §4).
 /// - `embedded` — the static catalog/preview panel: full width (capped by a
 ///   Flutter constraint to the design lab's `max-w-sm`) on a solid `bg-surface`,
@@ -41,7 +41,7 @@ const WindRecipe assistantSurfaceRecipe = WindRecipe(
   base: 'flex flex-col overflow-hidden rounded-2xl border border-color-border',
   variants: {
     kAssistantSurfaceModeAxis: {
-      'floating': 'w-80 max-w-full bg-surface/95',
+      'floating': 'w-80 max-w-full bg-surface-glass-95',
       'embedded': 'w-full bg-surface',
     },
   },

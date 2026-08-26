@@ -55,7 +55,7 @@ const List<_BottomNavTab> _tabs = [
 /// top-bar account menu, not here. Ported from the design lab's `BottomNav`:
 ///
 /// - **Glass surface:** a [BackdropFilter] blurs whatever scrolls beneath it,
-///   over a high-opacity `bg-surface/90` fallback so it stays legible where
+///   over a high-opacity `bg-surface-glass-90` fallback so it stays legible where
 ///   the platform cannot blur. (Wind has no backdrop token, so the blur is
 ///   composed here directly per PORTING.md §4.)
 /// - **Safe area:** the home-indicator inset is added below the row via
@@ -88,7 +88,7 @@ class BottomNav extends StatelessWidget {
         filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
         child: WDiv(
           className: '''
-            bg-surface/90 border-t border-color-border
+            bg-surface-glass-90 border-t border-color-border
           ''',
           children: [
             WDiv(
