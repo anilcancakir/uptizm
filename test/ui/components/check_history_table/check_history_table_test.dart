@@ -455,7 +455,7 @@ void main() {
 
   testWidgets('CheckHistoryTablePreview renders without error', (tester) async {
     // Wrap in SingleChildScrollView to avoid vertical overflow in the fixed
-    // scaffold body — the preview's 2 sections (6 + 3 rows) exceed 552 px.
+    // scaffold body: the preview's 2 sections (6 + 3 rows) exceed 552 px.
     await tester.pumpWidget(
       wrap(const SingleChildScrollView(child: CheckHistoryTablePreview())),
     );
