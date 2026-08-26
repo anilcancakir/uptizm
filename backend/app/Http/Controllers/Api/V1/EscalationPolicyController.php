@@ -47,10 +47,23 @@ class EscalationPolicyController extends Controller
      */
     public function store(StoreEscalationPolicyRequest $request): JsonResponse
     {
-        $policy = EscalationPolicy::create([
-            ...$request->validated(),
-            'team_id' => $request->user()->current_team_id,
-        ]);
+        $teamId = $request->user()->current_team_id;
+
+        $policy = DB::transaction(function () use ($request, $teamId): EscalationPolicy {
+            $created = EscalationPolicy::create([
+                ...$request->validated(),
+                'team_id' => $teamId,
+            ]);
+
+            $this->demoteOtherDefaults($created);
+
+            // Refreshed so the 201 carries the flags as booleans. `create()`
+            // returns a model holding only what was passed, so a request that
+            // omits either flag would serialise it as null rather than as the
+            // false the column actually stores, and the client would decode a
+            // missing bool instead of an off switch.
+            return $created->refresh();
+        });
 
         return EscalationPolicyResource::make($policy)
             ->response()
@@ -74,9 +87,39 @@ class EscalationPolicyController extends Controller
     {
         $this->authorizeTeam($request, $policy);
 
-        $policy->update($request->validated());
+        DB::transaction(function () use ($request, $policy): void {
+            $policy->update($request->validated());
+
+            $this->demoteOtherDefaults($policy);
+        });
 
         return EscalationPolicyResource::make($policy->refresh()->load('steps'));
+    }
+
+    /**
+     * Leave [$policy] as the only default policy on its team.
+     *
+     * A no-op unless [$policy] is itself marked. There is no partial unique
+     * index behind `is_default` (the suite runs on both SQLite and PostgreSQL
+     * and Laravel has no portable helper for one), so this is what keeps the
+     * invariant, and it has to run inside the caller's transaction to hold.
+     *
+     * Marking a second policy MOVES the default rather than rejecting the
+     * write. The alternative, a 422 telling the operator to go and unmark the
+     * other one first, makes them do a two-step edit to express one intent, and
+     * the intent is never ambiguous: a team has one fallback ladder.
+     */
+    protected function demoteOtherDefaults(EscalationPolicy $policy): void
+    {
+        if (! $policy->is_default) {
+            return;
+        }
+
+        EscalationPolicy::query()
+            ->where('team_id', $policy->team_id)
+            ->whereKeyNot($policy->getKey())
+            ->where('is_default', true)
+            ->update(['is_default' => false]);
     }
 
     /**

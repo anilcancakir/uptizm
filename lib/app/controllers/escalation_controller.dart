@@ -67,9 +67,10 @@ class EscalationStepWire {
 /// they stay independently callable and testable.
 ///
 /// **Divergence from the backend shape.** The backend `EscalationPolicy`
-/// model only persists `name`; it has no `description`/`repeat_last_step`/
-/// `is_default`/`monitor_count` columns, so the list view renders the policy
-/// name plus its step ladder and nothing else. Likewise `EscalationStep`
+/// model persists `name` plus the two paging flags (`repeat_last_step`,
+/// `is_default`); it still has no `description` or `monitor_count` column, so
+/// the list view renders the policy name plus its step ladder and nothing
+/// else. Likewise `EscalationStep`
 /// carries one `target_type`/`target_id` per row, so every editor rung maps to
 /// exactly one people-only step: `target_type: on_call` (the shared rotation,
 /// no `target_id`) or `target_type: user` (`target_id` = a team member id).
@@ -298,9 +299,14 @@ class EscalationController extends MagicController
   /// no field errors keeps the generic error toast and returns an empty map.
   Future<Map<String, String>> create(
     String name,
-    List<EscalationRungDraft> rungs,
-  ) async {
-    final EscalationPolicy policy = EscalationPolicy()..name = name;
+    List<EscalationRungDraft> rungs, {
+    bool repeatLastStep = false,
+    bool isDefault = false,
+  }) async {
+    final EscalationPolicy policy = EscalationPolicy()
+      ..name = name
+      ..repeatLastStep = repeatLastStep
+      ..isDefault = isDefault;
 
     final bool ok = await policy.save();
     if (!ok) {
@@ -348,11 +354,15 @@ class EscalationController extends MagicController
     String id,
     String name,
     List<EscalationRungDraft> rungs,
-    Set<String> originalStepIds,
-  ) async {
+    Set<String> originalStepIds, {
+    bool repeatLastStep = false,
+    bool isDefault = false,
+  }) async {
     final EscalationPolicy policy = EscalationPolicy()
       ..id = id
       ..name = name
+      ..repeatLastStep = repeatLastStep
+      ..isDefault = isDefault
       ..exists = true;
 
     final bool ok = await policy.save();

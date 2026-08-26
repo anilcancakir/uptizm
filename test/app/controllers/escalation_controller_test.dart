@@ -163,6 +163,42 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('create', () {
+    test('carries the two paging flags into the POST body', () async {
+      // The defect this pins: the editor collected both switches, reported
+      // success, and posted a body that never mentioned them, so a policy the
+      // operator set to repeat until acknowledged silently paged once.
+      final fake = Http.fake({
+        'escalation-policies': Http.response({
+          'data': {'id': 'new-policy', 'name': 'Repeating'},
+        }, 201),
+        'escalation-policies/new-policy/steps': Http.response({'data': {}}, 201),
+        'escalation-policies/new-policy': Http.response({
+          'data': {'id': 'new-policy', 'name': 'Repeating', 'steps': []},
+        }, 200),
+      });
+
+      await EscalationController.instance.create(
+        'Repeating',
+        const [
+          EscalationRungDraft(
+            afterMinutes: 0,
+            targetType: EscalationTargetType.onCall,
+          ),
+        ],
+        repeatLastStep: true,
+        isDefault: true,
+      );
+
+      fake.assertSent(
+        (r) =>
+            r.method == 'POST' &&
+            !r.url.contains('/steps') &&
+            r.data is Map &&
+            (r.data as Map)['repeat_last_step'] == true &&
+            (r.data as Map)['is_default'] == true,
+      );
+    });
+
     test('POSTs the policy then one people-only step per rung, in order', () async {
       final fake = Http.fake({
         'escalation-policies': Http.response({

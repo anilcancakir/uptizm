@@ -21,10 +21,10 @@ import '../../../ui/components/status_dot/index.dart';
 ///
 /// Sources [EscalationController.policies] (live `GET /escalation-policies`
 /// + per-policy detail hydration) as [EscalationPolicy] models. The backend
-/// model persists only `name` + the step chain, so the card renders the policy
-/// name plus its ladder and nothing else (there are no
-/// `description`/`repeat_last_step`/`is_default`/`monitor_count` columns; see
-/// the controller's class docblock for the divergence).
+/// model persists `name`, the two paging flags and the step chain, so the card
+/// renders the policy name plus its ladder and nothing else (there are still no
+/// `description`/`monitor_count` columns; see the controller's class docblock
+/// for the divergence).
 ///
 /// Delete opens a [MagicStarterConfirmDialog]; on confirm it fires
 /// [EscalationController.delete] (`DELETE /escalation-policies/{id}`), which

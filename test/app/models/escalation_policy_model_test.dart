@@ -9,8 +9,31 @@ void main() {
       expect(policy.table, 'escalation_policies');
       expect(policy.resource, 'escalation-policies');
       expect(policy.incrementing, isFalse);
-      // Only `name` is mass-assignable; the step chain is a sub-resource.
-      expect(policy.fillable, ['name']);
+      // The step chain stays out: it is authored through the `steps`
+      // sub-resource, not the policy body.
+      expect(policy.fillable, ['name', 'repeat_last_step', 'is_default']);
+    });
+
+    test('the paging flags default to false when the wire omits them', () {
+      // What a backend older than the columns returns, and what the index
+      // payload returned before this. Decoding a missing bool as anything but
+      // false would make an unmarked policy claim to be the team default.
+      final policy = EscalationPolicy.fromMap({'id': 'p1', 'name': 'Standard'});
+
+      expect(policy.repeatLastStep, isFalse);
+      expect(policy.isDefault, isFalse);
+    });
+
+    test('the paging flags decode from the wire', () {
+      final policy = EscalationPolicy.fromMap({
+        'id': 'p1',
+        'name': 'Standard',
+        'repeat_last_step': true,
+        'is_default': true,
+      });
+
+      expect(policy.repeatLastStep, isTrue);
+      expect(policy.isDefault, isTrue);
     });
 
     test('fromMap hydrates id + name and marks exists', () {

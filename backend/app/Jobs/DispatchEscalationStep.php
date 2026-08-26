@@ -31,6 +31,14 @@ class DispatchEscalationStep implements ShouldQueue
     public function __construct(
         public readonly string $incidentId,
         public readonly string $stepId,
+        /**
+         * Which pass over this step this job is. 0 is the ladder's own single
+         * firing; 1 and above are repeats of a policy's last rung, scheduled by
+         * the dispatcher while the incident stays unacknowledged. Defaulting to
+         * 0 keeps every existing dispatch site and every job already sitting on
+         * the queue across a deploy valid and unchanged.
+         */
+        public readonly int $attempt = 0,
     ) {}
 
     /**
@@ -38,6 +46,6 @@ class DispatchEscalationStep implements ShouldQueue
      */
     public function handle(EscalationDispatcher $dispatcher): void
     {
-        $dispatcher->pageStep($this->incidentId, $this->stepId);
+        $dispatcher->pageStep($this->incidentId, $this->stepId, $this->attempt);
     }
 }

@@ -27,7 +27,20 @@ class EscalationPolicy extends Model
     protected $fillable = [
         'team_id',
         'name',
+        'repeat_last_step',
+        'is_default',
     ];
+
+    /**
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'repeat_last_step' => 'boolean',
+            'is_default' => 'boolean',
+        ];
+    }
 
     /**
      * Owning team (tenant boundary).

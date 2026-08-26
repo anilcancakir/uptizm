@@ -31,6 +31,17 @@ class StoreEscalationPolicyRequest extends FormRequest
                 'string',
                 'max:200',
             ],
+            // Both are optional and both default to false in the schema, so a
+            // client that predates them (or simply omits them) creates exactly
+            // the policy it created before.
+            'repeat_last_step' => [
+                'sometimes',
+                'boolean',
+            ],
+            'is_default' => [
+                'sometimes',
+                'boolean',
+            ],
         ];
     }
 }

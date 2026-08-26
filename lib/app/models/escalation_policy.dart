@@ -41,10 +41,10 @@ class EscalationPolicy extends Model
   @override
   bool get incrementing => false;
 
-  /// Mass-assignable attributes. The backend persists only `name`; the step
-  /// chain is authored through the `steps` sub-resource, not the policy body.
+  /// Mass-assignable attributes. The step chain is authored through the `steps`
+  /// sub-resource rather than the policy body, so it is deliberately absent.
   @override
-  List<String> get fillable => ['name'];
+  List<String> get fillable => ['name', 'repeat_last_step', 'is_default'];
 
   /// Attribute casts. `name` is a plain string; timestamps are handled by
   /// [HasTimestamps]. The `steps` array is decoded by the [steps] accessor.
@@ -59,11 +59,31 @@ class EscalationPolicy extends Model
   @override
   String get id => getAttribute('id')?.toString() ?? '';
 
-  /// The policy display name (the only field the backend model persists).
+  /// The policy display name.
   String? get name => getAttribute('name') as String?;
 
   /// Set the policy display name.
   set name(String? value) => setAttribute('name', value);
+
+  /// Whether the ladder keeps re-paging its last rung until somebody
+  /// acknowledges the incident, instead of stopping after one pass.
+  ///
+  /// Defaults to false for a wire payload that omits it, which is what a
+  /// backend older than the column returns.
+  bool get repeatLastStep => getAttribute('repeat_last_step') == true;
+
+  /// Set whether the last rung repeats until acknowledged.
+  set repeatLastStep(bool value) => setAttribute('repeat_last_step', value);
+
+  /// Whether this is the ladder a monitor pages when it pins no policy of its
+  /// own. At most one policy per team carries it; marking a second moves it.
+  ///
+  /// Defaults to false for a wire payload that omits it. A team with none
+  /// marked keeps the older fallback, the earliest-created policy.
+  bool get isDefault => getAttribute('is_default') == true;
+
+  /// Set whether this policy is the team's fallback ladder.
+  set isDefault(bool value) => setAttribute('is_default', value);
 
   /// The ordered escalation step chain, decoded from the wire `steps` array
   /// into [EscalationStepWire]s (each carrying its backend `id` so the editor
