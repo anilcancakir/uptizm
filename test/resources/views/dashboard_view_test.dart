@@ -275,6 +275,30 @@ void main() {
     );
   }
 
+  testWidgets('a total read failure offers a retry, not the create-your-first '
+      'hero', (tester) async {
+    // The regression: with all four legs failed the counters sit at their zero
+    // defaults, and the zero-monitor branch read that as a team owning no
+    // monitors. A paying team opening the app offline was invited to create
+    // their first, with no retry anywhere on the screen.
+    Http.fake({
+      'dashboard/stats': Http.response({'message': 'down'}, 500),
+      'dashboard/active-incidents': Http.response({'message': 'down'}, 500),
+      'dashboard/monitors-snapshot': Http.response({'message': 'down'}, 500),
+      'dashboard/ai-inbox': Http.response({'message': 'down'}, 500),
+    });
+    await DashboardController.instance.reload();
+
+    await tester.pumpWidget(wrap(const DashboardView()));
+    await tester.pump();
+
+    expect(
+      find.text(trans('uptizm.dashboard.load_error_title')),
+      findsOneWidget,
+    );
+    expect(find.text(trans('uptizm.common.retry')), findsOneWidget);
+  });
+
   testWidgets('DashboardView renders four KPI stat cards', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1280, 2400));
     addTearDown(() => tester.binding.setSurfaceSize(null));

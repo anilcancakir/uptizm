@@ -113,7 +113,10 @@ void main() {
     Magic.flush();
     Magic.singleton('magic_starter', () => MagicStarterManager());
     Magic.singleton('log', () => LogManager());
-    Http.fake();
+    // A SUCCESSFUL empty answer, not a bare fake. A bare fake fails the read,
+    // and a failed read with nothing cached is now the retry state rather than
+    // the empty one, which is the whole point of the sibling test below.
+    Http.fake({'monitors': Http.response({'data': []})});
 
     // Deliberately NOT pumped again: the first frame is painted before the
     // mount's async fetch resolves, which is exactly the moment the operator
@@ -128,8 +131,7 @@ void main() {
       reason: 'a pending read must never assert that there are none',
     );
 
-    // Once it resolves (the fake answers nothing), the skeleton gives way to the
-    // honest empty state.
+    // Once it resolves, the skeleton gives way to the honest empty state.
     await tester.pump();
     expect(find.byType(MSSkeleton), findsNothing);
     expect(
@@ -138,9 +140,41 @@ void main() {
     );
   });
 
+  testWidgets('a failed read offers a retry, not "No monitors yet"',
+      (tester) async {
+    // The regression: the read resolved an empty list for a 500 exactly as it
+    // does for a team that owns nothing, so an inventory screen told a team
+    // mid-outage they had no monitors and offered to create their first.
+    // Drop the seeded harness: with rows cached a failed refetch deliberately
+    // keeps them, so the retry state only appears when there is nothing else
+    // to show.
+    MagicApp.reset();
+    Magic.flush();
+    Magic.singleton('magic_starter', () => MagicStarterManager());
+    Magic.singleton('log', () => LogManager());
+    Http.fake({'monitors': Http.response({'message': 'server error'}, 500)});
+    await MonitorController.instance.reload();
+
+    await tester.pumpWidget(wrap(const MonitorsListView()));
+    await tester.pump();
+
+    expect(
+      find.text(trans('uptizm.monitors.load_error_title')),
+      findsOneWidget,
+    );
+    expect(
+      find.text(trans('uptizm.monitors.empty_no_monitors_title')),
+      findsNothing,
+      reason: 'a failed read must never assert that there are none',
+    );
+  });
+
   testWidgets('a resolved empty inventory shows the empty state, not a '
       'skeleton', (tester) async {
     // Seeding is a resolved state, so an empty seed is a known-empty inventory.
+    // The mount refetches, so the fake has to answer it successfully: an empty
+    // inventory and a failed read are now different screens.
+    Http.fake({'monitors': Http.response({'data': []})});
     MonitorController.instance.seedForTest(const []);
 
     await tester.pumpWidget(wrap(const MonitorsListView()));

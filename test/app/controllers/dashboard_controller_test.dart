@@ -107,6 +107,63 @@ void main() {
     return DashboardController.instance;
   }
 
+  group('a total read failure is not an empty account', () {
+    test('every leg failing on the first load sets loadFailed', () async {
+      // The comment that stood in `reload` called the empty dashboard "the
+      // honest answer" when every leg failed. With no counters and no monitors
+      // the view takes its zero-monitor branch, so a paying team opening the
+      // app offline read "You have no monitors yet" with "Create your first
+      // monitor" as the only action, and no retry anywhere on the screen.
+      Http.fake({
+        'dashboard/stats': Http.response({'message': 'down'}, 500),
+        'dashboard/active-incidents': Http.response({'message': 'down'}, 500),
+        'dashboard/monitors-snapshot': Http.response({'message': 'down'}, 500),
+        'dashboard/ai-inbox': Http.response({'message': 'down'}, 500),
+      });
+      final DashboardController controller = DashboardController.instance;
+
+      await controller.reload();
+
+      expect(controller.loadFailed, isTrue);
+      expect(controller.isFirstLoad, isFalse);
+    });
+
+    test('one surviving leg is a partial failure, not a failed dashboard', () async {
+      // The existing contract, kept: a partial failure still renders the
+      // slices that answered rather than throwing the screen away.
+      final Map<String, MagicResponse> stubs = dashboardStubs();
+      Http.fake({
+        ...stubs,
+        'dashboard/active-incidents': Http.response({'message': 'down'}, 500),
+        'dashboard/monitors-snapshot': Http.response({'message': 'down'}, 500),
+        'dashboard/ai-inbox': Http.response({'message': 'down'}, 500),
+      });
+      final DashboardController controller = DashboardController.instance;
+
+      await controller.reload();
+
+      expect(controller.loadFailed, isFalse);
+    });
+
+    test('a later total failure keeps the dashboard already on screen', () async {
+      final DashboardController controller = seedDashboard();
+      await controller.reload();
+      expect(controller.loadFailed, isFalse);
+
+      Http.fake({
+        'dashboard/stats': Http.response({'message': 'down'}, 500),
+        'dashboard/active-incidents': Http.response({'message': 'down'}, 500),
+        'dashboard/monitors-snapshot': Http.response({'message': 'down'}, 500),
+        'dashboard/ai-inbox': Http.response({'message': 'down'}, 500),
+      });
+      await controller.reload();
+
+      // Replacing data the operator is reading with a retry screen would be
+      // worse than leaving it stale.
+      expect(controller.loadFailed, isFalse);
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // noteCheckRecorded: the socket reading path
   // ---------------------------------------------------------------------------
