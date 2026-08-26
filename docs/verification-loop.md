@@ -74,6 +74,15 @@ dispatches real gestures through a six-check actionability gate. It is how Flutt
 work gets proven, and it is the only layer that catches a defect that only exists
 once real data and a real viewport are involved.
 
+Every verb below has a second face. `.mcp.json` wires `./bin/fsa mcp:serve` as a
+project MCP server, so an agent whose client reads that file gets the same dusk,
+telescope and artisan surface as tools rather than as shell commands. Both routes
+drive the same running app through the same `~/.artisan/sessions/` state, so they
+are interchangeable and can be mixed within one walk. The traps recorded further
+down are properties of the app and the web substrate, not of the CLI, and they
+apply verbatim to the tools. This file stays written in CLI form because that is
+the form that can be pasted into a terminal and read back in a log.
+
 ### The app needs six services, and two of them fail as "the app is broken"
 
 1. `php artisan serve --port=8000`

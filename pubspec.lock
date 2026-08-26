@@ -418,28 +418,28 @@ packages:
       path: "../dusk"
       relative: true
     source: path
-    version: "0.0.11"
+    version: "0.0.13"
   fluttersdk_telescope:
     dependency: "direct main"
     description:
       path: "../telescope"
       relative: true
     source: path
-    version: "0.0.4"
+    version: "0.0.5"
   fluttersdk_wind:
     dependency: "direct overridden"
     description:
       path: "../wind"
       relative: true
     source: path
-    version: "1.4.0"
+    version: "1.5.0"
   fluttersdk_wind_diagnostics_contracts:
     dependency: "direct overridden"
     description:
       path: "../wind_diagnostics_contracts"
       relative: true
     source: path
-    version: "1.0.0"
+    version: "1.1.0"
   glob:
     dependency: transitive
     description:
@@ -702,7 +702,7 @@ packages:
       path: "../magic"
       relative: true
     source: path
-    version: "0.0.6"
+    version: "0.0.9"
   magic_deeplink:
     dependency: "direct main"
     description:
@@ -716,7 +716,7 @@ packages:
       path: "../magic_devtools"
       relative: true
     source: path
-    version: "0.0.3"
+    version: "0.0.4"
   magic_notifications:
     dependency: "direct main"
     description:
@@ -737,14 +737,14 @@ packages:
       path: "../magic_social_auth"
       relative: true
     source: path
-    version: "0.0.2"
+    version: "0.0.3"
   magic_starter:
     dependency: "direct main"
     description:
       path: "../magic_starter"
       relative: true
     source: path
-    version: "0.0.1-alpha.20"
+    version: "0.0.1-alpha.21"
   matcher:
     dependency: transitive
     description:
