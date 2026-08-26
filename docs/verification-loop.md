@@ -83,6 +83,15 @@ down are properties of the app and the web substrate, not of the CLI, and they
 apply verbatim to the tools. This file stays written in CLI form because that is
 the form that can be pasted into a terminal and read back in a log.
 
+The committed entry is the POSIX shape. **On Windows, run
+`dart run :dispatcher mcp:install`**: `bin/fsa` is a `sh` script, so
+`fluttersdk_artisan`'s own `mcp:install` refuses that shape on Windows and falls
+back to a `dart run` command it can spawn. Regenerate rather than hand-edit, since
+the tool knows which of its three shapes a machine has and it preserves any other
+server entry. The fast shape is committed on purpose: `./bin/fsa list` measures
+0.63s against 5.21s for `dart run :dispatcher list`, and the walk below pays that
+per command rather than once.
+
 ### The app needs six services, and two of them fail as "the app is broken"
 
 1. `php artisan serve --port=8000`
