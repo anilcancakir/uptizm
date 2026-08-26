@@ -138,8 +138,19 @@ class _MonitorDetailViewState
   /// Whether the loading skeleton is currently shown.
   bool _loading = true;
 
-  /// Live recent-check rows from `GET /monitors/:id/checks`.
-  List<CheckRow> _recentChecks = const [];
+  /// Live recent-check rows from `GET /monitors/:id/checks`, paged.
+  ///
+  /// A paginator rather than a list, and the table below it is lazy, because
+  /// this is the one section of this page whose size is set by how long the
+  /// monitor has been running: the endpoint's default page is 50 rows and its
+  /// cap is 200, and rendering all of them eagerly cost a build, a layout and a
+  /// semantics node each on the FIRST frame of the page. The endpoint is cursor
+  /// paginated for the same reason it is paged at all: a check lands at the head
+  /// of this ordering every interval, and an offset page two would repeat the
+  /// last row of page one while the reader was still looking at it.
+  ///
+  /// Rebuilt per monitor id, since the url is part of the paginator.
+  MagicPaginator<CheckRow>? _checks;
 
   /// Live response-time points from `GET /monitors/:id/response-times`. The
   /// endpoint aggregates one `response_ms` per time bucket, so the chart plots a
@@ -203,6 +214,7 @@ class _MonitorDetailViewState
   void dispose() {
     _incidents.removeListener(_onIncidents);
     controller.removeListener(_onMonitorChanged);
+    _checks?.dispose();
     super.dispose();
   }
 
@@ -263,7 +275,8 @@ class _MonitorDetailViewState
       controller.refreshOne(id);
     }
     _loading = true;
-    _recentChecks = const [];
+    _checks?.dispose();
+    _checks = null;
     _responseData = const [];
     _uptimeSegments = const [];
     // Seed the refetch marker with what the mount fetch is about to read, so
@@ -285,39 +298,47 @@ class _MonitorDetailViewState
       return;
     }
 
-    final List<CheckRow> checks = await _loadChecks(id);
+    // Reused across refetches rather than rebuilt. `_startLoading` is the only
+    // thing that drops it, and it runs on mount and on an id change, which are
+    // exactly the times the url this paginator holds stops being right.
+    //
+    // A landing check therefore returns the table to its first page, which is
+    // what the previous list-per-fetch code did too. It is more visible now that
+    // the reader can scroll past page one, and it is deliberate: this table is a
+    // live tail, and the alternative (leaving a reader who paged back on a
+    // snapshot that silently stops updating) is the worse of the two.
+    final MagicPaginator<CheckRow> checks = _checks ?? _paginatorFor(id);
+    await checks.refresh();
     final List<MetricDatum> series = await _loadResponseSeries(id);
     final List<UptimeSegment> uptimeSegments = await controller.loadUptime90(
       id,
     );
 
-    if (!mounted) return;
+    // Only dispose the one this call created; a reused paginator is still the
+    // field's and `dispose()` owns it.
+    if (!mounted) {
+      if (!identical(checks, _checks)) checks.dispose();
+
+      return;
+    }
     setState(() {
-      _recentChecks = checks;
+      _checks = checks;
       _responseData = series;
       _uptimeSegments = uptimeSegments;
       _loading = false;
     });
   }
 
-  /// Loads `GET /monitors/:id/checks` into [CheckRow]s. A failure degrades to an
-  /// empty list (logged) so the table renders its empty state, never a mock.
-  Future<List<CheckRow>> _loadChecks(String id) async {
-    try {
-      final response = await Http.get('/monitors/$id/checks');
-      if (!response.successful) return const [];
-      final Object? raw = response.data is Map<String, dynamic>
-          ? (response.data as Map<String, dynamic>)['data']
-          : null;
-      if (raw is! List) return const [];
-      return raw
-          .whereType<Map<String, dynamic>>()
-          .map(CheckRow.fromMap)
-          .toList();
-    } catch (error) {
-      Log.error('[MonitorDetailView] checks load failed: $error');
-      return const [];
-    }
+  /// Builds the paginator over `GET /monitors/:id/checks`.
+  ///
+  /// No `per_page`: the endpoint's own default (50) is the right page size for a
+  /// list the reader scrolls, and naming a number here would be this screen
+  /// overriding a decision the API already made.
+  MagicPaginator<CheckRow> _paginatorFor(String id) {
+    return MagicPaginator<CheckRow>(
+      url: '/monitors/$id/checks',
+      fromMap: CheckRow.fromMap,
+    );
   }
 
   /// Loads `GET /monitors/:id/response-times` (one bucketed `response_ms` per
@@ -1106,7 +1127,8 @@ class _MonitorDetailViewState
               trans('uptizm.monitors.section_recent_checks'),
               className: 'text-sm font-medium text-fg',
             ),
-            if (_recentChecks.isEmpty && monitor.lastCheckedAt == null)
+            if (_checks == null ||
+                (_checks!.isEmpty && monitor.lastCheckedAt == null))
               // A monitor whose first probe has not landed yet. The bare table
               // (a header and no rows) read as broken, especially right after a
               // create, when the KPI row above it already shows a latency. The
@@ -1120,7 +1142,7 @@ class _MonitorDetailViewState
                 ),
               )
             else
-              CheckHistoryTable(rows: _recentChecks),
+              CheckHistoryTable.paginated(paginator: _checks!),
           ],
         ),
       ],
