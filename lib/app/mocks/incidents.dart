@@ -434,8 +434,14 @@ List<IncidentSummary> incidentsForMonitor(String monitorName) {
 
 /// Active incidents: everything not yet resolved, newest-first as fixtured.
 ///
-/// Single source for both `DashboardController` and `IncidentController` so the
-/// not-resolved filter is never duplicated across the two controllers.
+/// The not-resolved subset of the fixture roster, for previews and tests.
+///
+/// It used to claim to be the "single source for both `DashboardController` and
+/// `IncidentController`". It is neither's: both define their own filter over
+/// live data, and the only file under `lib/` that imports this one is an
+/// `ai_analysis_card` preview. A maintainer editing this to change the
+/// not-resolved rule, on the strength of a docblock naming two controllers,
+/// changes nothing and ships a regression they believe they fixed.
 List<IncidentSummary> get activeIncidents =>
     incidents.where((i) => i.lifecycle != IncidentLifecycle.resolved).toList();
 

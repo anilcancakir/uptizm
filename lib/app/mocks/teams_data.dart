@@ -10,10 +10,17 @@ import '../support/team_types.dart' show TeamInvitation, TeamMember;
 /// **Teams-domain mock fixtures.**
 ///
 /// Ported from the design lab's `src/lib/teams.ts` (members/invites) and
-/// `src/lib/billing.ts` (invoices, payment method, usage). Feeds the
-/// members/billing pages under `lib/resources/views/teams/`. The value-object
+/// `src/lib/billing.ts` (invoices, payment method, usage). The value-object
 /// types live in `lib/app/support/team_types.dart`; this file holds only their
 /// fixtures.
+///
+/// CONSUMED BY TESTS ONLY. This used to say it "feeds the members/billing pages
+/// under `lib/resources/views/teams/`", and it does not: `teamMembers`,
+/// `pendingInvitations`, `invoices`, `billingUsage`, `paymentMethod` and
+/// [kTeamColors] are referenced from no file under `lib/` at all. That matters
+/// beyond tidiness, because `.design-token-allowlist` exempts this directory on
+/// the stated ground that its contents are "never rendered as real UI", and a
+/// docblock claiming the opposite makes that reason unverifiable.
 ///
 /// The on-call rotation fixtures that used to live here are GONE: the on-call
 /// screen reads the real `api/v1/on-call/*` surface through

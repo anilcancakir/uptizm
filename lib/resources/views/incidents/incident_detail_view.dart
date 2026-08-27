@@ -1457,8 +1457,6 @@ class _IncidentDetailViewState
     );
   }
 
-  /// Maps a title-case status [label] (e.g. `"Investigating"`) back to its
-
   // ---------------------------------------------------------------------------
   // Not-found
   // ---------------------------------------------------------------------------

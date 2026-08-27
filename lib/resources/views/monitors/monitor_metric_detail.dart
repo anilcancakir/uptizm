@@ -8,7 +8,6 @@ import '../../../app/enums/chart_tone.dart' show ChartTone;
 import '../../../app/support/metric_types.dart'
     show MetricAnomaly, MetricDatum, MetricSeries;
 import '../../../app/enums/status_key.dart';
-import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/metric_chart/index.dart';
 import '../../../ui/components/status_dot/index.dart';
 import 'monitor_metrics_support.dart';
@@ -313,12 +312,7 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
   // Chart
   // ---------------------------------------------------------------------------
 
-  /// Builds the band-explanation [AiInsight] shown under the chart.
-  ///
-  /// Mirrors React `DetailBody`: narrates the learned expected range and the
-  /// single injected anomaly, with the direction-specific phrase
-
-  /// Builds the [MetricChart] with the AI-learned band and anomaly overlay.
+  /// Builds the [MetricChart] for the metric's readings.
   Widget _buildChart(List<MetricDatum> data, List<MetricAnomaly> anomalies) {
     return MetricChart(
       data: data,

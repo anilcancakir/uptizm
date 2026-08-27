@@ -174,7 +174,6 @@ class _StatusViewsLangLoader implements TranslationLoader {
 
       // Subscribers.
       'uptizm.status.subscribers_title': 'Subscribers',
-      'uptizm.status.subscribers_export_csv': 'Export CSV',
       'uptizm.status.subscribers_total_label': 'Total',
       'uptizm.status.subscribers_subscriptions_label': 'Subscriptions',
       'uptizm.status.subscribers_subscriptions_on': 'On',
