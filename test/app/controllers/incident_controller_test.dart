@@ -628,6 +628,54 @@ void main() {
     });
   });
 
+  group('search', () {
+    test('a term goes to the server, not to a Dart filter', () async {
+      final FakeNetworkDriver driver = Http.fake();
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.search('checkout');
+
+      expect(
+        driver.recorded.last.$1.queryParameters?['q'],
+        'checkout',
+        reason:
+            'this roster is paginated, so filtering in Dart would search the '
+            'page in hand rather than the roster',
+      );
+      expect(controller.searchTerm, 'checkout');
+    });
+
+    test('the same term twice asks once', () async {
+      final FakeNetworkDriver driver = Http.fake();
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.search('checkout');
+      final int afterFirst = driver.recorded.length;
+      // A keystroke and its undo settle on the term already in flight; without
+      // the guard the debounce refetches page one for no change in the result.
+      await controller.search('checkout');
+
+      expect(driver.recorded.length, afterFirst);
+    });
+
+    test('a blank term is a cleared search, not a search for nothing', () async {
+      final FakeNetworkDriver driver = Http.fake();
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.search('checkout');
+      await controller.search('   ');
+
+      expect(controller.searchTerm, isNull);
+      expect(driver.recorded.last.$1.queryParameters?.containsKey('q'), isFalse);
+    });
+  });
+
   group('loadAnalysis', () {
 
     test('a 403 with an upgrade envelope is a gate, not a failure', () async {

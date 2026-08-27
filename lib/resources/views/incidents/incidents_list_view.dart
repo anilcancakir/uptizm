@@ -88,8 +88,19 @@ class _IncidentsListViewState
   /// The active filter tab; defaults to "All".
   _IncidentFilter _filter = _IncidentFilter.all;
 
-  /// The current search query, matched against title and monitor name.
+  /// What is in the search box. The SERVER decides what it matches; this is
+  /// only what the operator typed, held so the input can render it.
   String _query = '';
+
+  /// Holds a keystroke back from the network until typing pauses.
+  ///
+  /// Without it every character is a request, and the roster is cursor
+  /// paginated, so each one refetches page one and re-renders the list under
+  /// the operator's hands.
+  Timer? _searchDebounce;
+
+  /// How long typing has to pause before the term goes to the server.
+  static const Duration _searchDebounceDelay = Duration(milliseconds: 350);
 
   /// The maintenance roster, read as a SECONDARY controller.
   ///
@@ -104,6 +115,11 @@ class _IncidentsListViewState
   void initState() {
     Magic.findOrPut(IncidentController.new);
     super.initState();
+
+    // The controller outlives this widget, so a term set before navigating into
+    // an incident is still narrowing the roster on the way back. Reading it
+    // here is what stops a filtered list rendering under an empty search box.
+    _query = controller.searchTerm ?? '';
 
     // `?tab=maintenance` selects the tab, which is how a create lands on the
     // list that actually contains what it just made. A page builder receives
@@ -124,7 +140,27 @@ class _IncidentsListViewState
   @override
   void dispose() {
     _maintenance.removeListener(_onMaintenanceChanged);
+    // A pending debounce would fire into a disposed widget's controller.
+    _searchDebounce?.cancel();
     super.dispose();
+  }
+
+  /// Records a keystroke and schedules the term for the server.
+  void _onQueryChanged(String value) {
+    setState(() => _query = value);
+
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(
+      _searchDebounceDelay,
+      () => unawaited(controller.search(value)),
+    );
+  }
+
+  /// Clears the search immediately, without waiting out a debounce.
+  void _clearQuery() {
+    _searchDebounce?.cancel();
+    setState(() => _query = '');
+    unawaited(controller.search(null));
   }
 
   /// Rebuilds when the maintenance roster lands or changes.
@@ -135,11 +171,26 @@ class _IncidentsListViewState
   /// Whether the maintenance tab is the active one.
   bool get _isMaintenanceTab => _filter == _IncidentFilter.maintenance;
 
-  /// Incidents that satisfy the active filter and search query.
+  /// Incidents that satisfy the active filter tab.
+  ///
+  /// The SEARCH QUERY is deliberately absent here. It goes to the server
+  /// through [IncidentController.search], because this roster is paginated and
+  /// a Dart filter can only read the page it happens to hold: a term matching
+  /// an incident on page four returned nothing at all.
+  ///
+  /// Moving it there is what forced the backend to stop searching the `title`
+  /// column. That column is the pinned ENGLISH sentence, while the operator is
+  /// reading `title_key` + `title_params` rendered in their own language, so
+  /// the words on screen were not the words being searched.
+  /// `incidents.title_search` carries every render at once.
+  ///
+  /// The tab stays local, and has the same page-shaped limit: a roster with
+  /// one resolved incident on page three shows none under "Resolved" until the
+  /// operator loads that far. That is unchanged by this and wants the same
+  /// treatment.
   List<Incident> get _visible {
     return controller.incidents.where((i) {
-      // 1. Filter tab first.
-      final bool matchesFilter = switch (_filter) {
+      return switch (_filter) {
         _IncidentFilter.all => true,
         _IncidentFilter.open => i.lifecycle != IncidentLifecycle.resolved,
         _IncidentFilter.ai => i.aiOwned,
@@ -149,17 +200,6 @@ class _IncidentsListViewState
         // without inventing an incident meaning for a window.
         _IncidentFilter.maintenance => false,
       };
-      if (!matchesFilter) return false;
-
-      // 2. Then narrow by the case-insensitive title/monitorName query. The
-      //    title read is the RENDERED one, not the stored English: an
-      //    automatically opened incident displays its title in the app's
-      //    language, and searching the column instead would make every such row
-      //    unmatchable by the words on screen.
-      final String trimmed = _query.trim().toLowerCase();
-      if (trimmed.isEmpty) return true;
-      return i.displayTitle.toLowerCase().contains(trimmed) ||
-          i.monitorName.toLowerCase().contains(trimmed);
     }).toList();
   }
 
@@ -269,12 +309,14 @@ class _IncidentsListViewState
   // Search + filter row
   // ---------------------------------------------------------------------------
 
-  /// Builds the search input that narrows the visible list by title or
-  /// monitor name.
+  /// Builds the search input that narrows the roster by title or monitor name.
+  ///
+  /// The narrowing happens on the server, a debounce after the last keystroke;
+  /// see [_onQueryChanged].
   Widget _buildSearchRow() {
     return MSInput(
       value: _query,
-      onChanged: (value) => setState(() => _query = value),
+      onChanged: _onQueryChanged,
       placeholder: trans('uptizm.incidents.search_placeholder'),
     );
   }
@@ -573,10 +615,13 @@ class _IncidentsListViewState
               )
             : MSButton(
                 intent: ButtonIntent.secondary,
-                onPressed: () => setState(() {
-                  _filter = _IncidentFilter.all;
-                  _query = '';
-                }),
+                onPressed: () {
+                  setState(() => _filter = _IncidentFilter.all);
+                  // Clears on the server too, not only in the box: the roster
+                  // itself is narrowed, so blanking the input alone would leave
+                  // the empty state under a cleared search.
+                  _clearQuery();
+                },
                 child: WText(trans('uptizm.incidents.empty_clear_filters')),
               ),
       ),

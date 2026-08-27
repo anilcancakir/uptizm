@@ -7,6 +7,7 @@ use App\Enums\IncidentSeverity;
 use App\Enums\IncidentStatus;
 use App\Enums\SignalSource;
 use App\Services\Monitoring\IncidentTitle;
+use App\Support\SearchText;
 use FlutterSdk\MagicStarter\Support\ConditionallyUsesUuids;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -32,12 +33,19 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * non-null publication stamp makes it customer-visible on the public status
  * page.
  *
- * The title exists in two forms. `title` holds the English sentence, which is
- * what search, the LLM prompts and any reader with no locale need; `title_key`
- * plus `title_params` hold the structure a localized surface renders from
- * through {@see IncidentTitle::render()}. A null `title_key` means a human
- * authored the title, and it is also what every row written before that seam
- * existed looks like.
+ * The title exists in three forms. `title` holds the English sentence, which is
+ * what the LLM prompts and any reader with no locale need; `title_key` plus
+ * `title_params` hold the structure a localized surface renders from through
+ * {@see IncidentTitle::render()}. A null `title_key` means a human authored the
+ * title, and it is also what every row written before that seam existed looks
+ * like.
+ *
+ * `title_search` is the third, and it belongs to the operator rather than to a
+ * machine: every one of those forms folded together through
+ * {@see SearchText::fold()}, so a search matches the words on somebody's
+ * screen whichever language rendered them. Search reads it and nothing else;
+ * the English column is not what anyone is looking at. See
+ * {@see self::composeSearchText()}.
  *
  * Relationships:
  * - belongs to {@see Team} (tenant boundary)
@@ -73,6 +81,64 @@ class Incident extends Model
         'resolved_at' => 'immutable_datetime',
         'postmortem_published_at' => 'immutable_datetime',
     ];
+
+    /**
+     * Keep `title_search` in step with whatever the title is made of.
+     *
+     * A hook rather than a generated column because the value cannot be
+     * expressed in SQL: it needs the translation catalogue, which lives in PHP.
+     *
+     * The dirty check is not an optimisation for its own sake. This model is
+     * saved on every lifecycle move, and recomposing would lazy-load the
+     * primary monitor each time, so a resolve storm would issue one extra query
+     * per incident for a value that cannot have changed.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (self $incident): void {
+            // `primary_monitor_id` is not in this list even though the composed
+            // value reads it: every write path sets it at create and nothing
+            // repoints an incident afterwards, so a save can only find it
+            // unchanged. A new row has no `exists` and composes regardless.
+            if ($incident->exists && ! $incident->isDirty(['title', 'title_key', 'title_params'])) {
+                return;
+            }
+
+            $incident->title_search = self::composeSearchText($incident);
+        });
+    }
+
+    /**
+     * Every form of this incident's title at once, folded for comparison.
+     *
+     * The stored English, the render in each supported locale, and the primary
+     * monitor's name, so one `LIKE` over the result matches the words on the
+     * operator's screen whichever language produced them. Public because the
+     * backfill migration composes the same value for rows written before the
+     * column existed.
+     *
+     * THE MONITOR NAME IS FROZEN HERE, exactly as `title_params` freezes it: a
+     * renamed monitor does not rewrite the sentence a past incident was
+     * announced under, and having search disagree with the title it is
+     * searching would be worse than having both be historical.
+     */
+    public static function composeSearchText(self $incident): string
+    {
+        $parts = [(string) $incident->title];
+
+        foreach ((array) config('magic-starter.supported_locales', ['en']) as $locale) {
+            $parts[] = IncidentTitle::render($incident, (string) $locale);
+        }
+
+        $parts[] = $incident->primaryMonitor?->name;
+
+        $parts = array_unique(array_filter(
+            $parts,
+            static fn (?string $part): bool => $part !== null && trim($part) !== '',
+        ));
+
+        return SearchText::fold(implode(' ', $parts));
+    }
 
     /**
      * Whether the postmortem has been published to the public status page.
