@@ -147,6 +147,21 @@ class DashboardController extends MagicController
   /// flashing a skeleton over data the operator is reading.
   bool get isFirstLoad => !_resolvedOnce;
 
+  /// Whether the last [reload] reached no endpoint at all.
+  bool _loadFailed = false;
+
+  /// Whether the dashboard on screen is a failure rather than a reading.
+  ///
+  /// True only when EVERY leg of the first load failed, which is the one case
+  /// with nothing honest to paint. A partial failure still renders the slices
+  /// that answered, and a later total failure leaves the last-known-good
+  /// dashboard up rather than replacing data the operator is reading.
+  ///
+  /// The view reads this before its zero-monitor branch: with all four legs
+  /// failed the counters sit at their zero defaults, which that branch reads
+  /// as a team that owns no monitors.
+  bool get loadFailed => _loadFailed;
+
   /// Bootstraps every dashboard surface the first time this controller backs
   /// a view.
   @override
@@ -203,7 +218,7 @@ class DashboardController extends MagicController
   Future<void> reload() async {
     final bool firstLoad = isFirstLoad;
 
-    await Future.wait([
+    final List<bool> answered = await Future.wait([
       _reloadStats(),
       _reloadActiveIncidents(),
       _reloadMonitorsSnapshot(),
@@ -211,10 +226,18 @@ class DashboardController extends MagicController
     ]);
 
     // Resolved once all four legs have answered, so the view stops skeletoning
-    // only when every surface it paints has real data (or a real failure) behind
-    // it. Each leg already republishes its own slice; this repaint is what swaps
-    // the skeleton out, including when every leg failed and the honest answer is
-    // the empty dashboard.
+    // only when every surface it paints has real data (or a real failure)
+    // behind it. Each leg already republishes its own slice; this repaint is
+    // what swaps the skeleton out.
+    //
+    // The comment that stood here said the empty dashboard was "the honest
+    // answer" when every leg failed. It is not: with no counters and no
+    // monitors the view takes its zero-monitor branch, so a paying team opening
+    // the app offline read "You have no monitors yet" with "Create your first
+    // monitor" as the only action. Total failure on the FIRST load is the one
+    // case with nothing honest to paint; a later one leaves the last-known-good
+    // dashboard up rather than throwing away data the operator is reading.
+    if (firstLoad) _loadFailed = !answered.contains(true);
     _resolvedOnce = true;
     if (firstLoad) refreshUI();
   }
@@ -245,6 +268,9 @@ class DashboardController extends MagicController
     _monitorsSnapshot = [];
     _aiInbox = [];
     _loadStarted = false;
+    // A failure belongs to the identity that had it; the incoming one must not
+    // open on a retry screen for a read it never made.
+    _loadFailed = false;
     // Back to "not asked yet" for the incoming identity: without this the new
     // team's dashboard would render the cleared zeros as fact, which on this
     // screen means the create-your-first-monitor hero.
@@ -339,15 +365,15 @@ class DashboardController extends MagicController
   }
 
   /// Refreshes the `GET /dashboard/stats` counters.
-  Future<void> _reloadStats() async {
+  Future<bool> _reloadStats() async {
     try {
       final response = await Http.get('/dashboard/stats');
-      if (!response.successful) return;
+      if (!response.successful) return false;
 
       final Object? data = response.data is Map<String, dynamic>
           ? (response.data as Map<String, dynamic>)['data']
           : null;
-      if (data is! Map<String, dynamic>) return;
+      if (data is! Map<String, dynamic>) return false;
 
       _monitorsUp = (data['monitors_up'] as num?)?.toInt() ?? 0;
       _monitorsDown = (data['monitors_down'] as num?)?.toInt() ?? 0;
@@ -360,57 +386,63 @@ class DashboardController extends MagicController
       _uptime24h = (data['uptime_24h'] as num?)?.toDouble();
       _uptime24hDelta = (data['uptime_24h_delta'] as num?)?.toDouble();
       refreshUI();
+      return true;
     } catch (_) {
       // Deliberate degradation: a transport failure (including an unregistered
       // `network` service in a bare test host) leaves the last-known-good
       // counters (all-zero before the first fetch) untouched, so `onInit`
       // never throws and the KPI row renders its zeroed state.
+      return false;
     }
   }
 
   /// Refreshes the `GET /dashboard/active-incidents` list.
-  Future<void> _reloadActiveIncidents() async {
+  Future<bool> _reloadActiveIncidents() async {
     try {
       final response = await Http.get('/dashboard/active-incidents');
-      if (!response.successful) return;
+      if (!response.successful) return false;
 
       final Object? raw = response.data is Map<String, dynamic>
           ? (response.data as Map<String, dynamic>)['data']
           : null;
-      if (raw is! List) return;
+      if (raw is! List) return false;
 
       _activeIncidents = raw
           .whereType<Map<String, dynamic>>()
           .map(Incident.fromMap)
           .toList();
       refreshUI();
+      return true;
     } catch (_) {
       // Deliberate degradation: keep the last-known-good active incidents
       // (empty before the first fetch) so a transport failure never throws
       // and the panel renders its empty state.
+      return false;
     }
   }
 
   /// Refreshes the `GET /dashboard/monitors-snapshot` list.
-  Future<void> _reloadMonitorsSnapshot() async {
+  Future<bool> _reloadMonitorsSnapshot() async {
     try {
       final response = await Http.get('/dashboard/monitors-snapshot');
-      if (!response.successful) return;
+      if (!response.successful) return false;
 
       final Object? raw = response.data is Map<String, dynamic>
           ? (response.data as Map<String, dynamic>)['data']
           : null;
-      if (raw is! List) return;
+      if (raw is! List) return false;
 
       _monitorsSnapshot = raw
           .whereType<Map<String, dynamic>>()
           .map(Monitor.fromMap)
           .toList();
       refreshUI();
+      return true;
     } catch (_) {
       // Deliberate degradation: keep the last-known-good snapshot (empty
       // before the first fetch) so a transport failure never throws and the
       // monitor snippet renders its empty state.
+      return false;
     }
   }
 
@@ -420,25 +452,27 @@ class DashboardController extends MagicController
   /// which the backend's `SweepAiSuggestions` job creates every two minutes for
   /// any monitor whose `ai_mode` is `suggest` or `auto`. An empty list means the
   /// fleet has no open anomaly right now, not that the feature is unfinished.
-  Future<void> _reloadAiInbox() async {
+  Future<bool> _reloadAiInbox() async {
     try {
       final response = await Http.get('/dashboard/ai-inbox');
-      if (!response.successful) return;
+      if (!response.successful) return false;
 
       final Object? raw = response.data is Map<String, dynamic>
           ? (response.data as Map<String, dynamic>)['data']
           : null;
-      if (raw is! List) return;
+      if (raw is! List) return false;
 
       _aiInbox = raw
           .whereType<Map<String, dynamic>>()
           .map(Incident.fromMap)
           .toList();
       refreshUI();
+      return true;
     } catch (_) {
       // Deliberate degradation: keep the last-known-good inbox (empty before
       // the first fetch) so a transport failure never throws and the AI inbox
       // renders its empty state.
+      return false;
     }
   }
 

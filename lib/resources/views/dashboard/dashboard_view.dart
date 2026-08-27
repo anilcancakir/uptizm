@@ -95,6 +95,26 @@ class _DashboardViewState
       return MSPageContainer(child: _buildSkeleton());
     }
 
+    // Read BEFORE the zero-monitor branch below. When every leg of the first
+    // load fails, the counters sit at their zero defaults and that branch reads
+    // them as a team owning no monitors, so a paying team opening the app
+    // offline was shown "You have no monitors yet" with "Create your first
+    // monitor" as the only action, and no retry anywhere on the screen.
+    if (controller.loadFailed) {
+      return MSPageContainer(
+        child: MSErrorState(
+          title: trans('uptizm.dashboard.load_error_title'),
+          description: trans('uptizm.dashboard.load_error_description'),
+          action: MSButton(
+            intent: ButtonIntent.secondary,
+            size: ButtonSize.sm,
+            onPressed: controller.reload,
+            child: WText(trans('uptizm.common.retry')),
+          ),
+        ),
+      );
+    }
+
     // Zero-monitor teams get a single focused hero instead of the full grid.
     // With no monitors there is no uptime, latency, or incident data to report,
     // so the KPI row and the (necessarily empty) incident / monitor / AI

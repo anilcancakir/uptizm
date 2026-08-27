@@ -42,6 +42,115 @@ void main() {
     expect(identical(first, second), isTrue);
   });
 
+  group('a failed read is not an empty inventory', () {
+    test('a non-2xx sets loadFailed instead of claiming zero monitors', () async {
+      // The regression: `Monitor.all()` resolved [] for a 500 exactly as it
+      // does for a team that owns nothing, so an inventory screen told a team
+      // with forty monitors they had none, mid-outage, and offered to create
+      // their first.
+      Http.fake({'monitors': Http.response({'message': 'server error'}, 500)});
+      final MonitorController controller = MonitorController.instance;
+
+      await controller.reload();
+
+      expect(controller.loadFailed, isTrue);
+      expect(controller.monitors, isEmpty);
+      expect(controller.isFirstLoad, isFalse);
+    });
+
+    test('a successful empty answer is an empty inventory, not a failure', () async {
+      Http.fake({'monitors': Http.response({'data': []})});
+      final MonitorController controller = MonitorController.instance;
+
+      await controller.reload();
+
+      expect(controller.loadFailed, isFalse);
+      expect(controller.monitors, isEmpty);
+    });
+
+    test('a failed refetch keeps the rows already on screen', () async {
+      Http.fake({
+        'monitors': Http.response({
+          'data': [
+            {'id': 'api', 'name': 'API', 'url': 'https://api.uptizm.com'},
+          ],
+        }),
+      });
+      final MonitorController controller = MonitorController.instance;
+      await controller.reload();
+      expect(controller.monitors, hasLength(1));
+
+      // A refetch runs on every route entry. Replacing a fleet the operator is
+      // reading with a retry screen over one transient failure would be worse
+      // than the stale row.
+      Http.fake({'monitors': Http.response({'message': 'nope'}, 503)});
+      await controller.reload();
+
+      expect(controller.loadFailed, isFalse);
+      expect(controller.monitors, hasLength(1));
+    });
+
+    test('an unreadable 2xx body does not wipe the inventory', () async {
+      Http.fake({
+        'monitors': Http.response({
+          'data': [
+            {'id': 'api', 'name': 'API', 'url': 'https://api.uptizm.com'},
+          ],
+        }),
+      });
+      final MonitorController controller = MonitorController.instance;
+      await controller.reload();
+
+      // A 2xx whose body carries no list is a malformed payload, not an empty
+      // fleet. Reading it as emptiness would let one bad response clear
+      // everything while reporting success.
+      Http.fake({'monitors': Http.response({'data': 'not-a-list'})});
+      await controller.reload();
+
+      expect(controller.monitors, hasLength(1));
+    });
+
+    test('resetForSession cancels the previous identity\'s poll timers', () async {
+      // A "Check now" cooldown and its result watch both belong to the team
+      // that started them. Left running across a team switch, each watch tick
+      // asks `GET /monitors/{id}` against the INCOMING team, which the backend
+      // masks as a 404. `onClose` already cancelled them; `resetForSession` did
+      // not, so the only cleanup ran when the whole controller went away.
+      //
+      // Asserted through the cooldown clock, the one piece of that teardown
+      // with a public reading. The cancel and the clear live in the same
+      // method, so a reset that leaves this set is one that left the timers.
+      Http.fake({
+        '*/test': Http.response({'retry_after_seconds': 30}, 429),
+        'monitors': Http.response({'data': []}),
+      });
+      final MonitorController controller = MonitorController.instance;
+      // runCheckNow no-ops on an id it does not hold, so the monitor has to be
+      // in the inventory before the cooldown can start.
+      controller.seedForTest([
+        Monitor.fromMap({'id': 'api', 'name': 'API'}),
+      ]);
+      await controller.runCheckNow('api');
+      expect(controller.cooldownSecondsFor('api'), isNotNull);
+
+      await controller.resetForSession();
+
+      expect(controller.cooldownSecondsFor('api'), isNull);
+    });
+
+    test('resetForSession clears a failure from the previous identity', () async {
+      Http.fake({'monitors': Http.response({'message': 'server error'}, 500)});
+      final MonitorController controller = MonitorController.instance;
+      await controller.reload();
+      expect(controller.loadFailed, isTrue);
+
+      Http.fake({'monitors': Http.response({'data': []})});
+      await controller.resetForSession();
+
+      expect(controller.loadFailed, isFalse);
+    });
+  });
+
   // The controller now sources its inventory from `GET /monitors`, so the
   // former `controller.monitors == monitors` fixture-equality assertions are
   // replaced by seeded-envelope decode + degradation assertions against the

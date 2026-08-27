@@ -496,7 +496,9 @@
       "fleet_degraded_suffix": ":names kademeli bozuldu",
       "fleet_no_open_incidents": "Açık olay yok.",
       "fleet_open_incidents_one": ":count açık olay.",
-      "fleet_open_incidents_other": ":count açık olay."
+      "fleet_open_incidents_other": ":count açık olay.",
+      "load_error_title": "Panel yüklenemedi",
+      "load_error_description": "Hiçbir panel verisine ulaşılamadı. Bu, monitörünüz olmadığı anlamına gelmez."
     },
     "monitors": {
       "title": "İzleyiciler",
@@ -820,7 +822,9 @@
       "ai_mode_auto": "Otomatik",
       "form_ai_auto_updates_label": "Otomatik durum güncellemeleri",
       "form_ai_auto_updates_switch": "Güncellemeleri benim için yaz ve yayımla",
-      "form_ai_auto_updates_hint": "Uptizm müşterilerine ne söyleyebilir. Bu monitörde bir olay açıldığında ve kapandığında, güncellemeyi kendisi yazar ve sana sormadan durum sayfanda yayımlar. Zaten ürettiği analizi okur, iç detayı dışarıda bırakır, ve güvendiği bir metin yazamazsa hiçbir şey yayımlamaz. Eşiklerinin açtığı olaylar dahil, her olay için çalışır."
+      "form_ai_auto_updates_hint": "Uptizm müşterilerine ne söyleyebilir. Bu monitörde bir olay açıldığında ve kapandığında, güncellemeyi kendisi yazar ve sana sormadan durum sayfanda yayımlar. Zaten ürettiği analizi okur, iç detayı dışarıda bırakır, ve güvendiği bir metin yazamazsa hiçbir şey yayımlamaz. Eşiklerinin açtığı olaylar dahil, her olay için çalışır.",
+      "load_error_title": "Monitörler yüklenemedi",
+      "load_error_description": "Monitör envanterine şu an ulaşılamıyor. Bu, monitörünüz olmadığı anlamına gelmez."
     },
     "status": {
       "up": "Çalışıyor",

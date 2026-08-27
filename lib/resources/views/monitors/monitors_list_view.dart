@@ -357,6 +357,26 @@ class _MonitorsListViewState
       return _buildSkeleton();
     }
 
+    // Failure is not emptiness either, and it is read FIRST because the two
+    // render identically while only one of them is a fact about the account.
+    // A team with forty monitors opening this page during a backend outage was
+    // shown "No monitors yet" and invited to create their first endpoint,
+    // because the read resolved an empty list for a 500 exactly as it does for
+    // a team that genuinely has none. Mirrors `on_call_schedule_view`'s
+    // error phase, which is this app's worked answer to the same problem.
+    if (controller.loadFailed) {
+      return MSErrorState(
+        title: trans('uptizm.monitors.load_error_title'),
+        description: trans('uptizm.monitors.load_error_description'),
+        action: MSButton(
+          intent: ButtonIntent.secondary,
+          size: ButtonSize.sm,
+          onPressed: controller.reload,
+          child: WText(trans('uptizm.common.retry')),
+        ),
+      );
+    }
+
     if (visible.isEmpty) {
       return _buildEmptyState();
     }

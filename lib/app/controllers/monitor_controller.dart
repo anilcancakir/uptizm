@@ -190,6 +190,26 @@ class MonitorController extends MagicController
   /// flashing a skeleton over data the operator is already reading.
   bool get isFirstLoad => !_resolvedOnce;
 
+  /// Whether the last [reload] failed to reach an answer.
+  bool _loadFailed = false;
+
+  /// Whether the screen has nothing to show AND the reason is a failed read.
+  ///
+  /// The list view reads this BEFORE it reads the row count, because an empty
+  /// inventory and a failed one render identically while only one of them is a
+  /// fact about the customer's account. An empty inventory means the team has
+  /// no monitors; a failed read means nobody knows, and saying "No monitors
+  /// yet" to a team mid-outage is the worst moment to get that wrong.
+  ///
+  /// The `isEmpty` half matters as much as the failure half. A refetch runs on
+  /// every route entry, so without it one transient failure would replace rows
+  /// the operator is reading with a retry screen. A stale inventory beats no
+  /// inventory; the error is for when there is no third option.
+  ///
+  /// False until the first read answers, so a screen still showing its skeleton
+  /// never claims a failure it has not had.
+  bool get loadFailed => _loadFailed && _monitors.isEmpty;
+
   /// Seeds the in-memory inventory directly for a widget/controller test,
   /// bypassing the network.
   ///
@@ -243,15 +263,7 @@ class MonitorController extends MagicController
   /// is still running.
   @override
   void onClose() {
-    for (final Timer timer in _cooldownTimers.values) {
-      timer.cancel();
-    }
-    _cooldownTimers.clear();
-    for (final Timer timer in _resultWatchTimers.values) {
-      timer.cancel();
-    }
-    _resultWatchTimers.clear();
-    _resultWatchAttempts.clear();
+    _cancelPerMonitorTimers();
     // The analyze poll outlives a single view (the run keeps advancing while the
     // operator is elsewhere), so a teardown has to cancel it here or a test's
     // `Magic.flush()` mid-run leaves a timer reading a network nobody is faking.
@@ -275,31 +287,99 @@ class MonitorController extends MagicController
   /// inventory otherwise so the list view never flickers into an empty state
   /// between reloads.
   ///
-  /// [Monitor.all] absorbs transport failures internally and resolves an empty
-  /// list rather than throwing (including for an unregistered `network` service
-  /// in a bare test host); it cannot distinguish that failure from a genuine
-  /// empty result. Treating both as "keep the last-known-good inventory"
-  /// mirrors the pre-ORM decode, which returned early on a malformed or
-  /// failed payload: `onInit`/`reload` never throws, and an explicit removal
-  /// still updates the cache through [delete] rather than a reload.
+  /// Reads `GET /monitors` directly rather than through [Monitor.all], which
+  /// absorbs every transport failure and resolves an EMPTY LIST. That is the
+  /// one thing an inventory screen must not be told: an empty list and a
+  /// backend answering 500 are the same value, so a team with forty monitors
+  /// opening the app during an outage was shown "No monitors yet" and invited
+  /// to create their first endpoint. Reading the response lets [loadFailed]
+  /// carry the difference to the view.
+  ///
+  /// A successful empty answer now CLEARS the inventory rather than keeping the
+  /// last-known-good one. Keeping it was the right call while failure and
+  /// emptiness were indistinguishable; now that they are not, holding rows the
+  /// backend says are gone would leave a deleted monitor on screen.
   ///
   /// Resolving flips [isFirstLoad] false either way, so the view swaps its
-  /// skeleton for the rows or for the honest empty state.
+  /// skeleton for the rows, the empty state, or the failure state.
   Future<void> reload() async {
-    final bool firstLoad = isFirstLoad;
-    final List<Monitor> fetched = await Monitor.all();
-    _resolvedOnce = true;
-
-    if (fetched.isEmpty) {
-      // The cache stands, but a first read that came back empty still has to
-      // repaint: the view is showing a skeleton and needs to hear that the
-      // answer arrived.
-      if (firstLoad) refreshUI();
+    late final MagicResponse response;
+    try {
+      response = await Http.index('monitors');
+    } catch (error) {
+      // A throw here is a transport fault the driver could not shape into a
+      // response, including an unregistered `network` service in a bare test
+      // host. It is recorded rather than swallowed: the view renders a retry,
+      // and `onInit`/`reload` still never throw.
+      Log.error('[MonitorController.reload] $error');
+      _resolvedOnce = true;
+      _loadFailed = true;
+      refreshUI();
       return;
     }
 
+    _resolvedOnce = true;
+
+    // `!successful` rather than `failed`: an offline device yields statusCode 0,
+    // which is neither, so `failed` would read a dead connection as a success.
+    if (!response.successful) {
+      _loadFailed = true;
+      refreshUI();
+      return;
+    }
+
+    final List<Monitor>? fetched = _hydrate(response.data);
+
+    if (fetched == null) {
+      // A 2xx whose body is not a list is a malformed payload, not an empty
+      // inventory. Clearing on it would let one bad response wipe a fleet, so
+      // it is handled as the failure it is and the cache stands.
+      Log.error('[MonitorController.reload] unreadable index payload');
+      _loadFailed = true;
+      refreshUI();
+      return;
+    }
+
+    _loadFailed = false;
     _monitors = _withMeasuredUptime(fetched);
     refreshUI();
+  }
+
+  /// Decodes an index payload into models, tolerating both the wrapped
+  /// (`{'data': [...]}`) and bare-list shapes.
+  ///
+  /// Returns null when the payload carries no list at all, which is a decode
+  /// failure. An EMPTY list is a real answer and comes back as one: the team
+  /// has no monitors, and the caller clears the inventory accordingly.
+  List<Monitor>? _hydrate(Object? payload) {
+    final Object? raw = payload is Map<String, dynamic>
+        ? payload['data']
+        : payload;
+
+    if (raw is! List) return null;
+
+    return raw
+        .whereType<Map<String, dynamic>>()
+        .map(Monitor.fromMap)
+        .toList();
+  }
+
+  /// Cancels every per-monitor timer this controller owns.
+  ///
+  /// Shared by [onClose] and [resetForSession]: both end the identity that
+  /// scheduled them, and a timer that outlives its own team polls the next
+  /// one's backend for rows it cannot see.
+  void _cancelPerMonitorTimers() {
+    for (final Timer timer in _cooldownTimers.values) {
+      timer.cancel();
+    }
+    _cooldownTimers.clear();
+    _cooldownSecondsRemaining.clear();
+    for (final Timer timer in _resultWatchTimers.values) {
+      timer.cancel();
+    }
+    _resultWatchTimers.clear();
+    _resultWatchAttempts.clear();
   }
 
   /// Carries the measured-uptime attributes from the inventory being replaced
@@ -362,6 +442,15 @@ class MonitorController extends MagicController
     _monitors = [];
     _lastAnalyzeWasGated = false;
     abandonAnalyzeRun();
+    // Same reasoning as the abandoned analyze run one line up, and it was
+    // missing: a result watch scheduled by "Check now" keeps firing for up to
+    // six more ticks after a team switch, and each tick asks
+    // `GET /monitors/{id}` against the INCOMING team, which the backend masks
+    // as a 404. The cooldown timers belong to the outgoing identity too.
+    _cancelPerMonitorTimers();
+    // A failure belongs to the identity that had it. Carrying it across would
+    // open the new team's inventory on a retry screen for a read it never made.
+    _loadFailed = false;
     // Back to "not asked yet": the incoming identity must get a skeleton, not
     // the previous tenant's conclusion that there are no monitors.
     _resolvedOnce = false;

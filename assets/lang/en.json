@@ -496,7 +496,9 @@
       "fleet_degraded_suffix": ":names degraded",
       "fleet_no_open_incidents": "No open incidents.",
       "fleet_open_incidents_one": ":count open incident.",
-      "fleet_open_incidents_other": ":count open incidents."
+      "fleet_open_incidents_other": ":count open incidents.",
+      "load_error_title": "Could not load the dashboard",
+      "load_error_description": "None of the dashboard data could be reached. This does not mean you have no monitors."
     },
     "monitors": {
       "title": "Monitors",
@@ -820,7 +822,9 @@
       "ai_mode_auto": "Auto",
       "form_ai_auto_updates_label": "Autonomous status updates",
       "form_ai_auto_updates_switch": "Write and publish updates for me",
-      "form_ai_auto_updates_hint": "What Uptizm may say to your customers. When an incident on this monitor opens and when it closes, it writes the update itself and publishes it to your status page, without asking first. It reads the analysis it already produced, keeps internal detail out, and posts nothing at all if it cannot write something it trusts. Works for any incident, including the ones your thresholds opened."
+      "form_ai_auto_updates_hint": "What Uptizm may say to your customers. When an incident on this monitor opens and when it closes, it writes the update itself and publishes it to your status page, without asking first. It reads the analysis it already produced, keeps internal detail out, and posts nothing at all if it cannot write something it trusts. Works for any incident, including the ones your thresholds opened.",
+      "load_error_title": "Could not load monitors",
+      "load_error_description": "The monitor inventory is unreachable right now. This does not mean you have none."
     },
     "status": {
       "up": "Operational",
