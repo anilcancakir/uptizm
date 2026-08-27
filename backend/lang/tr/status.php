@@ -146,5 +146,25 @@ return [
             'footer' => 'Bu e-postayı :page sayfasına aboneliğinizi onayladığınız için alıyorsunuz.',
             'unsubscribe' => 'Abonelikten çık',
         ],
+        'incident' => [
+            'subject' => ':page sayfasında bir olay',
+            'heading' => 'Olay açıldı',
+
+            // Follows the page name, which both languages put at the head of
+            // this sentence.
+            'intro_after_page' => 'sayfasında bir olay açıldı.',
+
+            'components' => 'Etkilenen bileşenler:',
+            'footer' => 'Bu e-postayı :page sayfasına aboneliğinizi onayladığınız için alıyorsunuz.',
+            'unsubscribe' => 'Aboneliği bırak',
+
+            // The CUSTOMER-facing tier, never the internal severity.
+            'impact' => [
+                'none' => 'Müşteriye etkisi yok',
+                'minor' => 'Sınırlı etki',
+                'major' => 'Büyük etki',
+                'critical' => 'Kritik etki',
+            ],
+        ],
     ],
 ];

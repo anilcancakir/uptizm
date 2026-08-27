@@ -75,7 +75,16 @@ class Incident extends Model with HasTimestamps, InteractsWithPersistence {
     'monitor_id',
     'severity',
     'title',
+    // Not a persisted column: the opening timeline note, which the create
+    // REQUEST carries. This list is the write contract rather than the column
+    // list, which is why the two below belong in it too.
     'message',
+    // Whether to announce the open to the affected pages' confirmed
+    // subscribers. Request-only, like `message`.
+    'notify',
+    // The customer-facing impact when the operator chose one. Omitted keeps the
+    // backend's projection from severity.
+    'impact',
   ];
 
   /// The attributes that should be cast.

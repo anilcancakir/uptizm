@@ -2,6 +2,7 @@
 
 namespace App\Services\Monitoring;
 
+use App\Enums\IncidentImpact;
 use App\Enums\IncidentSeverity;
 use App\Enums\IncidentStatus;
 use App\Enums\MetricBand;
@@ -1260,6 +1261,7 @@ class ThresholdEvaluator
         bool $aiOwned = false,
         ?string $titleKey = null,
         array $titleParams = [],
+        ?IncidentImpact $impact = null,
     ): Incident {
         // 1. Persist the incident with the denormalized primary-monitor hint.
         //    A manual open has no check, so start-time falls back to now.
@@ -1271,7 +1273,14 @@ class ThresholdEvaluator
             // An authored title has nothing to render from, so the parameters
             // stay null rather than an empty array pretending to be a set.
             'title_params' => $titleKey === null ? null : $titleParams,
-            'impact' => $severity->toImpact(),
+            // Severity is what the OPERATOR saw; impact is what the CUSTOMER
+            // is told. They usually agree, which is why the projection is the
+            // default, but they are not the same judgement: a critical-severity
+            // failure of a component nobody depends on is not a critical
+            // customer impact. An explicit value therefore wins over the
+            // projection, and only the manual path can supply one, because only
+            // a human is in a position to make that call.
+            'impact' => $impact ?? $severity->toImpact(),
             'severity' => $severity,
             'signal_source' => $source,
             'lifecycle' => IncidentStatus::Detected,

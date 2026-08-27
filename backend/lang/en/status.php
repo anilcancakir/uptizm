@@ -207,5 +207,23 @@ return [
             'footer' => 'You are receiving this because you confirmed a subscription to :page.',
             'unsubscribe' => 'Unsubscribe',
         ],
+        'incident' => [
+            'subject' => 'Incident on :page',
+            'heading' => 'Incident opened',
+            'intro_after_page' => 'has opened an incident.',
+            'components' => 'Affected components:',
+            'footer' => 'You are receiving this because you confirmed a subscription to :page.',
+            'unsubscribe' => 'Unsubscribe',
+
+            // The CUSTOMER-facing tier, never the internal severity. Keyed by
+            // the IncidentImpact wire value so a new case is a missing key
+            // rather than a silently wrong word.
+            'impact' => [
+                'none' => 'No customer impact',
+                'minor' => 'Minor impact',
+                'major' => 'Major impact',
+                'critical' => 'Critical impact',
+            ],
+        ],
     ],
 ];

@@ -37,3 +37,24 @@ IncidentImpact impactFromWire(String? raw) {
     _ => IncidentImpact.info,
   };
 }
+
+/// The backend `impact` wire value for a client-side [IncidentImpact].
+///
+/// The inverse of [impactFromWire], and deliberately not a symmetric one: the
+/// backend has four tiers (`none`/`minor`/`major`/`critical`) and this client
+/// shows three, because `major` and `critical` both read as "down" to a reader
+/// of a status page. Sending `down` therefore has to pick one, and it picks
+/// `critical`: that is what a critical severity projects to, so an operator who
+/// leaves the select alone lands on the same value the projection would have
+/// produced rather than silently downgrading their own incident.
+///
+/// Exists because the incident form now SENDS this field. Before, the select
+/// was collected and discarded, so nothing had to answer which of the two
+/// backend tiers a `down` meant.
+String impactToWire(IncidentImpact impact) {
+  return switch (impact) {
+    IncidentImpact.down => 'critical',
+    IncidentImpact.degraded => 'minor',
+    IncidentImpact.info => 'none',
+  };
+}

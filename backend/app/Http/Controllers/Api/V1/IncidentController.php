@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\IncidentImpact;
 use App\Enums\IncidentSeverity;
 use App\Enums\IncidentStatus;
 use App\Http\Controllers\Concerns\PagesCollections;
@@ -169,6 +170,13 @@ class IncidentController extends Controller
             title: $request->validated('title'),
             author: $request->user()->name,
             message: $request->validated('message'),
+            // Absent means yes: the form has shown this switch on by default
+            // since the screen was written.
+            notify: $request->boolean('notify', true),
+            // `filled` rather than `has`: an explicit null means no override.
+            impact: $request->filled('impact')
+                ? IncidentImpact::from((string) $request->validated('impact'))
+                : null,
         );
 
         // 201 only when something was actually created. `createManual()` dedupes
