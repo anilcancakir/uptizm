@@ -2,6 +2,7 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
+import '../../../app/support/brand_contrast.dart';
 
 import '../../../app/support/refetches_on_mount.dart';
 import '../../../app/controllers/entitlement_controller.dart';
@@ -242,7 +243,13 @@ class _StatusPagesListViewState
     return WDiv(
       backgroundColor: page.brandColor,
       className: 'size-8 shrink-0 rounded-md flex items-center justify-center',
-      child: WText(initials, className: 'text-sm font-bold text-white'),
+      // Derived, not `text-white`: the tile carries the operator's own brand
+      // colour, and white on a light one reads as nothing.
+      child: WText(
+        initials,
+        className: 'text-sm font-bold',
+        textStyle: TextStyle(color: foregroundOn(page.brandColor)),
+      ),
     );
   }
 

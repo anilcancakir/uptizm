@@ -324,7 +324,10 @@ class _MobileBell extends StatelessWidget {
                             maxScaleFactor: 1.3,
                             child: WText(
                               '$unread',
-                              className: 'text-[10px] font-semibold text-white',
+                              // The badge sits on `bg-down`, which has an
+                              // `on-` peer. In dark mode that is near-black on
+                              // the lighter red, which white was not.
+                              className: 'text-[10px] font-semibold text-on-destructive',
                             ),
                           ),
                         ),

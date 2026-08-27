@@ -423,7 +423,9 @@ class _NotificationBell extends StatelessWidget {
                           ''',
                           child: WText(
                             '$unread',
-                            className: 'text-[10px] font-semibold text-white',
+                            // The badge sits on `bg-down`, which has an `on-`
+                            // peer; white was wrong in dark mode.
+                            className: 'text-[10px] font-semibold text-on-destructive',
                           ),
                         ),
                       ),

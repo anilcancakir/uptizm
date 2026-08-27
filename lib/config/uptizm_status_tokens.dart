@@ -82,6 +82,27 @@ const Map<String, String> uptizmStatusAliases = <String, String>{
   // and a selected-option border came out #008560 on the near-black dark
   // canvas. These keys shadow the fallback with the real DESIGN.md pair.
   // ---------------------------------------------------------------------------
+  // border-ai: the solid ai border (same hex as `bg-ai`). The AI card draws an
+  // ai-toned edge on a neutral surface and the assistant panel an edge on the
+  // solid ai one; both wrote `border-ai`, which is not a key, so wind dropped it
+  // and they rendered the default border instead. `border-ai-soft` already
+  // existed for the pale variant, which is why the gap read as a typo nobody saw.
+  'border-ai': 'border-[#6E59E2] dark:border-[#9E8AFA]',
+  // border-destructive: the danger border. `bg-destructive` and
+  // `text-on-destructive` were emitted; the `border-` peer was not, so a field's
+  // error state wrote `border-bg-destructive` (a body the border parser cannot
+  // read) and painted nothing.
+  'border-destructive': 'border-[#DF202E] dark:border-[#FF645F]',
+  // bg-fg-disabled: the disabled foreground used as a FILL. design:sync emits
+  // the `text-` role only, so the status-page preview's browser-chrome dots
+  // painted nothing at all.
+  'bg-fg-disabled': 'bg-[#D1D5DA] dark:bg-[#3A4147]',
+  // text-on-warning: the foreground for content on a solid `bg-warning`.
+  // design:sync emits `on-primary` and `on-destructive` but no warning peer, so
+  // the one surface that needed it (the modal's warning button) carried
+  // `text-white`, which is 2.2:1 on the amber and unreadable in both modes.
+  // Near-black in both, because the amber is light in both.
+  'text-on-warning': 'text-[#07090C] dark:text-[#07090C]',
   'text-primary': 'text-[#008560] dark:text-[#00C292]',
   'border-primary': 'border-[#008560] dark:border-[#00C292]',
   // text-destructive: the destructive foreground, same hex as `bg-destructive`

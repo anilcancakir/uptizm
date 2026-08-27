@@ -640,7 +640,10 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
   /// Builds the Source + Unit row (Unit only when the type is numeric).
   Widget _buildSourceUnitRow() {
     return WDiv(
-      className: 'grid gap-4 sm:grid-cols-2',
+      // The base column count is explicit: wind's grid default is TWO, not
+      // one, so without it the `sm:` prefix changed nothing and these two
+      // selects sat side by side at ~160pt on a phone.
+      className: 'grid grid-cols-1 gap-4 sm:grid-cols-2',
       children: [
         MSFormField(
           label: trans('uptizm.monitors.metrics_form_source_label'),
