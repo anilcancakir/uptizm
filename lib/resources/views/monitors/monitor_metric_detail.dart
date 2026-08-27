@@ -69,7 +69,16 @@ class MonitorMetricDetail extends StatefulWidget {
   /// the two would fight over page size and ordering if they shared a call.
   final MagicPaginator<MetricSeriesPoint> Function() onCreateReadings;
 
-  /// Called when the user taps Edit.
+  /// Whether this metric is one the operator can change.
+  ///
+  /// False for a SYSTEM metric (response time), which uptizm records on every
+  /// check whether anybody asked for it or not: there is no definition to edit
+  /// and nothing to delete, so offering either would be a button that cannot
+  /// work. It also changes what the readings note can honestly claim; see
+  /// [_buildRecentReadings].
+  final bool editable;
+
+  /// Called when the user taps Edit. Unused when [editable] is false.
   final VoidCallback onEdit;
 
   /// Called once the user confirms Delete.
@@ -81,6 +90,7 @@ class MonitorMetricDetail extends StatefulWidget {
     required this.metric,
     required this.onLoadSeries,
     required this.onCreateReadings,
+    this.editable = true,
     required this.onEdit,
     required this.onDelete,
   });
@@ -189,11 +199,19 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
     }
 
     if (_points.isEmpty) {
+      // An empty SERIES is not an empty history, and conflating the two hid
+      // real data. The series is windowed (24h) while the readings table pages
+      // the whole history, so a metric last recorded two days ago has nothing
+      // to chart and plenty to list. This branch used to return the "no
+      // readings recorded yet" line alone, which stated the stronger claim and
+      // dropped the table that would have disproved it.
       return [
         WText(
-          trans('uptizm.monitors.metrics_detail_no_readings'),
+          trans('uptizm.monitors.metrics_detail_no_readings_in_window'),
           className: 'text-sm text-fg-muted',
         ),
+        const SizedBox(height: 16),
+        _buildRecentReadings(),
       ];
     }
 
@@ -284,7 +302,12 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
         ),
 
         // Action buttons: Edit (secondary) + Delete (ghost → ConfirmDialog).
-        WDiv(
+        // Absent entirely on a system metric: there is no definition behind it
+        // to edit, and disabling them would offer an affordance that never
+        // becomes available.
+        ?(!widget.editable
+            ? null
+            : WDiv(
           className: 'flex flex-row gap-2 shrink-0',
           children: [
             MSButton(
@@ -300,7 +323,7 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
               child: WText(trans('uptizm.monitors.action_delete')),
             ),
           ],
-        ),
+        )),
       ],
     );
   }
@@ -397,7 +420,16 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
         // has just fixed a misconfigured value list reads a red history as the
         // new configuration still failing, when it is the old one preserved.
         WText(
-          trans('uptizm.monitors.metrics_recent_readings_frozen_note'),
+          // A custom metric's band is FROZEN against the thresholds in force
+          // when the check ran, so editing them later does not re-judge
+          // history, and the note says so. A system metric has no editable
+          // thresholds to freeze against, so that sentence would describe a
+          // guarantee nobody can act on.
+          trans(
+            widget.editable
+                ? 'uptizm.monitors.metrics_recent_readings_frozen_note'
+                : 'uptizm.monitors.metrics_recent_readings_system_note',
+          ),
           className: 'text-fg-muted text-xs',
         ),
         const SizedBox(height: 8),

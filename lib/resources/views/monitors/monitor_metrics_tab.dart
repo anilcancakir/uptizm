@@ -443,6 +443,99 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
     );
   }
 
+  /// Opens the read-only detail sheet for a SYSTEM metric.
+  ///
+  /// Both halves come from endpoints that already existed for the Overview tab:
+  /// the chart from `response-times` (bucketed, windowed) and the paged history
+  /// from `checks`, whose rows each carry the `response_ms` this metric IS.
+  ///
+  /// The band is computed here rather than read off the row, and that is the
+  /// one real difference from a custom metric. A custom metric's band is frozen
+  /// at check time against thresholds an operator can edit; a system metric's
+  /// bounds are fixed in code, so judging a reading now and judging it then
+  /// give the same answer. The sheet's note says which of the two it is.
+  void _openSystemDetail(MonitorMetric metric) {
+    final MetricForm form = MetricForm(
+      label: metric.label,
+      key: metric.key,
+      type: 'numeric',
+      unit: metric.unit,
+      source: 'system',
+      path: '',
+      direction: 'high',
+      warn: metric.warn.toString(),
+      critical: metric.critical.toString(),
+    );
+
+    MSBottomSheet.show<void>(
+      context,
+      title: metric.label,
+      body: MonitorMetricDetail(
+        metric: form,
+        editable: false,
+        onLoadSeries: () => _loadResponseSeries(),
+        onCreateReadings: () => MagicPaginator<MetricSeriesPoint>(
+          url: '/monitors/${widget.monitorId}/checks',
+          fromMap: _checkAsReading,
+        ),
+        // Never reached: `editable: false` renders neither button.
+        onEdit: () {},
+        onDelete: () {},
+      ),
+    );
+  }
+
+  /// Reads the response-time series the system metric charts.
+  ///
+  /// Oldest-first, matching what the sheet expects: it reads `points.last` for
+  /// the hero value and plots the list in order.
+  Future<List<MetricSeriesPoint>> _loadResponseSeries() async {
+    final response = await Http.get(
+      '/monitors/${widget.monitorId}/response-times?range=24h',
+    );
+    if (!response.successful) return const [];
+
+    final Object? raw = response.data is Map<String, dynamic>
+        ? (response.data as Map<String, dynamic>)['data']
+        : null;
+    if (raw is! List) return const [];
+
+    return [
+      for (final Map<String, dynamic> row in raw.whereType<Map<String, dynamic>>())
+        if (row['response_ms'] != null) _checkAsReading(row),
+    ];
+  }
+
+  /// One check row, read as a reading of the response-time metric.
+  ///
+  /// A check carries no `band` of its own: its `status` is the monitor's
+  /// health, not a verdict on how long the response took. So the band is
+  /// derived from the same fixed bounds the card above uses, which is why the
+  /// two never disagree.
+  static MetricSeriesPoint _checkAsReading(Map<String, dynamic> map) {
+    final num? ms = map['response_ms'] as num?;
+    final Object? at = map['checked_at'];
+
+    return MetricSeriesPoint(
+      recordedAt: at is String ? DateTime.tryParse(at) : null,
+      numericValue: ms,
+      statusValue: null,
+      stringValue: null,
+      // Translated into the BACKEND's band vocabulary, not `StatusKey`'s own
+      // names. The sheet decodes `ok | warn | critical` (what a stored reading
+      // carries); handing it `up | degraded | down` matches nothing, falls to
+      // null, and the row silently renders without its dot. Nothing warns:
+      // both are valid strings.
+      band: ms == null
+          ? null
+          : switch (bandOf(ms, '500', '1000', 'high')) {
+              StatusKey.down => 'critical',
+              StatusKey.degraded => 'warn',
+              _ => 'ok',
+            },
+    );
+  }
+
   /// Builds one read-only system-metric row: label + collected-by-default note
   /// on the left, [StatusDot] + formatted value on the right.
   Widget _buildSystemRow(MonitorMetric metric) {
@@ -453,7 +546,15 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
       metric.direction == MetricDirection.low ? 'low' : 'high',
     );
 
-    return WDiv(
+    return GestureDetector(
+      // Opens the same sheet a custom metric opens, in read-only mode. This row
+      // used to be the one metric on the screen you could not look into, even
+      // though it is the one every monitor has: the chart and the paged history
+      // behind it are `response-times` and `checks`, both of which already
+      // existed and were already on the Overview tab.
+      onTap: () => _openSystemDetail(metric),
+      behavior: HitTestBehavior.opaque,
+      child: WDiv(
       className:
           'flex flex-row items-center justify-between gap-3 '
           'rounded-lg border border-color-border bg-surface p-3',
@@ -479,6 +580,7 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
           ],
         ),
       ],
+      ),
     );
   }
 
