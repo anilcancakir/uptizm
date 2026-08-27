@@ -1146,17 +1146,47 @@ class _MonitorFormState extends State<MonitorForm>
     final Map<String, String> credentialErrors = _sendsCredential && _isHttp
         ? validateMonitorCredential(_credential)
         : const <String, String>{};
+    final String? timeoutError = _timeoutErrorFor(_timeoutMs);
 
     setState(() {
       _nameError = nameError;
       _urlError = targetError;
       _credentialErrors = credentialErrors;
-      // A credential error lives in the advanced section, so open it rather
-      // than blocking submit with an explanation nobody can see.
-      if (credentialErrors.isNotEmpty) _advanced = true;
+      _timeoutError = timeoutError;
+      // A credential or timeout error lives in the advanced section, so open it
+      // rather than blocking submit with an explanation nobody can see.
+      if (credentialErrors.isNotEmpty || timeoutError != null) _advanced = true;
     });
 
-    return nameError == null && targetError == null && credentialErrors.isEmpty;
+    return nameError == null &&
+        targetError == null &&
+        timeoutError == null &&
+        credentialErrors.isEmpty;
+  }
+
+  /// The inline error for the timeout field, or null when it is usable.
+  ///
+  /// The write path builds `timeout_sec` with `int.tryParse(_timeoutMs) ?? 30`,
+  /// and nothing checked the field, so clearing it or typing anything the parser
+  /// refuses sent 30 instead. The backend accepts 30, answers 200, and the form
+  /// navigates to the detail page: the operator believes they set 60 seconds and
+  /// the monitor stays at 30, with nothing anywhere saying otherwise.
+  ///
+  /// The bounds mirror `StoreMonitorRequest` exactly (`min:1`, `max:120`), which
+  /// is the point of validating twice: the server still decides, and the client
+  /// stops a request it already knows the answer to.
+  String? _timeoutErrorFor(String raw) {
+    final int? seconds = int.tryParse(raw.trim());
+
+    if (seconds == null) {
+      return trans('uptizm.monitors.form_timeout_error_number');
+    }
+
+    if (seconds < 1 || seconds > 120) {
+      return trans('uptizm.monitors.form_timeout_error_range');
+    }
+
+    return null;
   }
 
   /// Routes a backend 422 field-error map (keyed by the wire field names the

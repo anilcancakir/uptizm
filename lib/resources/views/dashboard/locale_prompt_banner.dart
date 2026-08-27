@@ -94,14 +94,45 @@ class _LocalePromptBannerState extends State<LocalePromptBanner> {
     //    canonical `locale`/`timezone` wire keys); name/email are carried over
     //    from the current user since `doUpdateProfile` requires them.
     final User user = User.current;
-    await MagicStarterProfileController.instance.doUpdateProfile(
-      name: user.name ?? '',
-      email: user.email ?? '',
-      language: Lang.current.languageCode,
-      timezone: DateManager.instance.timezoneName,
-    );
+    final String? name = user.name;
+    final String? email = user.email;
 
-    // 2. Close the one-time gate so the banner never reappears on this device.
+    // A locale confirmation has no business rewriting the account's name and
+    // email, and `doUpdateProfile` requires both. Coercing a null to `''` is
+    // what this did, which turns "we do not know this value" into "set it to
+    // empty": the server's `required` rules then reject the write, and step 2
+    // used to close the gate anyway. A guest account carries a null email, so
+    // the path was reachable rather than theoretical.
+    if (name == null || name.isEmpty || email == null || email.isEmpty) {
+      Log.error('[LocalePromptBanner] profile incomplete; locale not persisted');
+      if (mounted) setState(() => _busy = false);
+
+      return;
+    }
+
+    final bool saved = await MagicStarterProfileController.instance
+        .doUpdateProfile(
+          name: name,
+          email: email,
+          language: Lang.current.languageCode,
+          timezone: DateManager.instance.timezoneName,
+        );
+
+    // 2. Close the one-time gate ONLY when the write landed.
+    //
+    //    `doUpdateProfile` answers false on any non-2xx and on any thrown
+    //    transport error, and its result was discarded here. So a Confirm on a
+    //    flaky connection destroyed the banner forever on this device with the
+    //    locale and timezone never persisted server-side: every other client the
+    //    account signs into kept the old locale, and the only affordance that
+    //    offered to fix it was gone. Leaving the banner mounted is what makes
+    //    Confirm retryable.
+    if (!saved) {
+      if (mounted) setState(() => _busy = false);
+
+      return;
+    }
+
     await LocaleOnboardingGate.instance.markCompleted();
 
     // 3. Release the double-tap guard, then hand the hide decision back to the

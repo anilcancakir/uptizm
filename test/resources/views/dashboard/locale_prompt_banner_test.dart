@@ -317,6 +317,43 @@ void main() {
     },
   );
 
+  testWidgets(
+    'a failed write leaves the banner up instead of closing the gate forever',
+    (tester) async {
+      // The regression: `doUpdateProfile` answers false on any non-2xx and on
+      // any thrown transport error, and its result was discarded. So a Confirm
+      // on a flaky connection destroyed the banner FOREVER on this device with
+      // the locale never persisted server-side: every other client the account
+      // signs into kept the old locale, and the only affordance that offered to
+      // fix it was gone.
+      network.response = MagicResponse(
+        data: {'message': 'Server Error'},
+        statusCode: 500,
+      );
+
+      await tester.pumpWidget(wrapRouted());
+      await tester.pumpAndSettle();
+
+      final confirm = find.byKey(const ValueKey('locale-banner-confirm'));
+      await tester.ensureVisible(confirm);
+      await tester.tap(confirm);
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+
+      // The write was attempted, and it failed.
+      expect(network.putUrl, contains('/user/profile'));
+
+      // The gate stays open and the banner stays mounted, which is what makes
+      // Confirm retryable.
+      expect(LocaleOnboardingGate.instance.isCompleted, isFalse);
+      expect(
+        find.byKey(const ValueKey('locale-prompt-banner')),
+        findsOneWidget,
+      );
+    },
+  );
+
   testWidgets('dismiss marks the gate and hides the banner', (tester) async {
     await tester.pumpWidget(wrapRouted());
     await tester.pumpAndSettle();

@@ -243,6 +243,129 @@ void main() {
       );
     });
 
+    testWidgets('a blank timeout blocks submit instead of silently sending 30', (
+      tester,
+    ) async {
+      // The regression: the write path built `timeout_sec` with
+      // `int.tryParse(_timeoutMs) ?? 30` and nothing checked the field. An
+      // operator who cleared it, or typed "60 " with a trailing space, sent 30.
+      // The backend accepts 30, answers 200, and the form navigates to the
+      // detail page, so the operator believes they set their value and the
+      // monitor stays at 30 with nothing anywhere saying otherwise.
+      await tester.binding.setSurfaceSize(const Size(1200, 1600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      var submitted = false;
+      Map<String, dynamic>? sent;
+      await tester.pumpWidget(
+        wrap(
+          MonitorForm(
+            initialUrl: 'https://example.com',
+            initialName: 'API',
+            submitLabel: trans('uptizm.monitors.form_submit_create'),
+            onSubmit: (Map<String, dynamic> fields) async {
+              submitted = true;
+              sent = fields;
+              return <String, String>{};
+            },
+            onCancel: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // The timeout lives in the advanced section, opened by the last switch in
+      // reading order (mirrors the advanced-section test below).
+      await tester.ensureVisible(
+        find.text(trans('uptizm.monitors.form_advanced_label')),
+      );
+      await tester.pump();
+      await tester.tap(find.byType(MSSwitch).last);
+      await tester.pumpAndSettle();
+
+      final timeout = find.widgetWithText(
+        MSFormField,
+        trans('uptizm.monitors.form_timeout_label'),
+      );
+      expect(timeout, findsOneWidget);
+      await tester.enterText(
+        find.descendant(of: timeout, matching: find.byType(EditableText)),
+        '',
+      );
+      await tester.pump();
+
+      final submit = find.text(trans('uptizm.monitors.form_submit_create'));
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+
+      expect(
+        submitted,
+        isFalse,
+        reason: 'a request whose answer is already known must not be made',
+      );
+      expect(sent, isNull);
+      expect(
+        find.text(trans('uptizm.monitors.form_timeout_error_number')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a timeout past the server bound blocks submit', (
+      tester,
+    ) async {
+      // The bounds mirror StoreMonitorRequest exactly (min:1, max:120), which
+      // is what validating twice is for: the server still decides, and the
+      // client stops a request it already knows the answer to.
+      await tester.binding.setSurfaceSize(const Size(1200, 1600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      var submitted = false;
+      await tester.pumpWidget(
+        wrap(
+          MonitorForm(
+            initialUrl: 'https://example.com',
+            initialName: 'API',
+            submitLabel: trans('uptizm.monitors.form_submit_create'),
+            onSubmit: (_) async {
+              submitted = true;
+              return <String, String>{};
+            },
+            onCancel: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.ensureVisible(
+        find.text(trans('uptizm.monitors.form_advanced_label')),
+      );
+      await tester.pump();
+      await tester.tap(find.byType(MSSwitch).last);
+      await tester.pumpAndSettle();
+
+      final timeout = find.widgetWithText(
+        MSFormField,
+        trans('uptizm.monitors.form_timeout_label'),
+      );
+      await tester.enterText(
+        find.descendant(of: timeout, matching: find.byType(EditableText)),
+        '600',
+      );
+      await tester.pump();
+
+      final submit = find.text(trans('uptizm.monitors.form_submit_create'));
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+
+      expect(submitted, isFalse);
+      expect(
+        find.text(trans('uptizm.monitors.form_timeout_error_range')),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('a TCP target without a port shows the host:port error', (
       tester,
     ) async {

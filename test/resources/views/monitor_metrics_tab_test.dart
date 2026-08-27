@@ -582,6 +582,62 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('MonitorMetricForm, create mode', () {
+    testWidgets('a second Save tap mid-write is dropped', (tester) async {
+      // `SubmitsOnce` exists because three forms needed this at once, and its
+      // own docblock predicted that "the fourth form would have forgotten it".
+      // This was the fourth form. A double tap sent two
+      // `POST /monitors/:id/metrics`: the first response closed the sheet, and
+      // the second took a 422 on the per-monitor unique key that reached
+      // nobody, because `!mounted` swallowed it into a log line.
+      await tester.binding.setSurfaceSize(const Size(600, 3000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      int saves = 0;
+      final Completer<void> inFlight = Completer<void>();
+
+      await tester.pumpWidget(
+        wrapForm(
+          MonitorMetricForm(
+            initial: kEmptyMetricForm.copyWith(
+              label: 'Memory usage',
+              key: 'memory_usage',
+              path: r'$.memory',
+            ),
+            isEdit: false,
+            onSave: (_) async {
+              saves++;
+              // Hold the write open so the second tap lands mid-flight, which
+              // is the only window the bug lived in.
+              await inFlight.future;
+              return <String, String>{};
+            },
+            onPreview: (_) async => null,
+            onCancel: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final Finder save = find.text(
+        trans('uptizm.monitors.metrics_form_save_create'),
+      );
+      await tester.ensureVisible(save);
+      await tester.tap(save);
+      await tester.pump();
+
+      // The label is gone mid-flight because the button swaps its child for the
+      // loading content, which is the same switch that drops its onTap.
+      await tester.tap(find.byType(MSButton).last, warnIfMissed: false);
+      await tester.pump();
+
+      expect(saves, 1, reason: 'the second tap must be dropped');
+
+      inFlight.complete();
+      await tester.pumpAndSettle();
+
+      expect(saves, 1, reason: 'and it must not fire once the first resolves');
+    });
+
     testWidgets('typing a Name slugifies the Key field', (tester) async {
       await tester.binding.setSurfaceSize(const Size(600, 3000));
       addTearDown(() => tester.binding.setSurfaceSize(null));

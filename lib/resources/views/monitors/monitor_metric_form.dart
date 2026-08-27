@@ -6,6 +6,7 @@ import 'monitor_metrics_support.dart';
 import '../../../app/controllers/monitor_metrics_controller.dart'
     show MetricCandidate, MetricCandidateSet, MetricPreviewResult;
 import '../../../app/enums/status_key.dart';
+import '../../../app/support/submits_once.dart';
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/status_dot/index.dart';
 import '../../../ui/components/string_value_list/index.dart';
@@ -171,7 +172,8 @@ class MonitorMetricForm extends StatefulWidget {
   State<MonitorMetricForm> createState() => _MonitorMetricFormState();
 }
 
-class _MonitorMetricFormState extends State<MonitorMetricForm> {
+class _MonitorMetricFormState extends State<MonitorMetricForm>
+    with SubmitsOnce<MonitorMetricForm> {
   /// The live, string-backed form model. Mutated through [_set] / [_onLabel] /
   /// [_onKey] so every edit also resets [_testStatus] to idle (matching the
   /// React `set` patch behavior).
@@ -1224,7 +1226,14 @@ class _MonitorMetricFormState extends State<MonitorMetricForm> {
           child: WText(trans('uptizm.common.cancel')),
         ),
         MSButton(
-          onPressed: _submitIfValid,
+          // `isLoading` is the guard, not just the spinner: the button drops
+          // its tap while a write is in flight. This form was the fourth one,
+          // and it is the one `SubmitsOnce` predicted would forget: a double
+          // tap sent two POSTs, the first closed the sheet, and the second took
+          // a 422 on the per-monitor unique key that reached nobody, because
+          // `!mounted` swallowed it into a log line.
+          isLoading: isSubmitting,
+          onPressed: () => submitOnce(_submitIfValid),
           child: WText(
             widget.isEdit
                 ? trans('uptizm.monitors.metrics_form_save_edit')
