@@ -67,20 +67,41 @@ class MonitorMetricController extends Controller
             ->orderBy('label')
             ->get();
 
-        // Attach the latest persisted value per metric key so the list
-        // cards can render current readings without a second round-trip.
-        // monitor_metric_values has no metric_id FK, so we match on
-        // (monitor_id, metric_key) pairs via a single newest-first query.
-        $keys = $metrics->pluck('key')->filter()->values()->all();
+        // Attach the latest persisted value per metric key so the list cards can
+        // render current readings without a second round-trip.
+        //
+        // ONE QUERY PER KEY, each bounded to a single row. The shape this
+        // replaces asked for every reading of every key at once and thinned the
+        // result in PHP with `->unique()`, which is a table scan wearing a
+        // collection method: this endpoint took down production when a monitor
+        // reached 176,000 readings, exhausting the 128MB worker limit and
+        // answering the client nothing at all, so the metrics tab rendered
+        // empty and said the monitor had none.
+        //
+        // The per-key query is a pure index seek on
+        // (monitor_id, metric_key, recorded_at), so its cost is the NUMBER OF
+        // DEFINITIONS rather than the length of their history, and definitions
+        // are created by hand. `monitor_metric_values` carries no metric_id FK,
+        // which is why the match is on the key rather than a relation.
+        //
+        // The `id` tiebreaker matters because readings tie on `recorded_at`
+        // across regions: without it "the latest" is whichever row the engine
+        // happened to return, and the card's value could flip between reads
+        // with nothing having changed.
+        $keys = $metrics->pluck('key')->filter()->unique()->values()->all();
         $latestByKey = collect();
-        if ($keys !== []) {
-            $latestByKey = MonitorMetricValue::query()
+
+        foreach ($keys as $key) {
+            $latest = MonitorMetricValue::query()
                 ->where('monitor_id', $monitor->id)
-                ->whereIn('metric_key', $keys)
+                ->where('metric_key', $key)
                 ->orderByDesc('recorded_at')
-                ->get()
-                ->unique('metric_key')
-                ->keyBy('metric_key');
+                ->orderByDesc('id')
+                ->first();
+
+            if ($latest !== null) {
+                $latestByKey->put($key, $latest);
+            }
         }
 
         foreach ($metrics as $metric) {

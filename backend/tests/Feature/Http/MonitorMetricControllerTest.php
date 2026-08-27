@@ -17,6 +17,7 @@ use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\MonitorContentVersion;
 use App\Models\MonitorMetric;
+use App\Models\MonitorMetricValue;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\Monitoring\ContentArchive;
@@ -25,6 +26,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Redirector;
 use Illuminate\Routing\Route;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -1094,6 +1096,85 @@ class MonitorMetricControllerTest extends TestCase
     /**
      * @return array{0: Monitor, 1: User}
      */
+    public function test_the_list_reads_one_row_per_metric_not_the_whole_history(): void
+    {
+        // What this pins is a production outage, not a preference. The list used
+        // to ask for EVERY reading of every key and thin the result in PHP with
+        // `->unique()`; at 176,000 readings on one monitor that exhausted the
+        // 128MB worker limit, so the endpoint answered the client nothing, and
+        // the metrics tab rendered empty and told the operator the monitor had
+        // no metrics at all.
+        [$monitor, $user] = $this->makeMonitor();
+        Sanctum::actingAs($user);
+
+        // Every reading belongs to a check: `check_id` is NOT NULL, because a
+        // value with no check behind it is a number from nowhere.
+        $check = MonitorCheck::query()->create([
+            'monitor_id' => $monitor->id,
+            'team_id' => $monitor->team_id,
+            'region' => MonitorRegion::USEast,
+            'status' => MonitorStatus::Up,
+            'status_code' => 200,
+            'response_ms' => 120,
+            'checked_at' => now(),
+        ]);
+
+        foreach (['queue_depth', 'disk_free'] as $index => $key) {
+            MonitorMetric::query()->create([
+                'monitor_id' => $monitor->id,
+                'team_id' => $monitor->team_id,
+                'label' => ucfirst($key),
+                'key' => $key,
+                'type' => MetricType::Numeric,
+                'source' => MetricSource::JsonPath,
+                'extraction_path' => '$.'.$key,
+                'display_order' => $index,
+            ]);
+
+            // A history deep enough that reading all of it is visibly the wrong
+            // shape, with the NEWEST row last so an unordered read picks wrong.
+            for ($i = 0; $i < 40; $i++) {
+                MonitorMetricValue::query()->create([
+                    'monitor_id' => $monitor->id,
+                    'team_id' => $monitor->team_id,
+                    'metric_key' => $key,
+                    'check_id' => $check->id,
+                    'numeric_value' => $i,
+                    'band' => MetricBand::Ok,
+                    'recorded_at' => now()->subMinutes(40 - $i),
+                ]);
+            }
+        }
+
+        $queries = [];
+        DB::listen(function ($query) use (&$queries): void {
+            if (str_contains($query->sql, 'monitor_metric_values')) {
+                $queries[] = $query->sql;
+            }
+        });
+
+        $response = $this->getJson("/api/v1/monitors/{$monitor->id}/metrics")
+            ->assertStatus(200)
+            ->assertJsonCount(2, 'data');
+
+        // The newest reading, which is the whole point of the join.
+        $values = collect($response->json('data'))->pluck('latest.numeric_value', 'key');
+        $this->assertEqualsWithDelta(39.0, (float) $values['queue_depth'], 0.001);
+        $this->assertEqualsWithDelta(39.0, (float) $values['disk_free'], 0.001);
+
+        // And every one of those reads was bounded. Without this the assertions
+        // above pass on the old shape too: it returned the right value, it just
+        // loaded eighty rows to find two, and eighty scales.
+        $this->assertNotEmpty($queries, 'the value table has to be read at all');
+        foreach ($queries as $sql) {
+            $this->assertStringContainsString(
+                'limit 1',
+                strtolower($sql),
+                'an unbounded read of this table is what took production down: '.$sql,
+            );
+        }
+    }
+
     protected function makeMonitor(): array
     {
         $user = User::query()->create([
