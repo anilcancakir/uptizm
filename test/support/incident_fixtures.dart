@@ -133,3 +133,12 @@ String _signalSourceToWire(SignalSource source) {
     SignalSource.manual => 'manual',
   };
 }
+
+/// The fixture roster in the wire shape `GET /incidents` answers with.
+///
+/// Exists because the roster now PAGES: a screen resolves its row out of what
+/// the index returned, so a test that stubs an empty index and then looks a
+/// fixture up by id is asking the view for a row the controller was never
+/// given. Round-tripping the fixtures keeps the stub and the lookup agreeing.
+List<Map<String, dynamic>> incidentIndexPayload() =>
+    incidentFixtures.map((Incident incident) => incident.toMap()).toList();

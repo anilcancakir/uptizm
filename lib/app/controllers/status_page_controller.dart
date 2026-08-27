@@ -6,6 +6,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../models/status_page.dart';
+import '../support/roster_page.dart';
 import '../enums/status_page_preview_status.dart'
     show StatusPagePreviewStatus;
 import '../support/status_page_types.dart' show Subscriber;
@@ -106,6 +107,15 @@ class StatusPageController extends MagicController
   /// Whether a [reload] has completed at least once, successfully or not.
   bool _resolvedOnce = false;
 
+  /// The token for the next page, or null when the roster has been walked.
+  String? _nextCursor;
+
+  /// Whether a [loadMore] is in flight.
+  bool _loadingMore = false;
+
+  /// Whether the last read failed to reach an answer.
+  bool _loadFailed = false;
+
   /// Whether the FIRST roster read is still in flight.
   ///
   /// Separates "we have not asked yet" from "we asked and there are none". The
@@ -187,20 +197,55 @@ class StatusPageController extends MagicController
   ///
   /// Resolving flips [isFirstLoad] false either way, so the view swaps its
   /// skeleton for the rows or for the honest empty state.
-  Future<void> reload() async {
-    final bool firstLoad = isFirstLoad;
-    final List<StatusPage> pages = await StatusPage.all();
+  Future<void> reload() => _load(reset: true);
+
+  /// Appends the next page of the roster. A no-op at the end of it.
+  Future<void> loadMore() async {
+    if (_nextCursor == null || _loadingMore) return;
+
+    _loadingMore = true;
+    refreshUI();
+    await _load(reset: false);
+    _loadingMore = false;
+    refreshUI();
+  }
+
+  /// Whether a page after the current one exists.
+  bool get hasMore => _nextCursor != null;
+
+  /// Whether the next page is being fetched right now.
+  bool get isLoadingMore => _loadingMore;
+
+  /// Whether there is nothing to show AND the reason is a failed read.
+  ///
+  /// The `isEmpty` half matters: a refetch runs on every route entry, so a
+  /// transient failure must not replace pages the operator is reading with a
+  /// retry screen.
+  bool get loadFailed => _loadFailed && _pages.isEmpty;
+
+  Future<void> _load({required bool reset}) async {
+    final RosterPage<StatusPage> page = await readRosterPage<StatusPage>(
+      resource: 'status-pages',
+      fromMap: StatusPage.fromMap,
+      logTag: 'StatusPageController.reload',
+      cursor: reset ? null : _nextCursor,
+    );
+
     _resolvedOnce = true;
 
-    if (pages.isEmpty) {
-      // The cache stands, but a first read that came back empty still has to
-      // repaint: the view is showing a skeleton and needs to hear that the
-      // answer arrived.
-      if (firstLoad) refreshUI();
+    if (page.failed) {
+      // `StatusPage.all()` used to absorb this and resolve an empty list, so a
+      // 500 and a team with no status pages were the same value and the screen
+      // stated one as the other.
+      _loadFailed = true;
+      refreshUI();
+
       return;
     }
 
-    _pages = pages;
+    _loadFailed = false;
+    _nextCursor = page.nextCursor;
+    _pages = reset ? page.rows! : <StatusPage>[..._pages, ...page.rows!];
     refreshUI();
   }
 

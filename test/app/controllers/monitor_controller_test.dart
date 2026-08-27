@@ -42,6 +42,119 @@ void main() {
     expect(identical(first, second), isTrue);
   });
 
+  group('the roster pages', () {
+    Map<String, dynamic> page(List<String> ids, {String? next, int total = 0}) => {
+      'data': [
+        for (final String id in ids)
+          {'id': id, 'name': id, 'url': 'https://example.com/\$id'},
+      ],
+      'meta': {
+        'next_cursor': next,
+        'total': total,
+        'counts': {'up': total, 'down': 0, 'degraded': 0, 'paused': 0},
+        'avg_response_ms': 120,
+      },
+    };
+
+    test('the first read asks for a page and keeps the cursor', () async {
+      final FakeNetworkDriver fake = Http.fake({
+        'monitors': Http.response(page(['a', 'b'], next: 'cur-1', total: 5)),
+      });
+      final MonitorController controller = MonitorController.instance;
+
+      await controller.reload();
+
+      expect(controller.monitors, hasLength(2));
+      expect(controller.hasMore, isTrue);
+      fake.assertSent((r) => r.queryParameters?['per_page'] != null);
+    });
+
+    test('loadMore appends the next page and follows the cursor', () async {
+      Http.fake({
+        'monitors': Http.response(page(['a', 'b'], next: 'cur-1', total: 4)),
+      });
+      final MonitorController controller = MonitorController.instance;
+      await controller.reload();
+
+      final FakeNetworkDriver second = Http.fake({
+        'monitors': Http.response(page(['c', 'd'], total: 4)),
+      });
+      await controller.loadMore();
+
+      expect(
+        controller.monitors.map((Monitor m) => m.id).toList(),
+        ['a', 'b', 'c', 'd'],
+        reason: 'a page is appended, never substituted for the roster',
+      );
+      expect(controller.hasMore, isFalse);
+      second.assertSent((r) => r.queryParameters?['cursor'] == 'cur-1');
+    });
+
+    test('loadMore is a no-op once the last page has answered', () async {
+      Http.fake({'monitors': Http.response(page(['a'], total: 1))});
+      final MonitorController controller = MonitorController.instance;
+      await controller.reload();
+
+      final FakeNetworkDriver fake = Http.fake({
+        'monitors': Http.response(page(['a'], total: 1)),
+      });
+      await controller.loadMore();
+
+      expect(fake.recorded, isEmpty, reason: 'nothing left to ask for');
+    });
+
+    test('the fleet counts come from meta, not from the rows on screen', () async {
+      // The defect: the list header and the KPI row counted the rows they held.
+      // With one page of a fifty-monitor fleet in hand that reported the page
+      // and called it the fleet.
+      Http.fake({
+        'monitors': Http.response(page(['a', 'b'], next: 'cur-1', total: 50)),
+      });
+      final MonitorController controller = MonitorController.instance;
+
+      await controller.reload();
+
+      expect(controller.monitors, hasLength(2));
+      expect(controller.fleetCounts.total, 50);
+      expect(controller.fleetCounts.of(StatusKey.up), 50);
+      expect(controller.fleetCounts.avgResponseMs, 120);
+    });
+
+    test('a status tab travels as a query parameter', () async {
+      Http.fake({'monitors': Http.response(page(['a'], total: 1))});
+      final MonitorController controller = MonitorController.instance;
+      await controller.reload();
+
+      final FakeNetworkDriver fake = Http.fake({
+        'monitors': Http.response(page(['a'], total: 1)),
+      });
+      await controller.setStatusFilter('down');
+
+      fake.assertSent((r) => r.queryParameters?['status'] == 'down');
+      expect(controller.statusFilter, 'down');
+    });
+
+    test('resetForSession drops the outgoing team\'s cursor and counts', () async {
+      Http.fake({
+        'monitors': Http.response(page(['a'], next: 'cur-1', total: 9)),
+      });
+      final MonitorController controller = MonitorController.instance;
+      await controller.reload();
+      await controller.setStatusFilter('down');
+      expect(controller.hasMore, isTrue);
+
+      // A cursor names a row in the OUTGOING team's ordering, and the counts
+      // state its fleet size. Carried across, the new team is paged through a
+      // position it cannot see and told how big somebody else's fleet is.
+      Http.fake({'monitors': Http.response(page([], total: 0))});
+      await controller.resetForSession();
+
+      expect(controller.hasMore, isFalse);
+      expect(controller.fleetCounts.total, 0);
+      expect(controller.statusFilter, isNull);
+    });
+  });
+
   group('a failed read is not an empty inventory', () {
     test('a non-2xx sets loadFailed instead of claiming zero monitors', () async {
       // The regression: `Monitor.all()` resolved [] for a 500 exactly as it

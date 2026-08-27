@@ -6,11 +6,13 @@ import 'package:magic_starter/magic_starter.dart';
 
 import 'entitlement_controller.dart';
 import '../models/monitor.dart';
+import '../support/roster_page.dart';
 import '../support/monitor_types.dart'
     show
         AnalyzeFailure,
         AnalyzeRunProgress,
         AnalyzeRunStatus,
+        MonitorFleetCounts,
         UptimeSegment,
         analyzeRunStatusFromWire,
         analyzeStepStateFromWire;
@@ -190,6 +192,41 @@ class MonitorController extends MagicController
   /// flashing a skeleton over data the operator is already reading.
   bool get isFirstLoad => !_resolvedOnce;
 
+  /// Rows per page. Sized so a first screen is one request on any plan the
+  /// product sells, while still bounding the payload for a fleet that grows.
+  static const int _pageSize = 50;
+
+  /// The token for the next page, or null when the roster has been walked.
+  String? _nextCursor;
+
+  /// Whether a [loadMore] is in flight, so the footer can say so and a second
+  /// tap cannot queue a duplicate page.
+  bool _loadingMore = false;
+
+  /// The active server-side status filter, or null for the whole fleet.
+  String? _statusFilter;
+
+  /// Fleet-wide counts, read from the index `meta` rather than derived from the
+  /// rows on screen.
+  MonitorFleetCounts _counts = const MonitorFleetCounts.unknown();
+
+  /// Whether a page after the current one exists.
+  bool get hasMore => _nextCursor != null;
+
+  /// Whether the next page is being fetched right now.
+  bool get isLoadingMore => _loadingMore;
+
+  /// The active status filter, or null for the whole fleet.
+  String? get statusFilter => _statusFilter;
+
+  /// What the FLEET looks like, not what this page looks like.
+  ///
+  /// The list header and the KPI row make claims about the whole team ("7 up,
+  /// 2 down", "avg 143ms"), and a client holding one page cannot make them. The
+  /// backend answers them in `meta` with one grouped query, so they stay true
+  /// on page four and under a filter.
+  MonitorFleetCounts get fleetCounts => _counts;
+
   /// Whether the last [reload] failed to reach an answer.
   bool _loadFailed = false;
 
@@ -220,12 +257,40 @@ class MonitorController extends MagicController
   /// instead of the empty degradation state. Notifies listeners so an
   /// already-mounted view rebuilds against the seeded inventory.
   @visibleForTesting
-  void seedForTest(List<Monitor> seed) {
+  void seedForTest(List<Monitor> seed, {MonitorFleetCounts? counts}) {
     _monitors = List<Monitor>.from(seed);
+    // A seeded inventory IS the whole fleet, so the counts are derived from it
+    // unless a test pins them. Leaving them unknown would make every seeded
+    // widget test render the KPI row's no-data dash, which measures the seam
+    // rather than the screen.
+    _counts =
+        counts ??
+        MonitorFleetCounts(
+          total: seed.length,
+          byStatus: <String, int>{
+            for (final StatusKey status in StatusKey.values)
+              status.name: seed.where((Monitor m) => m.status == status).length,
+          },
+          avgResponseMs: _meanOf(seed),
+        );
     // Seeded state is a resolved state, so a bound view renders the rows rather
     // than a skeleton waiting for a fetch the test never makes.
     _resolvedOnce = true;
     refreshUI();
+  }
+
+  /// The mean response time across [rows], excluding paused monitors, or null
+  /// when nothing measurable is present. Mirrors what the backend computes for
+  /// the real `meta`, so a seeded screen and a live one agree.
+  static int? _meanOf(List<Monitor> rows) {
+    final List<int> timings = <int>[
+      for (final Monitor m in rows)
+        if (m.responseMs != null && m.status != StatusKey.paused) m.responseMs!,
+    ];
+
+    if (timings.isEmpty) return null;
+
+    return (timings.reduce((int a, int b) => a + b) / timings.length).round();
   }
 
   /// Bootstraps the inventory the first time this controller backs a view.
@@ -302,66 +367,78 @@ class MonitorController extends MagicController
   ///
   /// Resolving flips [isFirstLoad] false either way, so the view swaps its
   /// skeleton for the rows, the empty state, or the failure state.
-  Future<void> reload() async {
-    late final MagicResponse response;
-    try {
-      response = await Http.index('monitors');
-    } catch (error) {
-      // A throw here is a transport fault the driver could not shape into a
-      // response, including an unregistered `network` service in a bare test
-      // host. It is recorded rather than swallowed: the view renders a retry,
-      // and `onInit`/`reload` still never throw.
-      Log.error('[MonitorController.reload] $error');
-      _resolvedOnce = true;
-      _loadFailed = true;
-      refreshUI();
-      return;
-    }
+  Future<void> reload() => _load(reset: true);
+
+  /// Appends the next page to the inventory already on screen.
+  ///
+  /// A no-op when the last page has answered, so a list footer can call it
+  /// without first asking whether there is more.
+  Future<void> loadMore() async {
+    if (_nextCursor == null || _loadingMore) return;
+
+    _loadingMore = true;
+    refreshUI();
+    await _load(reset: false);
+    _loadingMore = false;
+    refreshUI();
+  }
+
+  /// Applies [status] as the server-side filter and reloads from the first page.
+  ///
+  /// The filter moved off the client with the pagination: filtering a page in
+  /// Dart answers "which of the rows I happen to hold are down", which is a
+  /// different question from the one the tab asks.
+  Future<void> setStatusFilter(String? status) async {
+    if (_statusFilter == status) return;
+
+    _statusFilter = status;
+    await _load(reset: true);
+  }
+
+  /// Reads one page of `GET /monitors`.
+  ///
+  /// [reset] starts from the first page and REPLACES the inventory; otherwise
+  /// the page is appended and the cursor advances.
+  ///
+  /// Deliberately not built on `MagicPaginator`. The framework's paginator owns
+  /// its item list and hands it out unmodifiable, and this controller does
+  /// in-place surgery on the inventory it holds: it merges the show-only
+  /// measured-uptime attributes across a list reload, patches one row from a
+  /// realtime reading, refreshes a single monitor, and evicts one on delete.
+  /// Wrapping the paginator and copying its rows out on every load would leave
+  /// two lists claiming to be the inventory, so the cursor is tracked here
+  /// instead and the cache stays the one source.
+  Future<void> _load({required bool reset}) async {
+    final RosterPage<Monitor> page = await readRosterPage<Monitor>(
+      resource: 'monitors',
+      fromMap: Monitor.fromMap,
+      logTag: 'MonitorController.reload',
+      perPage: _pageSize,
+      cursor: reset ? null : _nextCursor,
+      filters: <String, dynamic>{
+        if (_statusFilter != null) 'status': _statusFilter,
+      },
+    );
 
     _resolvedOnce = true;
 
-    // `!successful` rather than `failed`: an offline device yields statusCode 0,
-    // which is neither, so `failed` would read a dead connection as a success.
-    if (!response.successful) {
+    if (page.failed) {
+      // The cache stands: a failed refetch must not replace rows the operator
+      // is reading, and `loadFailed` only reports a failure when there is
+      // nothing else to show.
       _loadFailed = true;
       refreshUI();
-      return;
-    }
 
-    final List<Monitor>? fetched = _hydrate(response.data);
-
-    if (fetched == null) {
-      // A 2xx whose body is not a list is a malformed payload, not an empty
-      // inventory. Clearing on it would let one bad response wipe a fleet, so
-      // it is handled as the failure it is and the cache stands.
-      Log.error('[MonitorController.reload] unreadable index payload');
-      _loadFailed = true;
-      refreshUI();
       return;
     }
 
     _loadFailed = false;
-    _monitors = _withMeasuredUptime(fetched);
+    _nextCursor = page.nextCursor;
+    _counts = MonitorFleetCounts.fromMeta(page.meta);
+    _monitors = _withMeasuredUptime(
+      reset ? page.rows! : <Monitor>[..._monitors, ...page.rows!],
+    );
     refreshUI();
-  }
-
-  /// Decodes an index payload into models, tolerating both the wrapped
-  /// (`{'data': [...]}`) and bare-list shapes.
-  ///
-  /// Returns null when the payload carries no list at all, which is a decode
-  /// failure. An EMPTY list is a real answer and comes back as one: the team
-  /// has no monitors, and the caller clears the inventory accordingly.
-  List<Monitor>? _hydrate(Object? payload) {
-    final Object? raw = payload is Map<String, dynamic>
-        ? payload['data']
-        : payload;
-
-    if (raw is! List) return null;
-
-    return raw
-        .whereType<Map<String, dynamic>>()
-        .map(Monitor.fromMap)
-        .toList();
   }
 
   /// Cancels every per-monitor timer this controller owns.
@@ -451,6 +528,17 @@ class MonitorController extends MagicController
     // A failure belongs to the identity that had it. Carrying it across would
     // open the new team's inventory on a retry screen for a read it never made.
     _loadFailed = false;
+    // So does a page position and a fleet count. A cursor names a row in the
+    // OUTGOING team's ordering, so continuing from it would ask the backend to
+    // page a roster the incoming identity cannot see; the counts would state
+    // the previous tenant's fleet size as this one's.
+    _nextCursor = null;
+    _loadingMore = false;
+    _counts = const MonitorFleetCounts.unknown();
+    // The filter is a screen state rather than an identity one, but it travels
+    // in the request, so a reset that kept it would refetch the new team
+    // through a tab the operator cannot see selected.
+    _statusFilter = null;
     // Back to "not asked yet": the incoming identity must get a skeleton, not
     // the previous tenant's conclusion that there are no monitors.
     _resolvedOnce = false;
