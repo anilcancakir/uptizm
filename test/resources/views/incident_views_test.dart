@@ -560,9 +560,28 @@ void main() {
       await tester.pumpWidget(wrap(const IncidentsListView()));
       await tester.pump();
 
-      final int resolvedCount = incidents
+      // The tab asks the SERVER now, exactly as the search does: a Dart `where`
+      // here read the page in hand, so a roster whose only resolved incident
+      // sat on page three showed nothing under this tab. This is the answer
+      // `?lifecycle=resolved` gives.
+      final resolved = incidents
           .where((i) => i.lifecycle == IncidentLifecycle.resolved)
-          .length;
+          .toList();
+      final int resolvedCount = resolved.length;
+      Http.fake({
+        'incidents': Http.response({
+          'data': [
+            for (final incident in resolved)
+              {
+                'id': incident.id,
+                'title': incident.title,
+                'lifecycle': 'resolved',
+                'started_at': '2026-07-10T10:00:00Z',
+                'resolved_at': '2026-07-10T11:00:00Z',
+              },
+          ],
+        }),
+      });
 
       // Scope the tap to the filter MSSegmentedControl: "Resolved" also matches
       // the counts-row label and each card's lifecycle pill. IncidentsListView
@@ -578,6 +597,9 @@ void main() {
           matching: find.text(trans('uptizm.incidents.filter_resolved')),
         ),
       );
+      await tester.pump();
+      // The refetch the tap fires has to land before the list can answer.
+      await tester.pump();
       await tester.pump();
 
       expect(tester.takeException(), isNull);
@@ -602,8 +624,15 @@ void main() {
       // The roster content does not matter here: the assertion is about the
       // FIRST frame, painted before the read resolves. It has to be a valid
       // envelope all the same, or the read fails and the screen renders the
-      // error state instead of the skeleton.
-      Http.fake({'incidents': Http.response({'data': <Map<String, dynamic>>[]})});
+      // error state instead of the skeleton. The counts ride along because the
+      // real endpoint always sends them, and the second half of this case turns
+      // on their being zero.
+      Http.fake({
+        'incidents': Http.response({
+          'data': <Map<String, dynamic>>[],
+          'meta': {'open_total': 0, 'resolved_total': 0},
+        }),
+      });
 
       // Deliberately NOT pumped again: the first frame is painted before the
       // mount's async fetch resolves, which is exactly the moment the operator
@@ -643,7 +672,15 @@ void main() {
       Magic.singleton('log', () => LogManager());
       // A valid but EMPTY index: this case is about a resolved-empty history,
       // so the roster answers with no rows rather than with the fixtures.
-      Http.fake({'incidents': Http.response({'data': <Map<String, dynamic>>[]})});
+      // With the counts, because the real endpoint always sends them: a team
+      // with no incidents reports zero on both, which is what makes this the
+      // "never had one" case rather than the "nothing matched" one.
+      Http.fake({
+        'incidents': Http.response({
+          'data': <Map<String, dynamic>>[],
+          'meta': {'open_total': 0, 'resolved_total': 0},
+        }),
+      });
       await IncidentController.instance.load();
 
       await tester.pumpWidget(wrap(const IncidentsListView()));
@@ -654,6 +691,112 @@ void main() {
         find.text(trans('uptizm.incidents.empty_never_had_title')),
         findsOneWidget,
       );
+    });
+
+    testWidgets('an empty search does not claim the team has no incidents', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 3200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // Also caught by driving the app. With the query server-side, a search
+      // matching nothing empties the roster, and reading that as "no incidents
+      // yet" offered a Create button to a team holding twenty-two of them.
+      Http.fake({
+        'incidents': Http.response({
+          'data': <Map<String, dynamic>>[],
+          'meta': {'open_total': 3, 'resolved_total': 19},
+        }),
+      });
+      await IncidentController.instance.load();
+
+      await tester.pumpWidget(wrap(const IncidentsListView()));
+      await tester.pump();
+
+      expect(
+        find.text(trans('uptizm.incidents.empty_filtered_title')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(trans('uptizm.incidents.empty_never_had_title')),
+        findsNothing,
+        reason: 'the team has twenty-two incidents; none of them matched',
+      );
+    });
+
+    testWidgets('the headline counts speak for the team, not for the tab', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 3200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // Caught by driving the real app, not by this suite: with the tabs
+      // server-side, deriving these four from the rows on screen made the
+      // Resolved tab report "0 active" while three incidents were burning. The
+      // envelope answers for the TEAM, and the page it arrives with does not
+      // constrain it.
+      Http.fake({
+        'incidents': Http.response({
+          'data': [
+            {
+              'id': 'inc-resolved-only',
+              'title': 'Handled',
+              'lifecycle': 'resolved',
+              'started_at': '2026-07-10T10:00:00Z',
+              'resolved_at': '2026-07-10T11:00:00Z',
+            },
+          ],
+          'meta': {
+            'open_total': 3,
+            'critical_total': 2,
+            'ai_total': 1,
+            'resolved_total': 19,
+          },
+        }),
+      });
+      await IncidentController.instance.load();
+
+      await tester.pumpWidget(wrap(const IncidentsListView()));
+      await tester.pump();
+
+      // Not one of these numbers is derivable from the single row above.
+      expect(find.text('3'), findsOneWidget);
+      expect(find.text('2'), findsOneWidget);
+      expect(find.text('19'), findsOneWidget);
+    });
+
+    testWidgets('a further page is reachable, and marked in the count', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 3200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // The controller has exposed `loadMore` since pagination landed and no
+      // screen called it, so a team's twenty-sixth incident was unreachable:
+      // the roster stopped at page one with nothing on screen saying there was
+      // a page two.
+      Http.fake({
+        'incidents': Http.response({
+          'data': [
+            {
+              'id': 'inc-page-1',
+              'title': 'First page incident',
+              'lifecycle': 'investigating',
+              'started_at': '2026-07-11T14:00:00Z',
+            },
+          ],
+          'meta': {'next_cursor': 'cursor-2'},
+        }),
+      });
+      await IncidentController.instance.load();
+
+      await tester.pumpWidget(wrap(const IncidentsListView()));
+      await tester.pump();
+
+      expect(find.text(trans('uptizm.common.load_more')), findsOneWidget);
+      // The count marks the further page rather than counting it: this roster
+      // is cursor paginated, so there is no total to divide by.
+      expect(find.text('1+'), findsOneWidget);
     });
 
     testWidgets('an impossible search query asks the server, after a pause', (

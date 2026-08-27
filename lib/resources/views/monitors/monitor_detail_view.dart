@@ -753,8 +753,16 @@ class _MonitorDetailViewState
   /// placeholder reflow on every load.
   Widget _buildKpiRow(Monitor monitor, bool paused) {
     // 1. Derive the headline metrics directly from the fixtures.
-    final int openIncidents = _incidentsFor(monitor)
-        .where((i) => i.lifecycle != IncidentLifecycle.resolved)
+    //
+    //    The open-incident count is null until this monitor's own read answers,
+    //    and stays null when it failed. Rendering 0 there would be a claim:
+    //    "this monitor has nothing open" is the most reassuring thing this card
+    //    can say and the least safe thing to guess, so an unanswered read draws
+    //    the same no-data placeholder the uptime card uses.
+    final List<Incident>? monitorIncidents = IncidentController.instance
+        .incidentsForMonitor(monitor.id);
+    final int? openIncidents = monitorIncidents
+        ?.where((i) => i.lifecycle != IncidentLifecycle.resolved)
         .length;
     final String avgResponse = monitor.responseMs != null
         ? '${monitor.responseMs}ms'
@@ -795,11 +803,13 @@ class _MonitorDetailViewState
         ),
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_open_incidents_for_monitor'),
-          value: '$openIncidents',
-          delta: openIncidents > 0
+          value: openIncidents != null ? '$openIncidents' : '—',
+          delta: openIncidents != null && openIncidents > 0
               ? trans('uptizm.monitors.kpi_delta_ongoing')
               : null,
-          trend: openIncidents > 0 ? KpiTrend.down : KpiTrend.neutral,
+          trend: openIncidents != null && openIncidents > 0
+              ? KpiTrend.down
+              : KpiTrend.neutral,
         ),
       ],
     );
@@ -1223,28 +1233,39 @@ class _MonitorDetailViewState
   /// The team's live incidents that touch [monitor], newest-first as the API
   /// returned them.
   ///
-  /// Filters the shared [IncidentController] roster by monitor IDENTITY: the
-  /// incident's denormalized primary monitor, or any entry in its affected
-  /// component pivot. This screen used to read the design-lab
-  /// `incidentsForMonitor` fixture keyed by monitor NAME, so a real monitor
-  /// showed five invented incidents (and a fabricated open-incident count)
-  /// while its actual outage was missing.
-  List<Incident> _incidentsFor(Monitor monitor) {
-    final String id = monitor.id;
-    if (id.isEmpty) return const [];
-
-    return [
-      for (final Incident incident in IncidentController.instance.incidents)
-        if (incident.primaryMonitorId == id ||
-            incident.affectedMonitors.any((m) => m.id == id))
-          incident,
-    ];
-  }
-
   /// Builds the Incidents panel: a responsive grid of [IncidentCard]s for the
-  /// incidents that touch this monitor, or a graceful [MSEmptyState] when none.
+  /// incidents that touch this monitor.
+  ///
+  /// READ FOR THIS MONITOR, not filtered out of the shared roster. That roster
+  /// is one page deep and carries whatever search or tab the incidents list
+  /// left on it, so filtering it here answered two different questions with the
+  /// same wrong confidence: a monitor whose outage sat on page two showed "No
+  /// incidents", and an operator who had searched the list first saw that
+  /// search silently applied to this panel.
+  ///
+  /// Three states, and the third is the one worth having: in flight draws
+  /// skeletons, a FAILED read says so, and only an answered empty claims the
+  /// monitor is clean. Not knowing is not the same as nothing.
   Widget _buildIncidentsTab(Monitor monitor) {
-    final List<Incident> monitorIncidents = _incidentsFor(monitor);
+    final IncidentController incidents = IncidentController.instance;
+    final List<Incident>? monitorIncidents = incidents.incidentsForMonitor(
+      monitor.id,
+    );
+
+    if (monitorIncidents == null) {
+      return incidents.isFirstLoadForMonitor(monitor.id)
+          ? _buildIncidentsSkeleton()
+          : WDiv(
+              className: 'pt-4',
+              child: MSEmptyState(
+                icon: Icons.cloud_off_outlined,
+                title: trans('uptizm.monitors.incidents_failed_title'),
+                description: trans(
+                  'uptizm.monitors.incidents_failed_description',
+                ),
+              ),
+            );
+    }
 
     if (monitorIncidents.isEmpty) {
       return WDiv(
@@ -1266,6 +1287,15 @@ class _MonitorDetailViewState
             onTap: () => MagicRoute.to('/incidents/${incident.id}'),
           ),
       ],
+    );
+  }
+
+  /// The incidents panel's first-load placeholder: the grid's own shape, two
+  /// cards deep, so a slow read reads as loading rather than as "no incidents".
+  Widget _buildIncidentsSkeleton() {
+    return const WDiv(
+      className: 'grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4',
+      children: [MSSkeleton(height: 132), MSSkeleton(height: 132)],
     );
   }
 

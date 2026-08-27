@@ -643,6 +643,8 @@
       "paused_description": "Uptizm şu anda bu izleyiciyi kontrol etmiyor. Yanıt sürelerini yeniden toplamak için devam ettirin.",
       "no_response_data_title": "Yanıt verisi yok",
       "no_response_data_description": "Bu izleyici şu anda bir yanıt süresi döndürmüyor, bu yüzden bu pencere için gösterilecek bir şey yok.",
+      "incidents_failed_title": "Olaylar yüklenemedi",
+      "incidents_failed_description": "Bu izleyicinin olayları geri gelmedi. Bu, hiç olayı olmamasıyla aynı şey değil; o yüzden burada bir şey iddia edilmiyor.",
       "no_incidents_title": "Olay yok",
       "no_incidents_description": "Bu izleyicinin kayıtlı hiçbir olayı yok. Uptizm bir şey ters gittiği anda otomatik olarak bir olay açar.",
       "action_pause": "Duraklat",

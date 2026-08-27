@@ -11,7 +11,6 @@ import '../../../app/controllers/maintenance_controller.dart';
 import '../../../app/models/incident.dart';
 import '../../../app/models/scheduled_maintenance.dart';
 import '../../../app/enums/incident_lifecycle.dart' show IncidentLifecycle;
-import '../../../app/enums/incident_severity.dart' show IncidentSeverity;
 import '../../../app/support/formatters.dart' show formatMonthDayTime;
 import '../../../ui/components/header_action/index.dart';
 import '../../../ui/components/incident_card/incident_card.dart';
@@ -126,6 +125,12 @@ class _IncidentsListViewState
     // only PATH params, so the query is read from the router here.
     if (MagicRouter.instance.queryParameters['tab'] == 'maintenance') {
       _filter = _IncidentFilter.maintenance;
+    } else {
+      // Same reason the query above is read from the controller: the tab is
+      // view state and dies with the widget, the filter behind it is controller
+      // state and does not, so a return from an incident detail would otherwise
+      // put "All" above a roster still narrowed to "Resolved".
+      _filter = _filterFromController();
     }
 
     _maintenance.addListener(_onMaintenanceChanged);
@@ -184,23 +189,51 @@ class _IncidentsListViewState
   /// the words on screen were not the words being searched.
   /// `incidents.title_search` carries every render at once.
   ///
-  /// The tab stays local, and has the same page-shaped limit: a roster with
-  /// one resolved incident on page three shows none under "Resolved" until the
-  /// operator loads that far. That is unchanged by this and wants the same
-  /// treatment.
+  /// The TAB is applied by the server too, through
+  /// [IncidentController.filterTo]. It had the same page-shaped limit the
+  /// search used to: a roster whose only resolved incident sat on page three
+  /// showed nothing under "Resolved" until the operator loaded that far, and
+  /// the counter beside the tabs agreed with it.
+  ///
+  /// So the roster the controller holds IS the visible set, and this getter
+  /// only answers for the maintenance tab, which renders a different list
+  /// entirely.
   List<Incident> get _visible {
-    return controller.incidents.where((i) {
-      return switch (_filter) {
-        _IncidentFilter.all => true,
-        _IncidentFilter.open => i.lifecycle != IncidentLifecycle.resolved,
-        _IncidentFilter.ai => i.aiOwned,
-        _IncidentFilter.resolved => i.lifecycle == IncidentLifecycle.resolved,
-        // The maintenance tab renders its own list, so this getter is never
-        // consulted under it; matching nothing keeps the switch exhaustive
-        // without inventing an incident meaning for a window.
-        _IncidentFilter.maintenance => false,
-      };
-    }).toList();
+    return _isMaintenanceTab ? const [] : controller.incidents;
+  }
+
+  /// The tab that matches the filter the controller is currently carrying.
+  ///
+  /// The inverse of [_applyTabFilter], and checked in the same order the tabs
+  /// are exclusive in: only one of the three axes is ever set.
+  _IncidentFilter _filterFromController() {
+    if (controller.aiOwnedFilter == true) return _IncidentFilter.ai;
+    if (controller.lifecycleFilter == IncidentLifecycle.resolved.name) {
+      return _IncidentFilter.resolved;
+    }
+    if (controller.openOnlyFilter) return _IncidentFilter.open;
+
+    return _IncidentFilter.all;
+  }
+
+  /// Pushes the active tab onto the controller's server-side filter.
+  ///
+  /// The maintenance tab deliberately leaves the incident filter untouched: it
+  /// renders windows rather than incidents, and refetching the roster to a
+  /// narrower shape on the way past would make coming back show less than the
+  /// operator left.
+  void _applyTabFilter() {
+    if (_isMaintenanceTab) return;
+
+    unawaited(switch (_filter) {
+      _IncidentFilter.all => controller.filterTo(),
+      _IncidentFilter.open => controller.filterTo(openOnly: true),
+      _IncidentFilter.ai => controller.filterTo(aiOwned: true),
+      _IncidentFilter.resolved => controller.filterTo(
+        lifecycle: IncidentLifecycle.resolved.name,
+      ),
+      _IncidentFilter.maintenance => Future<void>.value(),
+    });
   }
 
   /// Refetch on every mount: the backing controller loads in `onInit`, which
@@ -255,24 +288,27 @@ class _IncidentsListViewState
   // Counts row
   // ---------------------------------------------------------------------------
 
+  /// One headline count, or the no-data placeholder when the read that would
+  /// establish it has not answered.
+  String _countLabel(int? count) => count != null ? '$count' : '—';
+
   /// Builds the four count cards that mirror the React `grid grid-cols-2
   /// lg:grid-cols-4 gap-4` row: active, critical-open, ai-detected, resolved.
   Widget _buildCountsRow() {
-    // 1. Derive headline counts from the controller fixtures (mirrors
-    //    IncidentsListPage.tsx:28-31). The active count reuses the controller's
-    //    shared `activeIncidents` derivation rather than re-filtering here.
-    final int activeCount = controller.activeIncidents.length;
-    final int criticalCount = controller.incidents
-        .where(
-          (i) =>
-              i.severity == IncidentSeverity.critical &&
-              i.lifecycle != IncidentLifecycle.resolved,
-        )
-        .length;
-    final int aiCount = controller.incidents.where((i) => i.aiOwned).length;
-    final int resolvedCount = controller.incidents
-        .where((i) => i.lifecycle == IncidentLifecycle.resolved)
-        .length;
+    // 1. The four counts come from the SERVER, team-wide, not from the rows on
+    //    screen. Deriving them here answered for one page: a team with sixty
+    //    incidents reported on its first twenty-five, and once the tabs moved
+    //    server-side it got worse, because selecting Resolved narrowed the very
+    //    rows the header was counting and it said "0 active" while three were
+    //    burning.
+    //
+    //    Null until a read answers, and rendered as the no-data placeholder
+    //    rather than as 0: "no active incidents" is the most reassuring thing
+    //    this row can say and the least safe thing to guess.
+    final int? activeCount = controller.openTotal;
+    final int? criticalCount = controller.criticalTotal;
+    final int? aiCount = controller.aiTotal;
+    final int? resolvedCount = controller.resolvedTotal;
 
     // 2. Single-column base; widen to two then four columns at breakpoints.
     return WDiv(
@@ -280,25 +316,25 @@ class _IncidentsListViewState
       children: [
         KpiStatCard(
           label: trans('uptizm.incidents.count_active'),
-          value: '$activeCount',
-          delta: activeCount > 0
+          value: _countLabel(activeCount),
+          delta: (activeCount ?? 0) > 0
               ? trans('uptizm.monitors.kpi_delta_ongoing')
               : null,
-          trend: activeCount > 0 ? KpiTrend.down : KpiTrend.neutral,
+          trend: (activeCount ?? 0) > 0 ? KpiTrend.down : KpiTrend.neutral,
         ),
         KpiStatCard(
           label: trans('uptizm.incidents.count_critical'),
-          value: '$criticalCount',
-          trend: criticalCount > 0 ? KpiTrend.down : KpiTrend.neutral,
+          value: _countLabel(criticalCount),
+          trend: (criticalCount ?? 0) > 0 ? KpiTrend.down : KpiTrend.neutral,
         ),
         KpiStatCard(
           label: trans('uptizm.incidents.count_ai'),
-          value: '$aiCount',
+          value: _countLabel(aiCount),
           hint: trans('uptizm.incidents.count_ai_hint'),
         ),
         KpiStatCard(
           label: trans('uptizm.incidents.count_resolved'),
-          value: '$resolvedCount',
+          value: _countLabel(resolvedCount),
           trend: KpiTrend.up,
         ),
       ],
@@ -343,8 +379,10 @@ class _IncidentsListViewState
               trans('uptizm.incidents.filter_maintenance'),
             ],
             selectedIndex: _filter.index,
-            onChanged: (i) =>
-                setState(() => _filter = _IncidentFilter.values[i]),
+            onChanged: (i) {
+              setState(() => _filter = _IncidentFilter.values[i]);
+              _applyTabFilter();
+            },
             classNames: const {'root': 'overflow-x-auto'},
           ),
         ),
@@ -356,10 +394,12 @@ class _IncidentsListViewState
                   'visible': '${_maintenance.windows.length}',
                   'total': '${_maintenance.windows.length}',
                 })
-              : trans('uptizm.monitors.count_of', {
-                  'visible': '${_visible.length}',
-                  'total': '${controller.incidents.length}',
-                }),
+              // How many are LOADED, not "visible of total": the tab and the
+              // query are the server's job now, so those two numbers are the
+              // same number and stating one as a fraction of itself said
+              // nothing. The roster is cursor paginated and there is no count
+              // to divide by, so a further page is marked rather than counted.
+              : '${controller.incidents.length}${controller.hasMore ? '+' : ''}',
           className:
               'hidden md:flex font-mono text-xs tabular-nums text-fg-muted',
         ),
@@ -398,6 +438,25 @@ class _IncidentsListViewState
           IncidentCard(
             incident: incident,
             onTap: () => MagicRoute.to('/incidents/${incident.id}'),
+          ),
+        // The roster pages, and nothing here could reach the second one: the
+        // controller has exposed `loadMore` since pagination landed and no
+        // screen called it, so a team's twenty-sixth incident was unreachable.
+        // A footer rather than an inner scroll view, matching the monitors
+        // list: this page already scrolls, and a lazy list needs a bounded
+        // height, which would nest a second scroll area inside the first.
+        if (controller.hasMore)
+          WDiv(
+            className: 'flex flex-row justify-center pt-2',
+            children: [
+              MSButton(
+                intent: ButtonIntent.secondary,
+                size: ButtonSize.sm,
+                isLoading: controller.isLoadingMore,
+                onPressed: () => unawaited(controller.loadMore()),
+                child: WText(trans('uptizm.common.load_more')),
+              ),
+            ],
           ),
       ],
     );
@@ -597,7 +656,21 @@ class _IncidentsListViewState
   /// The dashed-border container mirrors `rounded-xl border-dashed border-border`
   /// from the React source.
   Widget _buildEmptyState() {
-    final bool neverHadIncidents = controller.incidents.isEmpty;
+    // "You have never had an incident" is a claim about the TEAM, and the rows
+    // in hand stopped being able to make it once the tab and the query moved to
+    // the server: a search matching nothing empties this list, and reading that
+    // as "no incidents yet" offered the operator a Create button where they
+    // wanted their filter back.
+    //
+    // The two team-wide counts partition every incident (open plus resolved is
+    // all of them), so their sum answers it. Null until a read lands, and an
+    // unanswered read falls to the FILTERED copy on purpose: that wording
+    // claims less.
+    final int? openTotal = controller.openTotal;
+    final int? resolvedTotal = controller.resolvedTotal;
+    final bool neverHadIncidents = openTotal != null &&
+        resolvedTotal != null &&
+        openTotal + resolvedTotal == 0;
 
     return WDiv(
       className: 'rounded-xl border border-dashed border-color-border',
