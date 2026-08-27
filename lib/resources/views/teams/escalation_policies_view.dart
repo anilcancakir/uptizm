@@ -6,17 +6,15 @@ import 'package:magic_starter/magic_starter.dart';
 import '../../../app/support/refetches_on_mount.dart';
 import '../../../app/controllers/escalation_controller.dart';
 import '../../../app/models/escalation_policy.dart';
-import '../../../app/enums/status_key.dart';
 import '../../../app/support/escalation_support.dart' show escalationDelayLabel;
 import '../../../ui/components/header_action/index.dart';
-import '../../../ui/components/status_dot/index.dart';
 
 /// **The Escalation Policies list screen (`/teams/escalation`).**
 ///
 /// A Flutter port of the React `EscalationPoliciesPage.tsx`: a page header
 /// with a "New policy" action and one [Card] per [EscalationPolicy], each
 /// rendering its ladder of [EscalationStepWire] rungs as a vertical timeline
-/// (a [StatusDot] + connecting line, the uppercase [escalationDelayLabel],
+/// (a neutral node + connecting line, the uppercase [escalationDelayLabel],
 /// and the rung's target as a small token-tinted pill).
 ///
 /// Sources [EscalationController.policies] (live `GET /escalation-policies`
@@ -71,12 +69,14 @@ class _EscalationPoliciesViewState
   @override
   Widget build(BuildContext context) {
     final List<EscalationPolicy> policies = controller.policies;
-    // A plain Flutter Column scaffolds the page body so each descendant gets
-    // a proper bounded width from MSPageContainer (same discipline as
-    // StatusPagesListView / OnCallScheduleView).
+    // Section rhythm is carried by `gap-6` (24px), not by `SizedBox` spacers:
+    // the gap is the DESIGN.md `lg` step, a hardcoded 24 is a number that
+    // happens to match it today. The bounded width the old comment worried
+    // about comes from MSPageContainer either way, which is what the fourteen
+    // other page bodies already built on a Wind flex column demonstrate.
     return MSPageContainer(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: WDiv(
+        className: 'flex flex-col gap-6',
         children: [
           MSPageHeader(
             title: trans('uptizm.teams.escalation_title'),
@@ -92,7 +92,6 @@ class _EscalationPoliciesViewState
               ),
             ],
           ),
-          const SizedBox(height: 24),
           // Loading is not emptiness. Without the skeleton branch a team with a
           // configured ladder opened this screen on a bare page with no policy
           // cards at all and only grew them when the fetch landed, which reads
@@ -117,7 +116,6 @@ class _EscalationPoliciesViewState
                   _buildPolicyCard(policy),
               ],
             ),
-          const SizedBox(height: 24),
           WText(
             trans('uptizm.teams.escalation_oncall_reference'),
             className: 'text-sm text-fg-muted',
@@ -303,7 +301,7 @@ class _EscalationPoliciesViewState
   // ---------------------------------------------------------------------------
 
   /// Builds the vertical step ladder: one row per [EscalationStepWire], each a
-  /// [StatusDot] + connecting line, the uppercase delay label, and the
+  /// neutral node + connecting line, the uppercase delay label, and the
   /// rung's target as a pill.
   Widget _buildLadder(EscalationPolicy policy) {
     final List<EscalationStepWire> steps = policy.steps;
@@ -342,8 +340,17 @@ class _EscalationPoliciesViewState
           child: WDiv(
             className: 'flex flex-row gap-3',
             children: [
-              // Leading dot (fixed-width rail slot; the line is the Positioned
+              // Leading node (fixed-width rail slot; the line is the Positioned
               // bar above, so no Expanded is needed here).
+              //
+              // A PLAIN MARK, NOT A `StatusDot`. Every rung used to be drawn
+              // with `StatusKey.up`, so a ladder of five rungs rendered five
+              // green health dots on a screen that holds no health reading at
+              // all: these rows are a configured escalation order, and the
+              // colour was telling an operator scanning for green that
+              // something was passing. `StatusKey` has no non-verdict member to
+              // reach for either, which is the point. The size matches
+              // `StatusDotSize.md` (10px) so the rail's offsets still land.
               const SizedBox(
                 width: 16,
                 child: Column(
@@ -351,7 +358,7 @@ class _EscalationPoliciesViewState
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     SizedBox(height: 4),
-                    StatusDot(StatusKey.up, size: StatusDotSize.md),
+                    WDiv(className: 'size-2.5 rounded-full bg-fg-muted'),
                   ],
                 ),
               ),
@@ -379,7 +386,7 @@ class _EscalationPoliciesViewState
 
   /// Builds a small token-tinted target pill: a rounded [WDiv] + [WText]
   /// carrying [target]'s label. NOT [StatusBadge]: targets are plain
-  /// notification-target strings, not a [StatusKey]. Mirrors the React
+  /// notification-target strings, not a `StatusKey`. Mirrors the React
   /// `Badge tone="outline"` and `TeamMembersView`'s non-owner role pill.
   Widget _buildTargetPill(String target) {
     return WDiv(

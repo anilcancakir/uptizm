@@ -399,17 +399,15 @@ class _EscalationPolicyEditorViewState
           : _buildNotFound();
     }
 
-    // 2. A plain Flutter Column scaffolds the page body so each leaf receives a
-    //    bounded width from MSPageContainer; Wind utilities appear only on the
-    //    leaf containers below.
+    // 2. Section rhythm is `gap-6` (24px), the DESIGN.md `lg` step, rather than
+    //    `SizedBox` spacers carrying the same number by hand. MSPageContainer
+    //    bounds the width either way.
     return MSPageContainer(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: WDiv(
+        className: 'flex flex-col gap-6',
         children: <Widget>[
           _buildHeader(),
-          const SizedBox(height: 24),
           _buildBody(),
-          const SizedBox(height: 24),
           _buildFormActions(),
         ],
       ),
