@@ -168,6 +168,46 @@ class _MetricsLangLoader implements TranslationLoader {
   }
 }
 
+/// A paginator over the readings endpoint, for the detail-sheet cases.
+///
+/// The sheet owns and disposes what this returns. These cases assert on the
+/// hero value and the chart, which come from `onLoadSeries`; the readings table
+/// pages its own endpoint, and with no stub registered it simply answers empty,
+/// which is the state those cases already expect below the fold.
+/// Answers the readings endpoint with [points], newest first.
+///
+/// The readings table pages its OWN endpoint rather than reusing the chart's
+/// series, so a case asserting on that list has to serve it. Newest-first
+/// because that is the order the endpoint returns and the order the table
+/// renders.
+void _stubReadings(List<MetricSeriesPoint> points) {
+  // A leading wildcard, because a stub pattern is a FULL match: a bare
+  // 'readings' matches nothing, the fake falls through to its empty default,
+  // and the table renders empty with no request-level clue that a stub missed.
+  Http.fake({
+    '*readings': Http.response({
+      'data': [
+        for (final MetricSeriesPoint p in points.reversed)
+          {
+            'id': 'r-${p.recordedAt?.millisecondsSinceEpoch ?? 0}',
+            'recorded_at': p.recordedAt?.toIso8601String(),
+            'numeric_value': p.numericValue,
+            'string_value': p.stringValue,
+            'status_value': p.statusValue,
+            'band': p.band,
+          },
+      ],
+    }),
+  });
+}
+
+MagicPaginator<MetricSeriesPoint> _readingsPaginator() {
+  return MagicPaginator<MetricSeriesPoint>(
+    url: '/monitors/m1/metrics/met-1/readings',
+    fromMap: MetricSeriesPoint.fromMap,
+  );
+}
+
 void main() {
   setUp(() async {
     MagicApp.reset();
@@ -1536,17 +1576,22 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1280, 2400));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
+      _stubReadings(series);
+
       await tester.pumpWidget(
         wrap(
           MonitorMetricDetail(
             metric: memoryUsageForm(),
             onLoadSeries: () async => series,
+            onCreateReadings: _readingsPaginator,
             onEdit: () {},
             onDelete: () {},
           ),
         ),
       );
-      // One pump resolves the load future, a second paints the result.
+      // One pump resolves the load future, a second paints the result, and the
+      // third lets the readings page land.
+      await tester.pump();
       await tester.pump();
       await tester.pump();
     }
@@ -1651,11 +1696,13 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1280, 2400));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
+        _stubReadings(stringReadings());
         await tester.pumpWidget(
           wrap(
             MonitorMetricDetail(
               metric: stringMetricForm(),
               onLoadSeries: () async => stringReadings(),
+              onCreateReadings: _readingsPaginator,
               onEdit: () {},
               onDelete: () {},
             ),
@@ -1684,11 +1731,13 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1280, 2400));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
+        _stubReadings(stringReadings());
         await tester.pumpWidget(
           wrap(
             MonitorMetricDetail(
               metric: stringMetricForm(),
               onLoadSeries: () async => stringReadings(),
+              onCreateReadings: _readingsPaginator,
               onEdit: () {},
               onDelete: () {},
             ),
@@ -1717,11 +1766,13 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1280, 2400));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
+        _stubReadings(stringReadings());
         await tester.pumpWidget(
           wrap(
             MonitorMetricDetail(
               metric: stringMetricForm(),
               onLoadSeries: () async => stringReadings(),
+              onCreateReadings: _readingsPaginator,
               onEdit: () {},
               onDelete: () {},
             ),

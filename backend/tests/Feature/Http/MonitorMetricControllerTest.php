@@ -1175,6 +1175,97 @@ class MonitorMetricControllerTest extends TestCase
         }
     }
 
+    public function test_readings_page_newest_first_through_a_cursor(): void
+    {
+        // The readings table on the metric sheet walks a history that has no
+        // end: one row per check, forever. It pages rather than taking a
+        // windowed slice, because "what did this read last Tuesday" is a fair
+        // question and a 24h chart cannot answer it.
+        [$monitor, $user] = $this->makeMonitor();
+        Sanctum::actingAs($user);
+
+        $metric = MonitorMetric::query()->create([
+            'monitor_id' => $monitor->id,
+            'team_id' => $monitor->team_id,
+            'label' => 'Queue depth',
+            'key' => 'queue_depth',
+            'type' => MetricType::Numeric,
+            'source' => MetricSource::JsonPath,
+            'extraction_path' => '$.queue_depth',
+            'display_order' => 0,
+        ]);
+
+        $check = MonitorCheck::query()->create([
+            'monitor_id' => $monitor->id,
+            'team_id' => $monitor->team_id,
+            'region' => MonitorRegion::USEast,
+            'status' => MonitorStatus::Up,
+            'status_code' => 200,
+            'response_ms' => 120,
+            'checked_at' => now(),
+        ]);
+
+        // Five readings, every one of them sharing ONE timestamp. That is the
+        // case the `id` tiebreaker exists for: `cursorPaginate` builds its token
+        // out of the order-by columns, so a cursor on `recorded_at` alone skips
+        // or repeats at this boundary with nothing in the response to say so.
+        $tie = now()->subMinutes(5);
+        foreach (range(1, 5) as $i) {
+            MonitorMetricValue::query()->create([
+                'monitor_id' => $monitor->id,
+                'team_id' => $monitor->team_id,
+                'metric_key' => 'queue_depth',
+                'check_id' => $check->id,
+                'numeric_value' => $i,
+                'band' => MetricBand::Ok,
+                'recorded_at' => $tie,
+            ]);
+        }
+
+        $first = $this->getJson(
+            "/api/v1/monitors/{$monitor->id}/metrics/{$metric->id}/readings?per_page=2",
+        )->assertStatus(200)->assertJsonCount(2, 'data');
+
+        $cursor = $first->json('meta.next_cursor');
+        $this->assertNotNull($cursor, 'the table pages by cursor, so the token has to be there');
+
+        $ids = collect($first->json('data'))->pluck('id')->all();
+        $seen = $ids;
+
+        // Walk the rest and prove nothing was skipped or served twice.
+        for ($page = 0; $page < 4 && $cursor !== null; $page++) {
+            $next = $this->getJson(
+                "/api/v1/monitors/{$monitor->id}/metrics/{$metric->id}/readings?per_page=2&cursor={$cursor}",
+            )->assertStatus(200);
+            $seen = array_merge($seen, collect($next->json('data'))->pluck('id')->all());
+            $cursor = $next->json('meta.next_cursor');
+        }
+
+        $this->assertCount(5, array_unique($seen), 'five tied rows must page as five distinct rows');
+    }
+
+    public function test_readings_refuse_a_metric_from_another_monitor(): void
+    {
+        [$monitor, $user] = $this->makeMonitor();
+        [$otherMonitor] = $this->makeMonitor();
+        Sanctum::actingAs($user);
+
+        $foreign = MonitorMetric::query()->create([
+            'monitor_id' => $otherMonitor->id,
+            'team_id' => $otherMonitor->team_id,
+            'label' => 'Not yours',
+            'key' => 'not_yours',
+            'type' => MetricType::Numeric,
+            'source' => MetricSource::JsonPath,
+            'extraction_path' => '$.x',
+            'display_order' => 0,
+        ]);
+
+        $this->getJson(
+            "/api/v1/monitors/{$monitor->id}/metrics/{$foreign->id}/readings",
+        )->assertStatus(404);
+    }
+
     protected function makeMonitor(): array
     {
         $user = User::query()->create([

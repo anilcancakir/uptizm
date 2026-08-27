@@ -244,6 +244,14 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
           metric: record.form,
           onLoadSeries: () =>
               _controller.series(widget.monitorId, record.id),
+          // The sheet owns and disposes what this returns. Built here because
+          // the URL needs the monitor id, which the sheet deliberately does not
+          // carry; no `per_page`, so the endpoint's own default (25) decides,
+          // which is what keeps the page size a server concern.
+          onCreateReadings: () => MagicPaginator<MetricSeriesPoint>(
+            url: '/monitors/${widget.monitorId}/metrics/${record.id}/readings',
+            fromMap: MetricSeriesPoint.fromMap,
+          ),
           onEdit: () {
             Navigator.of(sheetContext).pop();
             _openEdit(record);

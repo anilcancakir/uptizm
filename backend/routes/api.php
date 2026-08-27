@@ -292,6 +292,11 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.monitors.metrics.batch_series');
     Route::get('monitors/{monitor}/metrics/{metric}/series', [MonitorMetricController::class, 'series'])
         ->name('api.v1.monitors.metrics.series');
+    // The same readings the series returns, but paged rather than windowed: the
+    // chart wants a bounded slice it can draw, the readings table wants a
+    // history the operator can walk back through.
+    Route::get('monitors/{monitor}/metrics/{metric}/readings', [MonitorMetricController::class, 'readings'])
+        ->name('api.v1.monitors.metrics.readings');
 
     Route::get('incidents', [IncidentController::class, 'index'])
         ->name('api.v1.incidents.index');

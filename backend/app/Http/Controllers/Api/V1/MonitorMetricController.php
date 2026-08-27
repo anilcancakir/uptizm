@@ -7,10 +7,12 @@ use App\Enums\MetricBand;
 use App\Enums\MetricSource;
 use App\Enums\MetricType;
 use App\Enums\ThresholdDirection;
+use App\Http\Controllers\Concerns\PagesCollections;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreMonitorMetricRequest;
 use App\Http\Requests\UpdateMonitorMetricRequest;
 use App\Http\Resources\MonitorMetricResource;
+use App\Http\Resources\MonitorMetricValueResource;
 use App\Models\Monitor;
 use App\Models\MonitorCheck;
 use App\Models\MonitorMetric;
@@ -48,6 +50,8 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  */
 class MonitorMetricController extends Controller
 {
+    use PagesCollections;
+
     /**
      * The AI capability level a team needs for metric discovery.
      */
@@ -512,6 +516,35 @@ class MonitorMetricController extends Controller
                 'limit' => $limit,
             ],
         ]);
+    }
+
+    /**
+     * One metric's readings, newest first, PAGED.
+     *
+     * Separate from {@see self::series()} because the two answer different
+     * questions and want different shapes. The series feeds a chart: it is
+     * bounded by a time window, capped, and returned oldest-first so a line can
+     * be drawn through it. This feeds a table an operator scrolls: no window at
+     * all, because "what did this metric read last Tuesday" is a fair question,
+     * and a cursor because the history has no end.
+     *
+     * Cursor rather than page numbers, and ordered on `(recorded_at, id)`: this
+     * table takes a row every check, so readings tie on the timestamp across
+     * regions, and a cursor built on a non-unique column alone skips or repeats
+     * at the boundary with nothing in the response to say so.
+     */
+    public function readings(Request $request, Monitor $monitor, MonitorMetric $metric): AnonymousResourceCollection
+    {
+        $this->authorizeMetric($request, $monitor, $metric);
+
+        $readings = MonitorMetricValue::query()
+            ->where('monitor_id', $monitor->id)
+            ->where('metric_key', $metric->key)
+            ->orderByDesc('recorded_at')
+            ->orderByDesc('id')
+            ->cursorPaginate($this->perPage($request, 25, 200));
+
+        return MonitorMetricValueResource::collection($readings);
     }
 
     public function series(Request $request, Monitor $monitor, MonitorMetric $metric): JsonResponse
