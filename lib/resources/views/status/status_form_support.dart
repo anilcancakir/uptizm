@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart' show Color;
+import 'package:magic/magic.dart' show trans;
 
 import 'package:uptizm/app/enums/domain_mode.dart' show DomainMode;
 import 'package:uptizm/app/models/monitor.dart';
@@ -77,14 +78,19 @@ StatusPage aiDraftFor(List<String> monitorIds) {
   final Color brand = kBrandColors.first;
   return StatusPage.fromMap(<String, dynamic>{
     'id': 'draft',
-    'name': 'Acme Status',
-    'slug': 'acme',
+    // Localized, and no longer a fabricated brand. These land on a page whose
+    // whole purpose is to be PUBLISHED, so a Turkish operator pressing "Draft
+    // with AI" used to get a page called "Acme Status" carrying an English
+    // sentence for their customers to read.
+    'name': trans('uptizm.status.status_draft_name'),
+    // The slug stays untranslated on purpose: it is a URL component, so it has
+    // to be ASCII and stable. `status` is the neutral answer; `acme` named a
+    // company that does not exist.
+    'slug': 'status',
     'domain_mode': DomainMode.path.name,
     'brand_color': '#${brand.toARGB32().toRadixString(16).substring(2)}',
     'logo_text': '',
-    'description':
-        'Real-time status of our services. Subscribe to get notified about '
-        'incidents and maintenance.',
+    'description': trans('uptizm.status.status_draft_description'),
     'subscriptions_enabled': true,
     'monitors': <Map<String, dynamic>>[
       for (final String id in monitorIds) <String, dynamic>{'id': id},

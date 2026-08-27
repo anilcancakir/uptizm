@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../enums/status_key.dart' show StatusKey;
+import 'formatters.dart' show formatRelativeAge;
 import 'monitor_types.dart' show UptimeSegment;
 
 /// A monitor resolved to a public component (name + current health + history).
@@ -73,16 +74,19 @@ class Subscriber {
   }
 }
 
-/// Formats an ISO-8601 `subscribed_at` timestamp as a relative-day label
-/// (`"today"`, `"1 day ago"`, `"N days ago"`), matching the fixture roster's
-/// convention. Returns `''` when [raw] is `null` or fails to parse.
+/// Formats an ISO-8601 `subscribed_at` timestamp as a localized relative age.
+/// Returns `''` when [raw] is `null` or fails to parse.
+///
+/// Routed through [formatRelativeAge] rather than composed here. This used to
+/// return the English literals `'today'`, `'1 day ago'` and `'N days ago'`,
+/// which the subscribers screen interpolates into a translated sentence, so a
+/// Turkish operator read "3 days ago tarihinde abone oldu". Every
+/// English-language assertion in the suite passed, which is why nothing caught
+/// it.
 String _relativeSubscribedAt(String? raw) {
   if (raw == null) return '';
   final DateTime? parsed = DateTime.tryParse(raw);
   if (parsed == null) return '';
 
-  final int days = DateTime.now().difference(parsed.toLocal()).inDays;
-  if (days <= 0) return 'today';
-  if (days == 1) return '1 day ago';
-  return '$days days ago';
+  return formatRelativeAge(parsed.toLocal());
 }

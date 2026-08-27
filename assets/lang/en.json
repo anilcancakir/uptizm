@@ -950,7 +950,9 @@
       "editor_section_visibility": "Visibility",
       "editor_section_visibility_hint": "Who can open this page.",
       "editor_form_is_public_label": "Anyone with the link can read this page",
-      "editor_private_gated": "Keeping a page private is available on :plan and up. A public page needs no upgrade."
+      "editor_private_gated": "Keeping a page private is available on :plan and up. A public page needs no upgrade.",
+      "status_draft_name": "Status Page",
+      "status_draft_description": "Real-time status of our services. Subscribe to get notified about incidents and maintenance."
     },
     "ai": {
       "tldr": "TL;DR",

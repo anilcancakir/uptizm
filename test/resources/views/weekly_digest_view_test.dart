@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart' hide Card;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
+
+import '../../support/bundled_lang.dart';
 import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/resources/views/incidents/weekly_digest_view.dart';
 import 'package:uptizm/ui/components/kpi_stat_card/index.dart';
@@ -8,6 +10,15 @@ import 'package:uptizm/ui/components/kpi_stat_card/index.dart';
 /// In-memory loader feeding the digest labels so [trans] returns real wrappable
 /// strings instead of raw dot-separated i18n keys (which render as long
 /// unbreakable strings and overflow the KPI cells at the test viewport).
+/// Feeds [trans] the app's shipped Turkish catalogue, so a copy assertion is
+/// made against the sentence an operator actually reads rather than against a
+/// map this file wrote.
+class _BundledTurkishLoader implements TranslationLoader {
+  @override
+  Future<Map<String, dynamic>> load(Locale locale) async =>
+      readBundledLang('tr');
+}
+
 class _DigestLangLoader implements TranslationLoader {
   @override
   Future<Map<String, dynamic>> load(Locale locale) async {
@@ -105,6 +116,31 @@ void main() {
     expect(find.text('UPTIME'), findsOneWidget);
     expect(find.text('99.44%'), findsOneWidget);
   });
+
+  testWidgets(
+    'the AI-confidence KPI reads in the operator\'s language',
+    (tester) async {
+      // Read against the SHIPPED catalogue, not this file's inline map. The
+      // inline map is why the defect survived: `_confidenceLabel` title-cased
+      // the enum name, so the KPI read "High" on a Turkish UI, and no
+      // assertion here carried a confidence VALUE to disagree with.
+      Translator.instance.setLoader(_BundledTurkishLoader());
+      await Translator.instance.setLocale(const Locale('tr'));
+      final Map<String, dynamic> lang = readBundledLang('tr');
+
+      Http.fake({'*incidents/digest': Http.response(digestPayload())});
+
+      await tester.pumpWidget(wrap(const WeeklyDigestView()));
+      await settle(tester);
+
+      // KpiStatCard uppercases through Wind, so the value is matched as it is
+      // written in the catalogue rather than as it is painted.
+      expect(
+        find.textContaining(lang['uptizm.ai.confidence_high'] as String),
+        findsWidgets,
+      );
+    },
+  );
 
   testWidgets('shows an honest empty state when no digest exists (404)', (
     tester,
