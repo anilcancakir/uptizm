@@ -819,7 +819,18 @@ void main() {
               r.url == '/incidents' &&
               (r.data as Map)['monitor_id'] == 'checkout' &&
               (r.data as Map)['severity'] == 'warn' &&
-              (r.data as Map)['title'] == 'Checkout returning 503s',
+              (r.data as Map)['title'] == 'Checkout returning 503s' &&
+              // Both of these were collected by the form and never sent. The
+              // switch promised to email every subscriber of the affected
+              // components; the select offered a customer-facing impact. With
+              // neither in the body the backend derived impact from severity
+              // and no subscriber was ever mailed.
+              (r.data as Map)['notify'] == true &&
+              // The form's `down` maps to the backend's `critical` rather than
+              // its `major`: both read as "down" on a status page, and
+              // `critical` is what a critical severity projects to, so leaving
+              // the select alone never downgrades the incident.
+              (r.data as Map)['impact'] == 'critical',
         );
       },
     );

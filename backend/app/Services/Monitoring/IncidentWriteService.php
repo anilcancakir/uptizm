@@ -2,9 +2,11 @@
 
 namespace App\Services\Monitoring;
 
+use App\Enums\IncidentImpact;
 use App\Enums\IncidentSeverity;
 use App\Enums\IncidentStatus;
 use App\Enums\SignalSource;
+use App\Jobs\AnnounceIncident;
 use App\Jobs\TranslateStatusPageText;
 use App\Models\Incident;
 use App\Models\IncidentUpdate;
@@ -119,6 +121,16 @@ class IncidentWriteService
      *                         makes `title_key IS NULL` mean "a human wrote this".
      * @param  string  $author  Display label for the opening timeline note.
      * @param  string|null  $message  Optional opening note; when null no note is posted.
+     * @param  bool  $notify  Whether to announce the open to the affected status
+     *                        pages' confirmed subscribers. The form has offered
+     *                        this switch since the screen was written, promising
+     *                        to "email everyone subscribed to the affected
+     *                        components"; nothing kept that promise in either
+     *                        position, because no incident ever reached a
+     *                        subscriber.
+     * @param  IncidentImpact|null  $impact  The customer-facing impact, when the
+     *                                       operator chose one. Null keeps the
+     *                                       projection from severity.
      * @return Incident The newly opened incident, or the existing active one on dedupe.
      */
     public function createManual(
@@ -127,6 +139,8 @@ class IncidentWriteService
         string $title,
         string $author,
         ?string $message = null,
+        bool $notify = true,
+        ?IncidentImpact $impact = null,
     ): Incident {
         $opened = false;
         $posted = null;
@@ -141,6 +155,7 @@ class IncidentWriteService
             $title,
             $author,
             $message,
+            $impact,
             &$opened,
             &$posted,
         ): Incident {
@@ -150,6 +165,7 @@ class IncidentWriteService
                 $title,
                 $author,
                 $message,
+                $impact,
                 &$opened,
                 &$posted,
             ): Incident {
@@ -174,6 +190,7 @@ class IncidentWriteService
                     check: null,
                     severity: $severity,
                     title: $title,
+                    impact: $impact,
                 );
 
                 if ($message !== null) {
@@ -189,6 +206,16 @@ class IncidentWriteService
         // 2. Only a genuine open dispatches the off-lock side effects.
         if ($opened) {
             $this->dispatchOpened($monitor, $incident);
+
+            // Subscriber mail rides ONLY the manual path, and only on an
+            // explicit yes. An automated open must never reach it: a flapping
+            // monitor opens and resolves repeatedly, and each of those would be
+            // outbound mail to third parties that nobody chose to send. The job
+            // claims its own announce-once guard, so a re-dispatch here is
+            // harmless.
+            if ($notify) {
+                AnnounceIncident::dispatch($incident);
+            }
 
             // The TITLE is translated here and only here: a manual open is the
             // one path that writes an incident title a human authored, which is

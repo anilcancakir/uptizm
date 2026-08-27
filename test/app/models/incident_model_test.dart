@@ -51,9 +51,14 @@ void main() {
     test('exposes the StoreIncidentRequest fillable surface', () {
       final Incident incident = Incident();
 
+      // The WRITE contract, not the column list: `message` is the opening
+      // timeline note and `notify`/`impact` are request-only decisions. A
+      // field missing here is stripped before the request leaves the client,
+      // with no error anywhere, which is how this codebase has lost writes
+      // before.
       expect(
         incident.fillable,
-        ['monitor_id', 'severity', 'title', 'message'],
+        ['monitor_id', 'severity', 'title', 'message', 'notify', 'impact'],
       );
     });
 

@@ -11,6 +11,7 @@ import '../../../app/controllers/maintenance_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/controllers/status_page_controller.dart';
 import '../../../app/enums/ai_confidence.dart' show AiConfidence;
+import '../../../app/enums/incident_impact.dart';
 import '../../../app/models/incident.dart';
 import '../../../app/models/monitor.dart';
 import '../../../app/models/status_page.dart';
@@ -1035,6 +1036,17 @@ class _IncidentCreateViewState
       'monitor_id': _affected.first,
       'severity': _severityForBackend(_severity),
       'title': _title.trim(),
+      // Both of these were collected and discarded. The switch promised to
+      // "email everyone subscribed to the affected components" and the select
+      // offered a customer-facing impact; neither reached the request, so the
+      // backend derived impact from severity and no subscriber was ever mailed.
+      'notify': _notify,
+      // `_impact` already holds the CLIENT token (`down`/`degraded`/`info`),
+      // so it is parsed by name. Routing it through `impactFromWire` would be
+      // the wrong direction: that function translates BACKEND values, so every
+      // client token fell through its default and every incident was sent as
+      // `none`, which is the one impact that says "no customer impact".
+      'impact': impactToWire(IncidentImpact.values.byName(_impact)),
     };
     final String message = _message.trim();
     if (message.isNotEmpty) {
