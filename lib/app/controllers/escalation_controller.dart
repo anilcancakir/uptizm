@@ -3,6 +3,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../models/escalation_policy.dart';
+import '../support/roster_page.dart';
 import '../support/escalation_support.dart' show EscalationTargetType;
 
 /// One wire-shaped escalation step, as returned by
@@ -99,6 +100,15 @@ class EscalationController extends MagicController
   /// Whether a [reload] has completed at least once, successfully or not.
   bool _resolvedOnce = false;
 
+  /// The token for the next page, or null when the roster has been walked.
+  String? _nextCursor;
+
+  /// Whether a [loadMore] is in flight.
+  bool _loadingMore = false;
+
+  /// Whether the last read failed to reach an answer.
+  bool _loadFailed = false;
+
   /// Whether the FIRST roster read is still in flight.
   ///
   /// Separates "we have not asked yet" from "we asked and there are none". The
@@ -170,33 +180,63 @@ class EscalationController extends MagicController
   /// Resolving flips [isFirstLoad] false either way (an empty roster and a
   /// failed hydration are both answers), so the view swaps its skeleton for the
   /// cards or for a page that honestly has none.
-  Future<void> reload() async {
-    final bool firstLoad = isFirstLoad;
-    final List<EscalationPolicy> summaries = await EscalationPolicy.all();
+  Future<void> reload() => _load(reset: true);
+
+  /// Appends the next page of the roster. A no-op at the end of it.
+  Future<void> loadMore() async {
+    if (_nextCursor == null || _loadingMore) return;
+
+    _loadingMore = true;
+    refreshUI();
+    await _load(reset: false);
+    _loadingMore = false;
+    refreshUI();
+  }
+
+  /// Whether a page after the current one exists.
+  bool get hasMore => _nextCursor != null;
+
+  /// Whether the next page is being fetched right now.
+  bool get isLoadingMore => _loadingMore;
+
+  /// Whether there is nothing to show AND the reason is a failed read.
+  bool get loadFailed => _loadFailed && _details.isEmpty;
+
+  Future<void> _load({required bool reset}) async {
+    final RosterPage<EscalationPolicy> page =
+        await readRosterPage<EscalationPolicy>(
+          resource: 'escalation-policies',
+          fromMap: EscalationPolicy.fromMap,
+          logTag: 'EscalationController.reload',
+          cursor: reset ? null : _nextCursor,
+        );
+
     _resolvedOnce = true;
 
-    if (summaries.isEmpty) {
-      // The cache stands, but a first read that came back empty still has to
-      // repaint: the view is showing a skeleton and needs to hear that the
-      // answer arrived.
-      if (firstLoad) refreshUI();
+    if (page.failed) {
+      _loadFailed = true;
+      refreshUI();
+
       return;
     }
 
-    final List<EscalationPolicy?> fetched = await Future.wait(
-      summaries.map((p) => EscalationPolicy.find(p.id)),
+    _loadFailed = false;
+    _nextCursor = page.nextCursor;
+
+    // The index carries no step chain, so each policy on THIS PAGE is hydrated
+    // individually. Scoping the hydration to the page is the point of paging:
+    // it used to fan out one request per policy across the whole roster.
+    final List<EscalationPolicy?> hydrated = await Future.wait(
+      page.rows!.map((EscalationPolicy p) => EscalationPolicy.find(p.id)),
     );
-    final List<EscalationPolicy> details = fetched
-        .whereType<EscalationPolicy>()
-        .toList();
-    if (details.isEmpty) {
-      if (firstLoad) refreshUI();
-      return;
+
+    if (reset) _details.clear();
+
+    for (int i = 0; i < page.rows!.length; i++) {
+      final EscalationPolicy row = hydrated[i] ?? page.rows![i];
+      _details[row.id] = row;
     }
 
-    _details
-      ..clear()
-      ..addEntries(details.map((p) => MapEntry(p.id, p)));
     refreshUI();
   }
 

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Http\Controllers\Concerns\PagesCollections;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreScheduledMaintenanceRequest;
 use App\Http\Requests\UpdateScheduledMaintenanceRequest;
@@ -33,6 +34,8 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  */
 class ScheduledMaintenanceController extends Controller
 {
+    use PagesCollections;
+
     /**
      * Relations every maintenance payload eager-loads.
      *
@@ -47,11 +50,12 @@ class ScheduledMaintenanceController extends Controller
      */
     public function index(Request $request): AnonymousResourceCollection
     {
-        $windows = ScheduledMaintenance::query()
-            ->where('team_id', $request->user()->current_team_id)
-            ->with(self::DETAIL_RELATIONS)
-            ->orderByDesc('starts_at')
-            ->paginate();
+        $windows = $this->cursorOrder(
+            ScheduledMaintenance::query()
+                ->where('team_id', $request->user()->current_team_id)
+                ->with(self::DETAIL_RELATIONS),
+            'starts_at',
+        )->cursorPaginate($this->perPage($request));
 
         return ScheduledMaintenanceResource::collection($windows);
     }

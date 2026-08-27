@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Http\Controllers\Concerns\PagesCollections;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\StatusPage\SubscribeController;
 use App\Http\Requests\StoreStatusPageRequest;
@@ -45,6 +46,8 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  */
 class StatusPageController extends Controller
 {
+    use PagesCollections;
+
     public function __construct(
         protected StatusPageCache $statusPageCache,
     ) {}
@@ -58,11 +61,12 @@ class StatusPageController extends Controller
         // renders each page's component count and overall status badge, and
         // without the relation it had nothing to derive them from and reported
         // "0 components / Operational" for a page whose monitors were down.
-        $pages = StatusPage::query()
-            ->where('team_id', $request->user()->current_team_id)
-            ->with('monitors')
-            ->orderByDesc('created_at')
-            ->paginate();
+        $pages = $this->cursorOrder(
+            StatusPage::query()
+                ->where('team_id', $request->user()->current_team_id)
+                ->with('monitors'),
+            'created_at',
+        )->cursorPaginate($this->perPage($request));
 
         return StatusPageResource::collection($pages);
     }

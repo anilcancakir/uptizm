@@ -13,6 +13,10 @@ void main() {
   setUp(() {
     MagicApp.reset();
     Magic.flush();
+    // The read path logs a failed page, so `log` has to resolve or the logger
+    // throws out of the read it was reporting on. Two inner groups already
+    // bound it; the outer one did not, and the reads that reach the log are new.
+    Magic.singleton('log', () => LogManager());
   });
 
   tearDown(() {
@@ -205,13 +209,15 @@ void main() {
     expect(controller.aiSuggestions, isEmpty);
   });
 
-  test('load degrades to an empty list without throwing when the network is '
-      'unavailable', () async {
-    // No network bound: the unfiltered `load` sources its list from
-    // `Incident.all()`, which absorbs the transport failure internally and
-    // resolves `[]` (it cannot distinguish that from a genuine empty result).
-    // The defensive `load` keeps the (empty) last-known-good list and surfaces
-    // the empty state, never throwing out of onInit/reload.
+  test('load surfaces an unreachable network as an error, not as no incidents',
+      () async {
+    // The behaviour this replaces: `Incident.all()` absorbed the transport
+    // failure and resolved `[]`, which is the same value a team with no
+    // incidents produces, so the screen stated one as the other. On an
+    // incident-management product that means telling an operator mid-outage
+    // that nothing is wrong.
+    //
+    // Still never throws out of onInit/reload; the difference is what it says.
     final IncidentController controller = Magic.findOrPut(
       IncidentController.new,
     );
@@ -219,8 +225,10 @@ void main() {
     await expectLater(controller.load(), completes);
 
     expect(controller.incidents, isEmpty);
-    expect(controller.isError, isFalse);
-    expect(controller.isEmpty, isTrue);
+    expect(controller.isError, isTrue);
+    // Mutually exclusive with the above: the status is one enum, and an error
+    // is precisely NOT the resolved-empty the old path published here.
+    expect(controller.isEmpty, isFalse);
   });
 
   // ---------------------------------------------------------------------------
@@ -1534,7 +1542,11 @@ void main() {
 
       expect(controller.incidents, isEmpty);
       expect(controller.activeIncidents, isEmpty);
-      expect(controller.isEmpty, isTrue);
+      // The refetch answered 500, so the status is the error rather than the
+      // resolved-empty it used to publish. The clearing is what this test is
+      // about and it still holds; the difference is that the screen can now
+      // tell the new team "we could not load" instead of "you have none".
+      expect(controller.isError, isTrue);
       expect(controller.incidentById('inc-9'), isNull);
       expect(controller.analysisFor(detail), isNull);
     });

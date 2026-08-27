@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
@@ -8,6 +10,7 @@ import '../../../app/controllers/dashboard_controller.dart';
 import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/models/monitor.dart';
+import '../../../app/support/monitor_types.dart' show MonitorFleetCounts;
 import '../../../app/enums/status_key.dart';
 import '../../../ui/components/header_action/index.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
@@ -109,7 +112,17 @@ class _MonitorsListViewState
   /// (null limit) is always allowed.
   bool get _canCreateMonitor {
     final int? limit = _entitlement.currentLimits.monitors;
-    return limit == null || controller.monitors.length < limit;
+    if (limit == null) return true;
+
+    // The fleet total, not the rows on screen. This compared a PAGE length
+    // against the plan limit, so a Pro team with 50 monitors and 15 loaded
+    // computed `15 < 50` and offered a New-monitor button that could only ever
+    // answer 422. Null means the first index has not landed, and refusing then
+    // is the conservative half: the backend re-checks the cap anyway, so the
+    // cost of waiting is a disabled button for one round trip.
+    final int? total = controller.fleetCounts.total;
+
+    return total != null && total < limit;
   }
 
   /// Nudges to upgrade when the New-monitor action is tapped at the cap,
@@ -143,12 +156,12 @@ class _MonitorsListViewState
     );
   }
 
-  /// Monitors that satisfy the active filter.
-  List<Monitor> get _visible {
-    final selected = _filters[_filterIndex].status;
-    if (selected == null) return controller.monitors;
-    return controller.monitors.where((m) => m.status == selected).toList();
-  }
+  /// The rows the server returned for the active filter.
+  ///
+  /// No longer filtered here: the tab travels as `?status=` and the controller
+  /// holds exactly what came back, so this is the page rather than a subset of
+  /// a roster the client believed was complete.
+  List<Monitor> get _visible => controller.monitors;
 
   /// Refetch on every mount: the backing controller loads in `onInit`, which
   /// magic fires only once per controller instance, so re-entering this route
@@ -224,13 +237,12 @@ class _MonitorsListViewState
   /// and average response time.
   Widget _buildKpiRow() {
     // 1. Derive headline metrics from the live monitor roster.
-    final List<Monitor> allMonitors = controller.monitors;
-    final int upCount = allMonitors
-        .where((m) => m.status == StatusKey.up)
-        .length;
-    final int downCount = allMonitors
-        .where((m) => m.status == StatusKey.down)
-        .length;
+    // Read from the index envelope, not from the rows on screen. The roster
+    // pages, so counting what is loaded reports the page and calls it the
+    // fleet; under an active tab it would report the tab.
+    final MonitorFleetCounts fleet = controller.fleetCounts;
+    final int upCount = fleet.of(StatusKey.up);
+    final int downCount = fleet.of(StatusKey.down);
     // Live open-incident counts from the dashboard controller (a warm
     // singleton), NOT the design-lab `incidents` fixture: the monitors KPI must
     // agree with the dashboard's OPEN INCIDENTS. The realtime coalesced reload
@@ -242,14 +254,7 @@ class _MonitorsListViewState
     // monitor's frozen timing is excluded. The backend excludes it from
     // `dashboard/stats` too; including it here made the two pages disagree
     // about one number.
-    final List<Monitor> responders = allMonitors
-        .where((m) => m.responseMs != null && m.status != StatusKey.paused)
-        .toList();
-    final int avgResponse = responders.isEmpty
-        ? 0
-        : (responders.fold<int>(0, (sum, m) => sum + m.responseMs!) /
-                  responders.length)
-              .round();
+    final int? avgResponse = fleet.avgResponseMs;
 
     // 2. Single-column base; widen to two then four columns at breakpoints.
     //    `items-stretch` is what makes the row read as a row: two of these four
@@ -263,7 +268,7 @@ class _MonitorsListViewState
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_monitors_used'),
           value:
-              '${allMonitors.length} / ${_entitlement.currentLimits.monitors ?? '∞'}',
+              '${fleet.total ?? '—'} / ${_entitlement.currentLimits.monitors ?? '∞'}',
           hint: _entitlement.planName.isEmpty
               ? null
               : trans('uptizm.monitors.kpi_plan_hint', {
@@ -273,7 +278,7 @@ class _MonitorsListViewState
 
         KpiStatCard(
           label: trans('uptizm.monitors.kpi_operational'),
-          value: '$upCount / ${allMonitors.length}',
+          value: '$upCount / ${fleet.total ?? '—'}',
           // A down count of zero is good news: rendering it as a red downward
           // trend made a healthy fleet read as degraded.
           delta: downCount > 0
@@ -295,7 +300,7 @@ class _MonitorsListViewState
           // there is no prior-window average to compare against: the delta and
           // its "vs. last 24h" hint were a hardcoded 12ms literal.
           label: trans('uptizm.monitors.kpi_avg_response'),
-          value: responders.isEmpty ? '—' : '${avgResponse}ms',
+          value: avgResponse == null ? '—' : '${avgResponse}ms',
         ),
       ],
     );
@@ -322,7 +327,14 @@ class _MonitorsListViewState
           child: MSSegmentedControl(
             options: _filters.map((f) => f.label).toList(),
             selectedIndex: _filterIndex,
-            onChanged: (i) => setState(() => _filterIndex = i),
+            // The tab is a query parameter now, not a Dart `where`. Filtering
+            // the page in memory answered "which of the rows I happen to hold
+            // are down", which is a different question from the one the tab
+            // asks and got smaller as the fleet grew.
+            onChanged: (int i) {
+              setState(() => _filterIndex = i);
+              unawaited(controller.setStatusFilter(_filters[i].status?.name));
+            },
             classNames: const {'root': 'overflow-x-auto'},
           ),
         ),
@@ -331,7 +343,7 @@ class _MonitorsListViewState
         WText(
           trans('uptizm.monitors.count_of', {
             'visible': '${_visible.length}',
-            'total': '${controller.monitors.length}',
+            'total': '${controller.fleetCounts.total ?? _visible.length}',
           }),
           className:
               'hidden md:flex font-mono text-xs tabular-nums text-fg-muted',
@@ -388,6 +400,23 @@ class _MonitorsListViewState
           MonitorListRow(
             monitor: monitor,
             onTap: () => MagicRoute.to('/monitors/${monitor.id}'),
+          ),
+        // The roster pages, so the end of the list is not the end of the fleet.
+        // A footer rather than an inner scroll view: this page already scrolls,
+        // and the lazy list widget needs a bounded height, which would mean a
+        // second scroll area nested inside the first.
+        if (controller.hasMore)
+          WDiv(
+            className: 'flex flex-row justify-center pt-2',
+            children: [
+              MSButton(
+                intent: ButtonIntent.secondary,
+                size: ButtonSize.sm,
+                isLoading: controller.isLoadingMore,
+                onPressed: () => unawaited(controller.loadMore()),
+                child: WText(trans('uptizm.common.load_more')),
+              ),
+            ],
           ),
       ],
     );

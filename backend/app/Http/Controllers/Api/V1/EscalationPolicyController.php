@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Http\Controllers\Concerns\PagesCollections;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreEscalationPolicyRequest;
 use App\Http\Requests\StoreEscalationStepRequest;
@@ -29,15 +30,18 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  */
 class EscalationPolicyController extends Controller
 {
+    use PagesCollections;
+
     /**
      * List the current team's escalation policies, newest first, paginated.
      */
     public function index(Request $request): AnonymousResourceCollection
     {
-        $policies = EscalationPolicy::query()
-            ->where('team_id', $request->user()->current_team_id)
-            ->orderByDesc('created_at')
-            ->paginate();
+        $policies = $this->cursorOrder(
+            EscalationPolicy::query()
+                ->where('team_id', $request->user()->current_team_id),
+            'created_at',
+        )->cursorPaginate($this->perPage($request));
 
         return EscalationPolicyResource::collection($policies);
     }

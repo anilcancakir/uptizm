@@ -1001,7 +1001,8 @@
       "time_started": ":age başladı",
       "time_resolved": ":age çözüldü",
       "thousands_separator": ".",
-      "list_and_more": ":count tane daha"
+      "list_and_more": ":count tane daha",
+      "load_more": "Daha fazla yükle"
     },
     "incidents": {
       "list_title": "Olaylar",

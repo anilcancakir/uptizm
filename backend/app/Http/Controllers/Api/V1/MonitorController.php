@@ -6,7 +6,9 @@ use App\Enums\AnalyzeRunStatus;
 use App\Enums\HttpAuthType;
 use App\Enums\HttpMethod;
 use App\Enums\MetricBand;
+use App\Enums\MonitorStatus;
 use App\Enums\MonitorType;
+use App\Http\Controllers\Concerns\PagesCollections;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AnalyzeMonitorRequest;
 use App\Http\Requests\StoreMonitorMetricRequest;
@@ -53,6 +55,8 @@ use Throwable;
  */
 class MonitorController extends Controller
 {
+    use PagesCollections;
+
     /**
      * Name of the limiter on POST /monitors/analyze.
      *
@@ -162,16 +166,81 @@ class MonitorController extends Controller
     ];
 
     /**
-     * List the current team's monitors, newest first, paginated.
+     * List the current team's monitors, newest first, cursor-paginated.
+     *
+     * `?status=` filters by the monitor's last reading. The client used to do
+     * this in Dart over a roster it believed was complete, which it never was:
+     * this action answered `paginate()` with Laravel's default 15 rows and the
+     * client treated that page as the whole fleet.
+     *
+     * The counts in `meta` are the reason the filter moved rather than the
+     * pagination alone. A list header that says "7 up, 2 down" is a claim about
+     * the FLEET, and a client holding one page cannot make it. They are
+     * computed with one grouped query over the same team scope, so they stay
+     * true whatever page the reader is on.
      */
     public function index(Request $request): AnonymousResourceCollection
     {
-        $monitors = Monitor::query()
-            ->where('team_id', $request->user()->current_team_id)
-            ->orderByDesc('created_at')
-            ->paginate();
+        $teamId = $request->user()->current_team_id;
 
-        return MonitorResource::collection($monitors);
+        $query = Monitor::query()->where('team_id', $teamId);
+
+        $status = $request->query('status');
+
+        if (is_string($status) && MonitorStatus::tryFrom($status) !== null) {
+            $query->where('last_status', $status);
+        }
+
+        $monitors = $this->cursorOrder($query, 'created_at')
+            ->cursorPaginate($this->perPage($request, 25));
+
+        return MonitorResource::collection($monitors)
+            ->additional(['meta' => $this->fleetCounts($teamId)]);
+    }
+
+    /**
+     * The team's monitor counts, by last reading, plus the mean response time.
+     *
+     * One grouped query rather than five `count()` calls, and deliberately not
+     * derived from the page: the header these feed describes the fleet.
+     *
+     * `paused` is excluded from the mean on purpose. It is a switch rather than
+     * a reading, so a paused monitor's last response time is a measurement of
+     * the past, and averaging it in makes the fleet look faster or slower than
+     * anything currently being probed.
+     *
+     * @return array<string, mixed>
+     */
+    protected function fleetCounts(string $teamId): array
+    {
+        /** @var array<string, int> $byStatus */
+        $byStatus = Monitor::query()
+            ->where('team_id', $teamId)
+            ->groupBy('last_status')
+            ->selectRaw('last_status, count(*) as aggregate')
+            ->pluck('aggregate', 'last_status')
+            ->all();
+
+        $mean = Monitor::query()
+            ->where('team_id', $teamId)
+            ->where('last_status', '!=', MonitorStatus::Paused->value)
+            ->whereNotNull('last_response_ms')
+            ->avg('last_response_ms');
+
+        return [
+            'total' => array_sum($byStatus),
+            'counts' => [
+                // Every case is emitted, including the zeroes: a client reading
+                // an absent key as zero and an absent key meaning "not measured"
+                // are the same shape, and one of those is a lie.
+                ...array_combine(
+                    array_map(static fn (MonitorStatus $s): string => $s->value, MonitorStatus::cases()),
+                    array_fill(0, count(MonitorStatus::cases()), 0),
+                ),
+                ...$byStatus,
+            ],
+            'avg_response_ms' => $mean === null ? null : (int) round((float) $mean),
+        ];
     }
 
     /**

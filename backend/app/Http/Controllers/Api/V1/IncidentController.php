@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Enums\IncidentSeverity;
 use App\Enums\IncidentStatus;
+use App\Http\Controllers\Concerns\PagesCollections;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AssignIncidentRequest;
 use App\Http\Requests\IncidentNoteRequest;
@@ -32,6 +33,8 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  */
 class IncidentController extends Controller
 {
+    use PagesCollections;
+
     /**
      * Relations every single-incident payload eager-loads. `assignee` is in the
      * set because {@see IncidentResource} omits the key entirely when the
@@ -72,14 +75,72 @@ class IncidentController extends Controller
             $query->where('lifecycle', $lifecycle);
         }
 
-        $perPage = (int) $request->query('per_page', 25);
-        $perPage = max(1, min($perPage, 100));
+        // `?open=1` is the list screen's Active tab: every stage except the
+        // terminal one. It is a separate parameter from `lifecycle` rather than
+        // a magic value for it, because the tab is a SET of stages and reusing
+        // the single-stage parameter for it would make `lifecycle=active` mean
+        // something the enum does not contain.
+        if ($request->boolean('open')) {
+            $query->where('lifecycle', '!=', IncidentStatus::Resolved->value);
+        }
 
-        $incidents = $query
-            ->orderByDesc('started_at')
-            ->paginate($perPage);
+        // Free-text search over the incident title. The client filtered this in
+        // Dart over a roster it believed was complete; with one page in hand it
+        // would search whatever 25 rows it happened to hold.
+        $search = $request->query('q');
 
-        return IncidentResource::collection($incidents);
+        if (is_string($search) && trim($search) !== '') {
+            // Two engine differences are load-bearing here, and this suite runs
+            // against both SQLite and PostgreSQL precisely so neither hides.
+            //
+            // 1. LOWER on both sides. SQLite's LIKE is case-INSENSITIVE for
+            //    ASCII by default and PostgreSQL's is case-SENSITIVE, so an
+            //    operator typing "checkout" matched "Checkout is returning
+            //    503s" in development and found nothing in production. Lowering
+            //    both sides with the same engine makes them agree.
+            // 2. The ESCAPE clause is not optional. PostgreSQL treats `\` as
+            //    the default LIKE escape; SQLite has NO default one, so the
+            //    backslashes `escapeLike` adds would themselves be matched
+            //    literally and a search for `%` would find nothing rather than
+            //    everything.
+            //
+            // KNOWN LIMIT, stated rather than papered over: LOWER is not the
+            // Turkish casing rule. A title carrying `İ` lowercases to `i̇`
+            // rather than `i`, so a search for `istanbul` can miss `İstanbul`.
+            // Fixing that properly means a citext column or an ICU collation,
+            // which is a migration rather than a query change.
+            $query->whereRaw(
+                "LOWER(incidents.title) LIKE LOWER(?) ESCAPE '\\'",
+                ['%'.$this->escapeLike(trim($search)).'%'],
+            );
+        }
+
+        $incidents = $this->cursorOrder($query, 'started_at')
+            ->cursorPaginate($this->perPage($request, 25, 100));
+
+        return IncidentResource::collection($incidents)
+            ->additional(['meta' => [
+                // The list header counts OPEN incidents across the team, which
+                // a page cannot speak for. Deliberately unaffected by the
+                // filters above: it answers "how many are open", not "how many
+                // of what you are looking at are open".
+                'open_total' => Incident::query()
+                    ->where('team_id', $request->user()->current_team_id)
+                    ->where('lifecycle', '!=', IncidentStatus::Resolved->value)
+                    ->count(),
+            ]]);
+    }
+
+    /**
+     * Escape the wildcards in a user-supplied `LIKE` term.
+     *
+     * Without this a search for `%` matches every row and one for `_` matches
+     * any single character, so the operator's own text silently stops being a
+     * literal.
+     */
+    protected function escapeLike(string $term): string
+    {
+        return str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], $term);
     }
 
     public function show(Request $request, Incident $incident): IncidentResource

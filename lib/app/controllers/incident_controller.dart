@@ -4,6 +4,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../models/incident.dart';
+import '../support/roster_page.dart';
 import '../enums/ai_confidence.dart' show aiConfidenceFromWire;
 import '../enums/ai_degrade_reason.dart' show aiDegradeReasonFromWire;
 import '../enums/incident_lifecycle.dart' show IncidentLifecycle;
@@ -40,6 +41,24 @@ import '../support/incident_types.dart'
 class IncidentController extends MagicController
     with MagicStateMixin<List<Incident>>
     implements SessionScopedController {
+  /// The token for the next page, or null when the roster has been walked.
+  String? _nextCursor;
+
+  /// Whether a [loadMore] is in flight.
+  bool _loadingMore = false;
+
+  /// Open incidents across the team, from the index envelope. Null until the
+  /// first read answers.
+  int? _openTotal;
+
+  /// The active filters, kept so [loadMore] asks for the next page of the SAME
+  /// query. Paging a filtered list with the filter dropped would append rows
+  /// the operator filtered out.
+  String? _monitorId;
+  String? _lifecycle;
+  bool _openOnly = false;
+  String? _search;
+
   /// Singleton accessor, registering the controller and kicking off its
   /// one-shot initial load on first access.
   ///
@@ -223,24 +242,92 @@ class IncidentController extends MagicController
   ///    envelope is hydrated through [Incident.fromMap]. The raw response lets
   ///    a real transport failure surface as the error state (unlike the ORM
   ///    path, which hides it).
-  Future<void> load({String? monitorId, String? lifecycle}) async {
-    if (monitorId != null || lifecycle != null) {
-      await _loadFiltered(monitorId: monitorId, lifecycle: lifecycle);
+  Future<void> load({
+    String? monitorId,
+    String? lifecycle,
+    bool openOnly = false,
+    String? search,
+  }) async {
+    _monitorId = monitorId;
+    _lifecycle = lifecycle;
+    _openOnly = openOnly;
+    _search = search;
+    await _load(reset: true);
+  }
+
+  /// Appends the next page of incidents. A no-op at the end of the roster.
+  Future<void> loadMore() async {
+    if (_nextCursor == null || _loadingMore) return;
+
+    _loadingMore = true;
+    refreshUI();
+    await _load(reset: false);
+    _loadingMore = false;
+    refreshUI();
+  }
+
+  /// Whether a page after the current one exists.
+  bool get hasMore => _nextCursor != null;
+
+  /// Whether the next page is being fetched right now.
+  bool get isLoadingMore => _loadingMore;
+
+  /// How many incidents are OPEN across the team, from the index envelope.
+  ///
+  /// Null before the first read answers. Not derived from the rows on screen:
+  /// the roster pages, and the count is deliberately unaffected by the active
+  /// filter, so it answers "how many are open" rather than "how many of what
+  /// you are looking at are open".
+  int? get openTotal => _openTotal;
+
+  /// Reads one page of `GET /incidents` under the active filters.
+  Future<void> _load({required bool reset}) async {
+    // Only when there is nothing to show yet. A refetch runs on every route
+    // entry, so setting the loading status unconditionally would blank a screen
+    // the operator is reading and replace it with a skeleton, which is the
+    // non-destructive contract `reload` has always carried.
+    if (reset && rxState == null) setLoading();
+
+    final RosterPage<Incident> page = await readRosterPage<Incident>(
+      resource: 'incidents',
+      fromMap: Incident.fromMap,
+      logTag: 'IncidentController.load',
+      cursor: reset ? null : _nextCursor,
+      filters: <String, dynamic>{
+        'monitor_id': ?_monitorId,
+        'lifecycle': ?_lifecycle,
+        if (_openOnly) 'open': 1,
+        if (_search != null && _search!.trim().isNotEmpty) 'q': _search!.trim(),
+      },
+    );
+
+    if (page.failed) {
+      // Both former paths got this wrong in different ways. The ORM one went
+      // through `Incident.all()`, which resolves an empty list for a 500, so a
+      // team mid-outage could be told it had no incidents. The filtered one
+      // guarded on `response.failed`, which is `statusCode >= 400`, and an
+      // offline device answers 0: neither successful nor failed, so a dead
+      // connection walked through as a success and landed on the empty state.
+      setError(trans('common.error_occurred'));
+
       return;
     }
 
-    final List<Incident> fetched = await Incident.all();
-    if (fetched.isNotEmpty) {
-      setSuccess(fetched);
-      return;
-    }
+    _nextCursor = page.nextCursor;
+    final Object? open = page.meta['open_total'];
+    if (open is num) _openTotal = open.toInt();
 
-    // Empty result: keep the last-known-good list when one exists; otherwise
-    // surface the empty state. Never throws out of `onInit`/`reload`.
-    final List<Incident>? current = rxState;
-    if (current == null || current.isEmpty) {
+    final List<Incident> rows = reset
+        ? page.rows!
+        : <Incident>[...?rxState, ...page.rows!];
+
+    if (rows.isEmpty) {
       _publishResolvedEmpty();
+
+      return;
     }
+
+    setSuccess(rows);
   }
 
   /// Publishes a resolved-empty read: the `RxStatus.empty()` status the mixin
@@ -256,43 +343,6 @@ class IncidentController extends MagicController
   /// null` keeps its narrower meaning: nothing has answered yet.
   void _publishResolvedEmpty() {
     setState(const <Incident>[], status: const RxStatus.empty());
-  }
-
-  /// Fetches a monitor-/lifecycle-scoped incident list via a raw
-  /// `GET /incidents?...`, hydrating the envelope through [Incident.fromMap]
-  /// and driving the rx state directly (loading -> success/empty/error).
-  Future<void> _loadFiltered({String? monitorId, String? lifecycle}) async {
-    setLoading();
-    final response = await Http.get(
-      '/incidents',
-      query: <String, dynamic>{
-        'monitor_id': ?monitorId,
-        'lifecycle': ?lifecycle,
-      },
-    );
-
-    if (response.failed) {
-      setError(response.errorMessage ?? trans('common.error_occurred'));
-      return;
-    }
-
-    final Object? payload = response.data;
-    final Object? raw = payload is Map<String, dynamic> ? payload['data'] : null;
-    if (raw is! List) {
-      _publishResolvedEmpty();
-      return;
-    }
-
-    final List<Incident> incidents = raw
-        .whereType<Map<String, dynamic>>()
-        .map(Incident.fromMap)
-        .toList();
-    if (incidents.isEmpty) {
-      _publishResolvedEmpty();
-      return;
-    }
-
-    setSuccess(incidents);
   }
 
   /// Re-runs [load] with the same (no) filters. Non-destructive: safe to call

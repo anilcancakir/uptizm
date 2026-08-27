@@ -5,6 +5,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../models/scheduled_maintenance.dart';
+import '../support/roster_page.dart';
 
 /// Controller behind scheduled maintenance windows: the write path and the
 /// roster the Incidents screen's Maintenance tab renders.
@@ -55,23 +56,68 @@ class MaintenanceController extends MagicController
 
   bool _resolvedOnce = false;
 
+  /// The token for the next page, or null when the roster has been walked.
+  String? _nextCursor;
+
+  /// Whether a [loadMore] is in flight.
+  bool _loadingMore = false;
+
+  /// Whether the last read failed to reach an answer.
+  bool _loadFailed = false;
+
   /// Fetches the team's windows and republishes the roster.
   ///
   /// Degrades to the last known good list on a transport failure rather than
   /// blanking the tab, and logs the cause. [_resolvedOnce] is only set on a
   /// successful read, so a failed first fetch keeps the skeleton instead of
   /// claiming there is nothing planned.
-  Future<void> load() async {
-    try {
-      final List<ScheduledMaintenance> fetched =
-          await ScheduledMaintenance.all();
+  Future<void> load() => _load(reset: true);
 
-      _windows = fetched;
-      _resolvedOnce = true;
-    } catch (error) {
-      Log.error('[MaintenanceController.load] failed: $error');
+  /// Appends the next page of windows. A no-op at the end of the roster.
+  Future<void> loadMore() async {
+    if (_nextCursor == null || _loadingMore) return;
+
+    _loadingMore = true;
+    refreshUI();
+    await _load(reset: false);
+    _loadingMore = false;
+    refreshUI();
+  }
+
+  /// Whether a page after the current one exists.
+  bool get hasMore => _nextCursor != null;
+
+  /// Whether the next page is being fetched right now.
+  bool get isLoadingMore => _loadingMore;
+
+  /// Whether there is nothing to show AND the reason is a failed read.
+  bool get loadFailed => _loadFailed && _windows.isEmpty;
+
+  Future<void> _load({required bool reset}) async {
+    final RosterPage<ScheduledMaintenance> page =
+        await readRosterPage<ScheduledMaintenance>(
+          resource: 'scheduled-maintenances',
+          fromMap: ScheduledMaintenance.fromMap,
+          logTag: 'MaintenanceController.load',
+          cursor: reset ? null : _nextCursor,
+        );
+
+    _resolvedOnce = true;
+
+    if (page.failed) {
+      // The catch this replaces logged and moved on, leaving the previous
+      // windows on screen with nothing to say the read had failed.
+      _loadFailed = true;
+      refreshUI();
+
+      return;
     }
 
+    _loadFailed = false;
+    _nextCursor = page.nextCursor;
+    _windows = reset
+        ? page.rows!
+        : <ScheduledMaintenance>[..._windows, ...page.rows!];
     refreshUI();
   }
 

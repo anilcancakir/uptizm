@@ -1001,7 +1001,8 @@
       "time_started": "started :age",
       "time_resolved": "resolved :age",
       "thousands_separator": ",",
-      "list_and_more": ":count more"
+      "list_and_more": ":count more",
+      "load_more": "Load more"
     },
     "incidents": {
       "list_title": "Incidents",

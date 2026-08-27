@@ -267,6 +267,10 @@ class _TurkishDegradeLangLoader implements TranslationLoader {
 }
 
 void main() {
+  /// The setUp fake, so a test that installs no fake of its own can still stub
+  /// the roster route through it.
+  late FakeNetworkDriver sharedFake;
+
   setUp(() async {
     MagicApp.reset();
     Magic.flush();
@@ -286,7 +290,15 @@ void main() {
     // `Log.error` call resolves instead of throwing on an unregistered
     // service (mirroring `incident_controller_test.dart`'s `business actions`
     // setUp).
-    Http.fake();
+    // A valid EMPTY index, not a bare fake. The controller's onInit reads the
+    // incident roster, and a fake with no route answers a body carrying no
+    // `data` at all, which the read path now (correctly) calls a malformed
+    // payload rather than an empty roster. These tests are about the DETAIL
+    // screen, so the list read is stubbed out of the way rather than left to
+    // fail into the shared error state.
+    sharedFake = Http.fake({
+      'incidents': Http.response({'data': incidentIndexPayload()}),
+    });
     Magic.singleton('log', () => LogManager());
     Config.set('logging', {
       'default': 'console',
@@ -342,6 +354,7 @@ void main() {
     /// overwritten by the fetch. Stubbing exercises the real read path.
     void stubWindows(List<Map<String, dynamic>> payload) {
       Http.fake({
+        'incidents': Http.response({'data': incidentIndexPayload()}),
         '*scheduled-maintenances': Http.response({'data': payload}),
       });
       Magic.singleton('log', () => LogManager());
@@ -531,7 +544,11 @@ void main() {
       Magic.flush();
       Magic.singleton('magic_starter', () => MagicStarterManager());
       Magic.singleton('log', () => LogManager());
-      Http.fake();
+      // The roster content does not matter here: the assertion is about the
+      // FIRST frame, painted before the read resolves. It has to be a valid
+      // envelope all the same, or the read fails and the screen renders the
+      // error state instead of the skeleton.
+      Http.fake({'incidents': Http.response({'data': <Map<String, dynamic>>[]})});
 
       // Deliberately NOT pumped again: the first frame is painted before the
       // mount's async fetch resolves, which is exactly the moment the operator
@@ -569,7 +586,9 @@ void main() {
       Magic.flush();
       Magic.singleton('magic_starter', () => MagicStarterManager());
       Magic.singleton('log', () => LogManager());
-      Http.fake();
+      // A valid but EMPTY index: this case is about a resolved-empty history,
+      // so the roster answers with no rows rather than with the fixtures.
+      Http.fake({'incidents': Http.response({'data': <Map<String, dynamic>>[]})});
       await IncidentController.instance.load();
 
       await tester.pumpWidget(wrap(const IncidentsListView()));
@@ -708,7 +727,7 @@ void main() {
 
         // Seed monitors so the affected picker has options and initState does
         // not fire a mount-time GET /monitors reload.
-        final fake = Http.fake();
+        final fake = Http.fake({'incidents': Http.response({'data': incidentIndexPayload()})});
         MonitorController.instance.seedForTest(monitorFixtures);
         addTearDown(() => MonitorController.instance.seedForTest(const []));
 
@@ -741,7 +760,7 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1280, 3200));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final fake = Http.fake();
+        final fake = Http.fake({'incidents': Http.response({'data': incidentIndexPayload()})});
 
         // `IncidentController.create` navigates to `/incidents` on success;
         // the context-free `MagicRoute.to` requires the router initialized
@@ -999,7 +1018,7 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1280, 4000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final fake = Http.fake();
+        final fake = Http.fake({'incidents': Http.response({'data': incidentIndexPayload()})});
         // `postUpdate` reloads the list on success; stub the follow-up
         // `GET /incidents` so `checkout-503` stays resolvable and the
         // composer keeps rendering after the reload.
@@ -1080,7 +1099,7 @@ void main() {
         // A wire-shaped incident whose acknowledgement exists only as the
         // backend-stamped timeline entry (author `Demo`, the acting user), which
         // is the exact shape `POST /incidents/{id}/acknowledge` leaves behind.
-        final Incident incident = Incident.fromMap(<String, dynamic>{
+        final Map<String, dynamic> incidentRow = <String, dynamic>{
           'id': 'ack-1',
           'title': 'Checkout returning 503s',
           'lifecycle': 'investigating',
@@ -1100,8 +1119,8 @@ void main() {
               'display_at': '2026-07-11T14:33:00Z',
             },
           ],
-        });
-        IncidentController.instance.setSuccess([incident]);
+        };
+        seedIncidentRoster(sharedFake, <Map<String, dynamic>>[incidentRow]);
 
         await tester.pumpWidget(
           wrap(
@@ -1141,11 +1160,11 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1280, 4000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final fake = Http.fake();
+        final fake = Http.fake({'incidents': Http.response({'data': incidentIndexPayload()})});
         fake.stub('incidents', Http.response({'data': <dynamic>[]}));
 
-        IncidentController.instance.setSuccess([
-          Incident.fromMap(<String, dynamic>{
+        seedIncidentRoster(fake, <Map<String, dynamic>>[
+          <String, dynamic>{
             'id': 'ack-2',
             'title': 'Checkout returning 503s',
             'lifecycle': 'detected',
@@ -1155,7 +1174,7 @@ void main() {
               {'monitor_id': 'm1', 'name': 'Checkout'},
             ],
             'updates': <dynamic>[],
-          }),
+          },
         ]);
 
         await tester.pumpWidget(
@@ -1195,8 +1214,8 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1280, 4000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        IncidentController.instance.setSuccess([
-          Incident.fromMap(<String, dynamic>{
+        seedIncidentRoster(sharedFake, <Map<String, dynamic>>[
+          <String, dynamic>{
             'id': 'ack-3',
             'title': 'Checkout returning 503s',
             'lifecycle': 'identified',
@@ -1206,7 +1225,7 @@ void main() {
               {'monitor_id': 'm1', 'name': 'Checkout'},
             ],
             'updates': <dynamic>[],
-          }),
+          },
         ]);
 
         await tester.pumpWidget(
@@ -1249,7 +1268,7 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1280, 4000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final fake = Http.fake();
+        final fake = Http.fake({'incidents': Http.response({'data': incidentIndexPayload()})});
         // Staged in two steps because the view refetches on every mount
         // (RefetchesOnMount): the first fetch must return the UNASSIGNED
         // incident, and only the post-assign reload returns the persisted
@@ -1283,8 +1302,8 @@ void main() {
           {'id': 'u2', 'name': 'Ravi Shah', 'email': 'ravi@uptizm.test'},
         ];
 
-        IncidentController.instance.setSuccess([
-          Incident.fromMap(<String, dynamic>{
+        seedIncidentRoster(fake, <Map<String, dynamic>>[
+          <String, dynamic>{
             'id': 'assign-1',
             'title': 'Checkout returning 503s',
             'lifecycle': 'investigating',
@@ -1295,7 +1314,7 @@ void main() {
               {'monitor_id': 'm1', 'name': 'Checkout'},
             ],
             'updates': <dynamic>[],
-          }),
+          },
         ]);
 
         await tester.pumpWidget(
@@ -1367,7 +1386,7 @@ void main() {
         const String stored =
             'The origin pool starved under the release traffic.';
 
-        final fake = Http.fake();
+        final fake = Http.fake({'incidents': Http.response({'data': incidentIndexPayload()})});
         // Staged in two steps because the view refetches on every mount
         // (RefetchesOnMount): the first fetch must report NO stored postmortem so
         // the generated draft renders, and only the post-save reload reports the
@@ -1396,8 +1415,8 @@ void main() {
 
         fake.stub('incidents', Http.response(incidentPayload()));
 
-        IncidentController.instance.setSuccess([
-          Incident.fromMap(<String, dynamic>{
+        seedIncidentRoster(fake, <Map<String, dynamic>>[
+          <String, dynamic>{
             'id': 'pm-1',
             'title': 'EU packet loss',
             'lifecycle': 'resolved',
@@ -1408,7 +1427,7 @@ void main() {
               {'monitor_id': 'm2', 'name': 'API'},
             ],
             'updates': <dynamic>[],
-          }),
+          },
         ]);
 
         await tester.pumpWidget(
@@ -1513,8 +1532,8 @@ void main() {
 
         const String stored = 'Root cause: the release doubled the pool wait.';
 
-        IncidentController.instance.setSuccess([
-          Incident.fromMap(<String, dynamic>{
+        seedIncidentRoster(sharedFake, <Map<String, dynamic>>[
+          <String, dynamic>{
             'id': 'pm-2',
             'title': 'EU packet loss',
             'lifecycle': 'resolved',
@@ -1527,7 +1546,7 @@ void main() {
               {'monitor_id': 'm2', 'name': 'API'},
             ],
             'updates': <dynamic>[],
-          }),
+          },
         ]);
 
         await tester.pumpWidget(
@@ -1571,11 +1590,11 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1280, 4000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final fake = Http.fake();
+        final fake = Http.fake({'incidents': Http.response({'data': incidentIndexPayload()})});
         fake.stub('incidents', Http.response({'data': <dynamic>[]}));
 
-        IncidentController.instance.setSuccess([
-          Incident.fromMap(<String, dynamic>{
+        seedIncidentRoster(fake, <Map<String, dynamic>>[
+          <String, dynamic>{
             'id': 'stage-1',
             'title': 'Anomaly detected on API',
             'lifecycle': 'detected',
@@ -1585,7 +1604,7 @@ void main() {
               {'monitor_id': 'm1', 'name': 'API'},
             ],
             'updates': <dynamic>[],
-          }),
+          },
         ]);
 
         await tester.pumpWidget(
@@ -1651,7 +1670,7 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1280, 5200));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final FakeNetworkDriver driver = Http.fake();
+        final FakeNetworkDriver driver = Http.fake({'incidents': Http.response({'data': incidentIndexPayload()})});
         driver.stub(
           'incidents/eu-packet-loss/analysis',
           Http.response(<String, dynamic>{
@@ -1705,6 +1724,7 @@ void main() {
         final String inlineTldr = incident.ai!.tldr;
 
         final fake = Http.fake({
+          'incidents': Http.response({'data': incidentIndexPayload()}),
           'incidents/checkout-503/analysis': Http.response({
             'data': {
               'summary': 'Origin returns 503 under load.',
@@ -1781,7 +1801,25 @@ void main() {
     /// Returns the fake driver so a caller can count requests: the retry's whole
     /// mechanism is a SECOND call to the same endpoint.
     FakeNetworkDriver seedAnalysisOnlyIncident(Map<String, dynamic> analysis) {
+      // The roster stub answers with THIS incident, not the shared fixtures.
+      // The controller's onInit read resolves after the `setSuccess` below, so
+      // a stub carrying anything else silently replaces the seed and the detail
+      // screen looks `deg-1` up in a roster that never had it.
+      const Map<String, dynamic> row = <String, dynamic>{
+        'id': 'deg-1',
+        'title': 'Checkout returning 503s',
+        'lifecycle': 'investigating',
+        'severity': 'critical',
+        'impact': 'critical',
+        'started_at': '2026-07-11T14:00:00Z',
+        'monitors': [
+          {'monitor_id': 'm1', 'name': 'Checkout'},
+        ],
+        'updates': <dynamic>[],
+      };
+
       final FakeNetworkDriver fake = Http.fake({
+        'incidents': Http.response({'data': <Map<String, dynamic>>[row]}),
         // Both URLs, because the retry appends `?refresh=1`: without it the
         // backend serves its stored answer, and the re-ask would return the
         // row it was asked to replace.
@@ -1789,20 +1827,7 @@ void main() {
         'incidents/deg-1/analysis?refresh=1': Http.response({'data': analysis}),
       });
       Magic.singleton('log', () => LogManager());
-      IncidentController.instance.setSuccess([
-        Incident.fromMap(<String, dynamic>{
-          'id': 'deg-1',
-          'title': 'Checkout returning 503s',
-          'lifecycle': 'investigating',
-          'severity': 'critical',
-          'impact': 'critical',
-          'started_at': '2026-07-11T14:00:00Z',
-          'monitors': [
-            {'monitor_id': 'm1', 'name': 'Checkout'},
-          ],
-          'updates': <dynamic>[],
-        }),
-      ]);
+      IncidentController.instance.setSuccess([Incident.fromMap(row)]);
 
       return fake;
     }
@@ -2025,6 +2050,7 @@ void main() {
       // A 500 on the analysis read, which is what a slow provider looks like
       // from here once a wall upstream cuts the request.
       Http.fake({
+        'incidents': Http.response({'data': incidentIndexPayload()}),
         'incidents/${subject.id}/analysis': Http.response({
           'message': 'Server Error',
         }, 500),
@@ -2055,6 +2081,7 @@ void main() {
       );
 
       Http.fake({
+        'incidents': Http.response({'data': incidentIndexPayload()}),
         'incidents/${subject.id}/analysis': Http.response({
           'data': {
             'summary': 'The storage check reported degraded while HTTP stayed 200.',
@@ -2117,4 +2144,20 @@ void main() {
       expect(find.byType(MSSkeleton), findsNWidgets(3));
     });
   });
+}
+
+/// Seeds a roster into BOTH the controller and the network stub.
+///
+/// The index read is the source of truth now: `IncidentController`'s onInit
+/// fires one, and it resolves after a test's `setSuccess`, so a seed that only
+/// writes controller state is silently replaced the moment that read lands. The
+/// stub and the seed therefore have to carry the same rows.
+void seedIncidentRoster(
+  FakeNetworkDriver fake,
+  List<Map<String, dynamic>> rows,
+) {
+  fake.stub('incidents', Http.response(<String, dynamic>{'data': rows}));
+  IncidentController.instance.setSuccess(
+    rows.map(Incident.fromMap).toList(),
+  );
 }

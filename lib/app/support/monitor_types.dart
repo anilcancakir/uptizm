@@ -372,3 +372,65 @@ class ProbeRegion {
     required this.flag,
   });
 }
+
+/// What the whole monitor fleet looks like, as the index endpoint reports it.
+///
+/// The monitors screen makes claims about the TEAM ("7 up, 2 down", "avg
+/// 143ms"), and since the roster pages, the rows on screen cannot support them:
+/// they used to be counted off a list the client believed was complete, which
+/// it only ever was because the roster happened to fit inside one accidental
+/// page. The backend computes them with one grouped query over the same team
+/// scope and ships them in `meta`.
+@immutable
+class MonitorFleetCounts {
+  /// Monitors on the team, whatever page is on screen and whatever filter is
+  /// applied. Null before the first index answers.
+  final int? total;
+
+  /// How many monitors sit at each `MonitorStatus` wire value.
+  final Map<String, int> byStatus;
+
+  /// Mean response time across the fleet in milliseconds, or null when nothing
+  /// has been measured. Excludes paused monitors: pausing is a switch rather
+  /// than a reading, so a paused monitor's last timing measures the past.
+  final int? avgResponseMs;
+
+  /// Creates a [MonitorFleetCounts].
+  const MonitorFleetCounts({
+    required this.total,
+    required this.byStatus,
+    required this.avgResponseMs,
+  });
+
+  /// The state before any index has answered.
+  ///
+  /// Distinct from a fleet of zero on purpose: a screen that renders `total`
+  /// as 0 while the first read is still in flight tells a team with forty
+  /// monitors they have none.
+  const MonitorFleetCounts.unknown()
+    : total = null,
+      byStatus = const <String, int>{},
+      avgResponseMs = null;
+
+  /// Decodes the counts from an index response's `meta`.
+  ///
+  /// Every field degrades to "not measured" rather than to zero when the key is
+  /// absent, which is what a backend older than this envelope returns.
+  factory MonitorFleetCounts.fromMeta(Map<String, dynamic> meta) {
+    final Object? counts = meta['counts'];
+
+    return MonitorFleetCounts(
+      total: (meta['total'] as num?)?.toInt(),
+      byStatus: counts is Map<String, dynamic>
+          ? <String, int>{
+              for (final MapEntry<String, dynamic> entry in counts.entries)
+                if (entry.value is num) entry.key: (entry.value as num).toInt(),
+            }
+          : const <String, int>{},
+      avgResponseMs: (meta['avg_response_ms'] as num?)?.toInt(),
+    );
+  }
+
+  /// How many monitors hold [status], or 0 when the fleet has none.
+  int of(StatusKey status) => byStatus[status.name] ?? 0;
+}
