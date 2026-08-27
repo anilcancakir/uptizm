@@ -116,7 +116,6 @@ class _OnCallScheduleViewState
                 _buildOverrideControl(),
             ],
           ),
-          const SizedBox(height: 24),
           _buildBody(),
         ],
       ),
@@ -179,17 +178,15 @@ class _OnCallScheduleViewState
   /// Builds the loaded schedule: hero card, rotation section, overrides
   /// section, and the escalation footer line.
   Widget _buildSchedule() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    // `gap-6` (24px) between sections. The overrides section keeps its
+    // conditional shape without a spread: a `gap` applies only between the
+    // children that exist, so an absent section costs no space.
+    return WDiv(
+      className: 'flex flex-col gap-6',
       children: [
         _buildHeroCard(),
-        const SizedBox(height: 24),
         _buildRotationSection(),
-        if (controller.overrides.isNotEmpty) ...[
-          const SizedBox(height: 24),
-          _buildOverridesSection(),
-        ],
-        const SizedBox(height: 24),
+        if (controller.overrides.isNotEmpty) _buildOverridesSection(),
         WText(
           trans('uptizm.teams.oncall_escalation_reference'),
           className: 'text-sm text-fg-muted',

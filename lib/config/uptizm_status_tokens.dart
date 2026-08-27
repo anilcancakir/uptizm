@@ -97,6 +97,12 @@ const Map<String, String> uptizmStatusAliases = <String, String>{
   // the `text-` role only, so the status-page preview's browser-chrome dots
   // painted nothing at all.
   'bg-fg-disabled': 'bg-[#D1D5DA] dark:bg-[#3A4147]',
+  // bg-fg-muted: the muted foreground used as a FILL, for a mark that has to be
+  // visible without claiming a status. design:sync emits the `text-` role only,
+  // and `bg-fg-disabled` is far too pale for a dot: at #D1D5DA it is within a
+  // shade of `border-color-border`, so a node drawn with it disappears into the
+  // rail it sits on.
+  'bg-fg-muted': 'bg-[#555D65] dark:bg-[#AAB1B7]',
   // text-on-warning: the foreground for content on a solid `bg-warning`.
   // design:sync emits `on-primary` and `on-destructive` but no warning peer, so
   // the one surface that needed it (the modal's warning button) carried

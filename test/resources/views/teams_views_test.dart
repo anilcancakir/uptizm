@@ -22,6 +22,7 @@ import 'package:uptizm/config/magic_starter.dart' show magicStarterConfig;
 import 'package:uptizm/resources/views/teams/escalation_policies_view.dart';
 import 'package:uptizm/resources/views/teams/escalation_policy_editor_view.dart';
 import 'package:uptizm/resources/views/teams/on_call_schedule_view.dart';
+import 'package:uptizm/ui/components/status_dot/index.dart';
 
 import '../../support/bundled_lang.dart';
 import '../../support/skeleton_matchers.dart';
@@ -322,6 +323,39 @@ void main() {
       for (final EscalationPolicy policy in seeds) {
         expect(find.text(policy.name!), findsOneWidget);
       }
+    });
+
+    testWidgets('a rung is a neutral node, not a green health dot', (
+      tester,
+    ) async {
+      // The regression this pins: every rung was drawn with
+      // `StatusDot(StatusKey.up)`, so a ladder of five rungs rendered five
+      // GREEN dots on a screen that holds no health reading at all. These rows
+      // are a configured escalation order; the colour was telling an operator
+      // scanning a page for green that something was passing.
+      EscalationController.instance.seedForTest(seeds);
+
+      await tester.pumpWidget(
+        wrap(const EscalationPoliciesView(), size: const Size(1280, 6000)),
+      );
+      await tester.pump();
+
+      expect(
+        find.byType(StatusDot),
+        findsNothing,
+        reason: 'a status dot on this screen would be asserting a verdict',
+      );
+
+      // And the node still fills the rail slot `StatusDotSize.md` used, so the
+      // Positioned line's offsets (left: 7, top: 18) still land on it. The
+      // token guard checks colours only, so nothing else measures this.
+      final Finder node = find.descendant(
+        of: find.byWidgetPredicate(
+          (Widget widget) => widget is SizedBox && widget.width == 16,
+        ),
+        matching: find.byType(WDiv),
+      );
+      expect(tester.getSize(node.first), const Size(10, 10));
     });
 
     testWidgets('shows a skeleton before the first read resolves, not a page '

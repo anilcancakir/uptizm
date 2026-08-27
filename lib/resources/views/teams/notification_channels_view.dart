@@ -154,16 +154,17 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
 
   @override
   Widget build(BuildContext context) {
+    // Section rhythm is `gap-6` (24px), the DESIGN.md `lg` step, rather than a
+    // hand-carried `SizedBox`.
     return MSPageContainer(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: WDiv(
+        className: 'flex flex-col gap-6',
         children: [
           // 1. Page header.
           MSPageHeader(
             title: trans('uptizm.teams.channels_title'),
             subtitle: trans('uptizm.teams.channels_description'),
           ),
-          const SizedBox(height: 24),
 
           // 2. The push heads-up and the channels card both read controller
           // state hydrated by one index response, so a single
@@ -197,13 +198,13 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
     final NotificationChannelController controller =
         NotificationChannelController.instance;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    // `gap-4` (16px) between the hint and the card. A `gap` only applies
+    // BETWEEN children, so the absent hint costs no space and the spread that
+    // used to carry its own trailing spacer is now a plain conditional child.
+    return WDiv(
+      className: 'flex flex-col gap-4',
       children: [
-        if (!controller.pushProvisioned) ...[
-          _buildPushHint(),
-          const SizedBox(height: 16),
-        ],
+        if (!controller.pushProvisioned) _buildPushHint(),
         if (controller.isFirstLoad) _buildSkeleton() else _buildChannelsCard(),
       ],
     );
