@@ -90,13 +90,27 @@ class IncidentController extends Controller
         $search = $request->query('q');
 
         if (is_string($search) && trim($search) !== '') {
-            // The ESCAPE clause is not optional here. PostgreSQL treats `\` as
-            // the default LIKE escape; SQLite has NO default one, so the
-            // backslashes `escapeLike` adds would themselves be matched
-            // literally and a search for `%` would find nothing rather than
-            // everything. Naming it makes both engines agree.
+            // Two engine differences are load-bearing here, and this suite runs
+            // against both SQLite and PostgreSQL precisely so neither hides.
+            //
+            // 1. LOWER on both sides. SQLite's LIKE is case-INSENSITIVE for
+            //    ASCII by default and PostgreSQL's is case-SENSITIVE, so an
+            //    operator typing "checkout" matched "Checkout is returning
+            //    503s" in development and found nothing in production. Lowering
+            //    both sides with the same engine makes them agree.
+            // 2. The ESCAPE clause is not optional. PostgreSQL treats `\` as
+            //    the default LIKE escape; SQLite has NO default one, so the
+            //    backslashes `escapeLike` adds would themselves be matched
+            //    literally and a search for `%` would find nothing rather than
+            //    everything.
+            //
+            // KNOWN LIMIT, stated rather than papered over: LOWER is not the
+            // Turkish casing rule. A title carrying `İ` lowercases to `i̇`
+            // rather than `i`, so a search for `istanbul` can miss `İstanbul`.
+            // Fixing that properly means a citext column or an ICU collation,
+            // which is a migration rather than a query change.
             $query->whereRaw(
-                "incidents.title LIKE ? ESCAPE '\\'",
+                "LOWER(incidents.title) LIKE LOWER(?) ESCAPE '\\'",
                 ['%'.$this->escapeLike(trim($search)).'%'],
             );
         }
