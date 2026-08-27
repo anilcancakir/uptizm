@@ -521,8 +521,12 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
   Widget _buildSkeleton() {
     return WDiv(
       className:
-          'flex flex-col divide-y divide-color-border rounded-xl border '
-          'border-color-border',
+          // `divide-*` is not a family wind implements at all, so the two
+          // tokens here did nothing and the skeleton drew three rows as one
+          // undivided block while the real list it stands in for renders
+          // separated cards. Matching that list's own `gap-2` rhythm removes
+          // the layout jump when the catalog lands.
+          'flex flex-col gap-2 rounded-xl border border-color-border p-2',
       children: [for (int i = 0; i < 3; i++) _buildSkeletonRow()],
     );
   }

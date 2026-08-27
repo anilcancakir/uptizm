@@ -183,7 +183,7 @@ Future<void> _boot() async {
           'px-4 py-2 rounded-lg bg-destructive text-on-destructive '
           'text-sm font-medium',
       warningButtonClassName:
-          'px-4 py-2 rounded-lg bg-warning text-white text-sm font-medium',
+          'px-4 py-2 rounded-lg bg-warning text-on-warning text-sm font-medium',
       errorClassName: 'text-sm text-destructive',
       inputClassName:
           'w-full px-3 py-3 rounded-lg bg-surface-container-high border '

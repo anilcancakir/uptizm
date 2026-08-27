@@ -3,6 +3,7 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
+import '../../../app/support/brand_contrast.dart';
 
 import 'status_form_support.dart';
 import '../../../app/support/refetches_on_mount.dart';
@@ -1100,7 +1101,13 @@ class _StatusPageEditorViewState
     return WDiv(
       backgroundColor: _brandColor,
       className: 'size-12 shrink-0 rounded-lg flex items-center justify-center',
-      child: WText(initials, className: 'text-base font-bold text-white'),
+      // Derived, not `text-white`: the tile carries the operator's own brand
+      // colour, and white on a light one reads as nothing.
+      child: WText(
+        initials,
+        className: 'text-base font-bold',
+        textStyle: TextStyle(color: foregroundOn(_brandColor)),
+      ),
     );
   }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
+import '../../../app/support/brand_contrast.dart';
 
 import '../../../app/support/status_page_support.dart' show pageUrl, worstStatus;
 import '../../../app/support/status_page_types.dart' show PublicComponent;
@@ -97,7 +98,14 @@ class StatusPagePreview extends StatelessWidget {
         WDiv(
           backgroundColor: config.brandColor,
           className: 'size-7 rounded-md flex items-center justify-center',
-          child: WText(initials, className: 'text-sm font-bold text-white'),
+          // Derived, not `text-white`: the tile's background is a colour the
+          // OPERATOR chose, so no semantic token can be right for all of it and
+          // white initials on a light brand read as nothing.
+          child: WText(
+            initials,
+            className: 'text-sm font-bold',
+            textStyle: TextStyle(color: foregroundOn(config.brandColor)),
+          ),
         ),
         WText(
           name.isNotEmpty ? name : trans('uptizm.status.preview_default_name'),
@@ -237,7 +245,8 @@ class StatusPagePreview extends StatelessWidget {
         className: 'rounded-md px-4 py-2 flex items-center justify-center',
         child: WText(
           trans('uptizm.status.preview_subscribe_button'),
-          className: 'text-sm font-medium text-white',
+          className: 'text-sm font-medium',
+          textStyle: TextStyle(color: foregroundOn(config.brandColor)),
         ),
       ),
     );

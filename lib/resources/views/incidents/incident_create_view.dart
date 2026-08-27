@@ -739,7 +739,9 @@ class _IncidentCreateViewState
       className:
           'w-full rounded-lg border px-3 py-2.5 text-sm text-fg '
           'bg-surface-container-high border-color-border '
-          'error:border-bg-destructive',
+          // `border-bg-destructive` is a body the border parser cannot read,
+          // so the error state painted no border at all.
+          'error:border-destructive',
       onChanged: onChanged,
     );
   }
