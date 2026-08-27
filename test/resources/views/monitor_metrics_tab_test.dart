@@ -378,6 +378,72 @@ void main() {
       );
     });
 
+    testWidgets('tapping the system metric opens it, read only', (
+      tester,
+    ) async {
+      // Response time was the one metric on this screen you could not look
+      // into, even though it is the one every monitor has. Its chart and its
+      // paged history are `response-times` and `checks`, both of which already
+      // existed for the Overview tab.
+      await tester.binding.setSurfaceSize(const Size(1280, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      Http.fake({
+        '*response-times*': Http.response({
+          'data': [
+            {'response_ms': 148, 'checked_at': '2026-08-28T10:00:00Z'},
+          ],
+        }),
+        '*checks*': Http.response({
+          'data': [
+            {'response_ms': 148, 'checked_at': '2026-08-28T10:00:00Z'},
+          ],
+        }),
+      });
+
+      await tester.pumpWidget(
+        wrapRootTheme(const MonitorMetricsTab(monitorId: 'api')),
+      );
+      await tester.pump();
+
+      await tester.tap(
+        find.text(trans('uptizm.monitors.metrics_response_time')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(MonitorMetricDetail), findsOneWidget);
+
+      // No definition behind it, so neither action is offered. A disabled
+      // button would be an affordance that never becomes available.
+      expect(find.text(trans('uptizm.monitors.action_edit')), findsNothing);
+      expect(find.text(trans('uptizm.monitors.action_delete')), findsNothing);
+
+      // And the note tells the truth about which kind of band this is: fixed
+      // bounds, not a verdict frozen against thresholds somebody can edit.
+      expect(
+        find.text(trans('uptizm.monitors.metrics_recent_readings_system_note')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(trans('uptizm.monitors.metrics_recent_readings_frozen_note')),
+        findsNothing,
+      );
+
+      // And each row carries its band DOT. The band has to be translated into
+      // the backend's vocabulary (`ok | warn | critical`) rather than
+      // `StatusKey`'s own names: handing the sheet `up | degraded | down`
+      // matches nothing, falls to null, and the dot silently disappears with
+      // no warning anywhere, because both are valid strings.
+      expect(
+        find.descendant(
+          of: find.byType(MonitorMetricDetail),
+          matching: find.byType(StatusDot),
+        ),
+        findsWidgets,
+        reason: 'a reading with a value has a band, so it has a dot',
+      );
+    });
+
     testWidgets('renders all three custom metric labels', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1280, 2400));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -1569,14 +1635,20 @@ void main() {
       ];
     }
 
+    /// Pumps the detail sheet.
+    ///
+    /// [readings] defaults to [series] because most cases want the two to
+    /// agree, and separates them when a case is about the difference: the
+    /// series is windowed, the readings table is not.
     Future<void> pumpDetail(
       WidgetTester tester,
-      List<MetricSeriesPoint> series,
-    ) async {
+      List<MetricSeriesPoint> series, {
+      List<MetricSeriesPoint>? readings,
+    }) async {
       await tester.binding.setSurfaceSize(const Size(1280, 2400));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      _stubReadings(series);
+      _stubReadings(readings ?? series);
 
       await tester.pumpWidget(
         wrap(
@@ -1686,6 +1758,42 @@ void main() {
         ),
       ];
     }
+
+    testWidgets('an empty window still lists the history below it', (
+      tester,
+    ) async {
+      // An empty SERIES is not an empty history. The series is windowed (24h),
+      // the readings table pages the whole history, so a metric last recorded
+      // two days ago has nothing to chart and plenty to list. This used to
+      // return the "no readings recorded yet" line ALONE and drop the table
+      // that would have disproved it.
+      // Numeric readings, because `pumpDetail` mounts the numeric form: a
+      // string value on a numeric metric renders the no-value placeholder,
+      // which would make this case pass or fail for the wrong reason.
+      await pumpDetail(
+        tester,
+        const [],
+        readings: [
+          MetricSeriesPoint(
+            recordedAt: DateTime.utc(2026, 8, 26, 9),
+            numericValue: 61.2,
+            statusValue: null,
+            stringValue: null,
+            band: 'ok',
+          ),
+        ],
+      );
+
+      expect(
+        find.text(trans('uptizm.monitors.metrics_detail_no_readings_in_window')),
+        findsOneWidget,
+      );
+      // The table is there, carrying a row the empty series never had.
+      final Iterable<WText> texts = tester.widgetList<WText>(
+        find.byType(WText),
+      );
+      expect(texts.any((WText w) => w.data.contains('61.2')), isTrue);
+    });
 
     testWidgets(
       'shows a string metric\'s newest reading as the hero value',
