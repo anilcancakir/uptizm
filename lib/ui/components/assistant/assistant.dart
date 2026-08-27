@@ -262,7 +262,7 @@ class _AssistantState extends State<Assistant> {
             child: ClipRect(
               child: BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-                child: WDiv(className: 'bg-surface/30'),
+                child: WDiv(className: 'bg-surface-scrim'),
               ),
             ),
           ),

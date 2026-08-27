@@ -96,7 +96,12 @@ void main() {
     test('base emits the 2xl rounding and glass surface fallback', () {
       final cls = assistantSurfaceRecipe();
       expect(cls, contains('rounded-2xl'));
-      expect(cls, contains('bg-surface/95'));
+      // Not `bg-surface/95`: an opacity modifier on an alias token resolves to
+      // no fill at all, so the panel shipped with no background. The alias
+      // carries the alpha baked into its hex instead. The guard that this
+      // token actually paints lives in test/config/uptizm_theme_test.dart,
+      // since a string assertion here cannot tell a live token from a dead one.
+      expect(cls, contains('bg-surface-glass-95'));
     });
   });
 

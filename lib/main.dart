@@ -13,9 +13,8 @@ import 'config/logging.dart';
 import 'config/broadcasting.dart';
 import 'config/deeplink.dart';
 import 'config/localization.dart';
-import 'config/wind_theme.g.dart';
 import 'config/page_header_theme.dart';
-import 'config/uptizm_status_tokens.dart';
+import 'config/uptizm_theme.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:magic_devtools/magic_devtools.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
@@ -118,10 +117,13 @@ Future<void> _boot() async {
   // roles), merged with the hand-authored monitoring status families
   // (up/down/degraded/paused/info/ai) that design:sync never emits. Regenerate
   // the generated half with: dart run bin/dispatcher.dart design:sync
-  final windTheme = WindThemeData(
-    colors: designColors,
-    aliases: {...designAliases, ...uptizmStatusAliases},
-  );
+  //
+  // The radius and font scales come from the same DESIGN.md but through a
+  // second hand-authored supplement, because design:sync emits colours only.
+  // Without them every radius fell back to Wind's scale (half of DESIGN.md's)
+  // and `font-mono` resolved to a CSS stack string Flutter cannot match, so
+  // the bundled Geist fonts shipped unused. See uptizm_theme_scales.dart.
+  final windTheme = buildUptizmWindTheme();
 
   // Adopt the whole uptizm palette across all 7 magic_starter sub-themes in one
   // call (MS-7a). This derives navigation, form, auth, page-header, and layout
@@ -150,9 +152,23 @@ Future<void> _boot() async {
 
   // Modal/bottom-sheet surfaces: uptizm uses a hairline top-border footer (no
   // tonal footer fill) and its own primary/secondary button tokens.
+  //
+  // Every field is spelled out on purpose. `useModalTheme` assigns the WHOLE
+  // struct (it is a setter, not a merge, and MagicStarterModalTheme has no
+  // copyWith), so a field omitted here does not keep the value
+  // `useWindTheme` derived above: it falls back to the constructor default,
+  // which is magic_starter's stock Tailwind palette. The four that used to be
+  // omitted were the danger button (`bg-red-500`, with no dark: peer at all,
+  // so it stayed #EF4444 on the near-black canvas), the warning button, the
+  // error text, and the modal input, which rendered `dark:bg-gray-800`, a
+  // visibly different grey from every other input in the app. The comment
+  // above `useWindTheme` is true per sub-theme and false per field.
   MagicStarter.useModalTheme(
     const MagicStarterModalTheme(
-      containerClassName: 'bg-surface-container border border-color-border',
+      // `rounded-lg` restores the radius the starter default carried as
+      // `rounded-2xl`; DESIGN.md puts cards and dialogs on `lg`.
+      containerClassName:
+          'bg-surface-container border border-color-border rounded-lg',
       headerClassName: 'px-6 pt-6 pb-4',
       bodyClassName: 'px-6 pb-4',
       footerClassName: 'px-6 py-4 border-t border-color-border',
@@ -163,6 +179,15 @@ Future<void> _boot() async {
       secondaryButtonClassName:
           'px-4 py-2 rounded-lg bg-surface-container border '
           'border-color-border text-fg text-sm font-medium',
+      dangerButtonClassName:
+          'px-4 py-2 rounded-lg bg-destructive text-on-destructive '
+          'text-sm font-medium',
+      warningButtonClassName:
+          'px-4 py-2 rounded-lg bg-warning text-white text-sm font-medium',
+      errorClassName: 'text-sm text-destructive',
+      inputClassName:
+          'w-full px-3 py-3 rounded-lg bg-surface-container-high border '
+          'border-color-border text-fg focus:border-primary',
     ),
   );
 

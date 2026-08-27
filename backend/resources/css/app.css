@@ -291,6 +291,8 @@ main[id] {
     --radius-md: 12px;
     --radius-lg: 16px;
     --radius-xl: 20px;
+    --radius-2xl: 24px;
+    --radius-3xl: 32px;
 
     /* The app's type scale, one token per DESIGN.md entry. */
     --text-micro: 10px;
