@@ -405,7 +405,7 @@ class _IncidentsListViewState
       range: _maintenanceWindowRange(startsAt, endsAt),
       suppressesAlerts: window.suppressAlerts,
       suppressLabel: trans('uptizm.incidents.maintenance_alerts_held'),
-      onCancel: () => _maintenance.delete(window.id),
+      onCancel: () => unawaited(_confirmCancel(window)),
       cancelLabel: trans('uptizm.incidents.maintenance_cancel'),
     );
   }
@@ -456,6 +456,40 @@ class _IncidentsListViewState
         ),
       ),
     );
+  }
+
+
+  /// Opens the cancel [MagicStarterConfirmDialog]; on confirm, fires
+  /// [MaintenanceController.delete].
+  ///
+  /// This was the one destructive action in the app that fired straight from
+  /// the card, with no confirmation on either side: the controller does not
+  /// confirm either. One mis-tap on a phone list row permanently removed a
+  /// window, and there is no undo. An announced window cannot even be recreated
+  /// as itself, because the announce-once guard is `announced_at` and a fresh
+  /// row does not carry it.
+  ///
+  /// Mirrors `escalation_policies_view`'s `_confirmDelete`, including the
+  /// `if (!mounted) return;` guard after the awaited dialog.
+  ///
+  /// KNOWN GAP, deliberately left open rather than papered over: a window that
+  /// was already announced has had a "maintenance is coming" mail sent to the
+  /// page's confirmed subscribers, and cancelling it tells them nothing. That
+  /// wants a cancellation announcement, which is its own piece of work.
+  Future<void> _confirmCancel(ScheduledMaintenance window) async {
+    final bool confirmed = await MagicStarterConfirmDialog.show(
+      context,
+      title: trans('uptizm.incidents.maintenance_cancel_confirm_title', {
+        'title': window.title,
+      }),
+      description: trans('uptizm.incidents.maintenance_cancel_confirm_description'),
+      confirmLabel: trans('uptizm.incidents.maintenance_cancel_confirm_label'),
+      variant: ConfirmDialogVariant.danger,
+    );
+    if (!confirmed) return;
+    if (!mounted) return;
+
+    await _maintenance.delete(window.id);
   }
 
   // ---------------------------------------------------------------------------

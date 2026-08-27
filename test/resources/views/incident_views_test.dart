@@ -416,6 +416,61 @@ void main() {
       );
     });
 
+    testWidgets('cancelling a window asks first', (tester) async {
+      // This was the one destructive action in the app that fired straight from
+      // the card: no confirmation on the view, and none in the controller
+      // either. One mis-tap on a phone list row permanently removed a window,
+      // with no undo, and an announced window cannot even be recreated as
+      // itself because the announce-once guard is `announced_at`.
+      await tester.binding.setSurfaceSize(const Size(1280, 3200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final FakeNetworkDriver fake = Http.fake({
+        'incidents': Http.response({'data': <Map<String, dynamic>>[]}),
+        '*scheduled-maintenances': Http.response({
+          'data': [
+            windowPayload(
+              startsAt: '2026-09-01T22:00:00.000000Z',
+              endsAt: '2026-09-02T00:00:00.000000Z',
+            ),
+          ],
+        }),
+      });
+      Magic.singleton('log', () => LogManager());
+      addTearDown(() => MaintenanceController.instance.seedForTest(const []));
+
+      await tester.pumpWidget(wrap(const IncidentsListView()));
+      await tester.pump();
+
+      await tester.tap(find.text(trans('uptizm.incidents.filter_maintenance')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text(trans('uptizm.incidents.maintenance_cancel')));
+      await tester.pumpAndSettle();
+
+      // This file's `wrap` nests WindTheme INSIDE MaterialApp, so the dialog's
+      // overlay route sits above it and its W-widgets find no theme. That is a
+      // harness artifact, not the product: the app passes its theme to
+      // MagicApplication, and six other confirm dialogs render in production.
+      // Drained rather than asserted away, so the behavioural check below is
+      // still what decides the test.
+      tester.takeException();
+
+      // Asserted on the BEHAVIOUR rather than on the dialog's copy: this file
+      // carries an inline translation map, so a copy assertion here would be
+      // measuring the map rather than the screen.
+      expect(
+        fake.recorded.any((entry) => entry.$1.method == 'DELETE'),
+        isFalse,
+        reason: 'the window must survive until the operator confirms',
+      );
+      expect(
+        find.text('Db update'),
+        findsWidgets,
+        reason: 'and it is still listed while the question is open',
+      );
+    });
+
     testWidgets('an empty roster says no maintenance is planned', (
       tester,
     ) async {

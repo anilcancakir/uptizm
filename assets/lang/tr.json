@@ -824,7 +824,9 @@
       "form_ai_auto_updates_switch": "Güncellemeleri benim için yaz ve yayımla",
       "form_ai_auto_updates_hint": "Uptizm müşterilerine ne söyleyebilir. Bu monitörde bir olay açıldığında ve kapandığında, güncellemeyi kendisi yazar ve sana sormadan durum sayfanda yayımlar. Zaten ürettiği analizi okur, iç detayı dışarıda bırakır, ve güvendiği bir metin yazamazsa hiçbir şey yayımlamaz. Eşiklerinin açtığı olaylar dahil, her olay için çalışır.",
       "load_error_title": "Monitörler yüklenemedi",
-      "load_error_description": "Monitör envanterine şu an ulaşılamıyor. Bu, monitörünüz olmadığı anlamına gelmez."
+      "load_error_description": "Monitör envanterine şu an ulaşılamıyor. Bu, monitörünüz olmadığı anlamına gelmez.",
+      "form_timeout_error_number": "Zaman aşımı bir sayı olmalı.",
+      "form_timeout_error_range": "Zaman aşımı 1 ile 120 saniye arasında olmalı."
     },
     "status": {
       "up": "Çalışıyor",
@@ -1158,7 +1160,10 @@
       "detail_draft_degraded_heading": "Şablondan dolduruldu",
       "detail_draft_degraded_body": "Bunu yapay zekâ yazamadı, standart metin dolduruldu. Yayımlamadan önce düzenle.",
       "form_affected_empty": "Henüz monitörünüz yok. Önce bir tane ekleyin, sonra olayı ona bağlayın.",
-      "form_affected_loading": "Monitörleriniz yükleniyor..."
+      "form_affected_loading": "Monitörleriniz yükleniyor...",
+      "maintenance_cancel_confirm_title": ":title penceresi iptal edilsin mi?",
+      "maintenance_cancel_confirm_description": "Bu bakım penceresi kalıcı olarak silinir ve geri alınamaz.",
+      "maintenance_cancel_confirm_label": "Pencereyi iptal et"
     },
     "settings": {
       "hub_title": "Ayarlar",

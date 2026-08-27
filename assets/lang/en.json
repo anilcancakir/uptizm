@@ -824,7 +824,9 @@
       "form_ai_auto_updates_switch": "Write and publish updates for me",
       "form_ai_auto_updates_hint": "What Uptizm may say to your customers. When an incident on this monitor opens and when it closes, it writes the update itself and publishes it to your status page, without asking first. It reads the analysis it already produced, keeps internal detail out, and posts nothing at all if it cannot write something it trusts. Works for any incident, including the ones your thresholds opened.",
       "load_error_title": "Could not load monitors",
-      "load_error_description": "The monitor inventory is unreachable right now. This does not mean you have none."
+      "load_error_description": "The monitor inventory is unreachable right now. This does not mean you have none.",
+      "form_timeout_error_number": "The timeout must be a number.",
+      "form_timeout_error_range": "The timeout must be between 1 and 120 seconds."
     },
     "status": {
       "up": "Operational",
@@ -1158,7 +1160,10 @@
       "detail_draft_degraded_heading": "Drafted from a template",
       "detail_draft_degraded_body": "The AI could not write this one, so the standard wording was filled in. Edit it before you post.",
       "form_affected_empty": "You have no monitors yet. Add one first, then file the incident against it.",
-      "form_affected_loading": "Loading your monitors..."
+      "form_affected_loading": "Loading your monitors...",
+      "maintenance_cancel_confirm_title": "Cancel :title?",
+      "maintenance_cancel_confirm_description": "This maintenance window is deleted permanently and cannot be undone.",
+      "maintenance_cancel_confirm_label": "Cancel window"
     },
     "settings": {
       "hub_title": "Settings",
