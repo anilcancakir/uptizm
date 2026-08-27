@@ -30,6 +30,20 @@ use Illuminate\Support\Facades\Notification;
  */
 class EscalationDispatcher
 {
+    /**
+     * How many extra passes a repeating policy's last rung may take.
+     *
+     * This is a runaway guard, NOT the feature's stop condition. The real stop
+     * is acknowledgement: {@see pageStep} refuses anything that has left
+     * `Detected`, so a repeating chain ends the moment somebody picks the
+     * incident up. The cap exists for the case where nobody ever does, which on
+     * an unattended team would otherwise be a job re-queueing itself for as long
+     * as the incident stays open. At the 5-minute rung a team is likely to put
+     * last, twelve passes is an hour of continued paging before the ladder gives
+     * up; at 30 minutes it is six hours.
+     */
+    public const int MAX_REPEATS = 12;
+
     public function __construct(
         protected RotationResolver $rotationResolver,
     ) {}
@@ -67,7 +81,7 @@ class EscalationDispatcher
      * @param  string  $incidentId  The opened incident this step pages for.
      * @param  string  $stepId  The escalation step to fire.
      */
-    public function pageStep(string $incidentId, string $stepId): void
+    public function pageStep(string $incidentId, string $stepId, int $attempt = 0): void
     {
         // 1. Page only while NOBODY has engaged, and short-circuit before
         //    claiming the idempotency marker so nothing is consumed.
@@ -110,12 +124,23 @@ class EscalationDispatcher
         //    matching the resolved-incident short-circuit: a withheld step
         //    consumes no marker, so a retry after the window closes still pages.
         if ($this->isUnderMaintenance($incident)) {
+            // A repeating chain has to SURVIVE the window rather than end in it.
+            // Returning outright here would mean a maintenance window opened
+            // mid-outage silently cancels the repeat forever, so the on-call
+            // stops being paged for an incident nobody acknowledged, which is
+            // the failure `repeat_last_step` exists to prevent. Scheduling the
+            // next pass without paging this one keeps the chain alive and
+            // withholds only the page, which is what suppression means.
+            $this->scheduleRepeat($incidentId, $stepId, $attempt);
+
             return;
         }
 
-        // 3. Idempotency: one page per (incident, step). `Cache::add` is atomic,
-        //    so a re-dispatch of the same pair is a no-op.
-        if (! Cache::add($this->guardKey($incidentId, $stepId), true, now()->addDay())) {
+        // 3. Idempotency: one page per (incident, step, attempt). `Cache::add`
+        //    is atomic, so a re-dispatch of the same triple is a no-op. Attempt
+        //    0 produces the key this has always used, so jobs queued before the
+        //    repeat flag existed keep their marker across a deploy.
+        if (! Cache::add($this->guardKey($incidentId, $stepId, $attempt), true, now()->addDay())) {
             return;
         }
 
@@ -127,6 +152,51 @@ class EscalationDispatcher
         }
 
         $this->pageTarget($incident, $step);
+
+        // 5. Arm the next pass, when this is a repeating policy's last rung.
+        $this->scheduleRepeat($incidentId, $stepId, $attempt);
+    }
+
+    /**
+     * Queue the next pass over a repeating policy's last rung.
+     *
+     * A no-op unless [$stepId] is the LAST step of a policy that carries
+     * `repeat_last_step`. There is no lifecycle check here: the next job runs
+     * {@see pageStep}, whose first gate already refuses anything that has left
+     * `Detected`, so an acknowledgement stops the chain at its next tick rather
+     * than needing to reach into the queue and cancel it.
+     *
+     * @param  string  $incidentId  The incident being paged for.
+     * @param  string  $stepId  The step that just fired (or was withheld).
+     * @param  int  $attempt  The pass that just ran; the next one is this + 1.
+     */
+    protected function scheduleRepeat(string $incidentId, string $stepId, int $attempt): void
+    {
+        if ($attempt >= self::MAX_REPEATS) {
+            return;
+        }
+
+        $step = EscalationStep::with('policy.steps')->find($stepId);
+
+        if ($step === null || $step->policy === null || ! $step->policy->repeat_last_step) {
+            return;
+        }
+
+        // Only the final rung repeats. `steps` is ordered by position, so the
+        // last element is the end of the ladder.
+        if ($step->policy->steps->last()?->getKey() !== $step->getKey()) {
+            return;
+        }
+
+        // The rung's own delay sets the repeat interval, but a rung may legally
+        // carry 0 (it fires the instant the one before it does). Repeating on a
+        // 0-minute interval would be a job re-queueing itself with no delay,
+        // which is a queue flood rather than a paging policy, so the interval
+        // floors at a minute.
+        $minutes = max(1, $step->delay_minutes);
+
+        DispatchEscalationStep::dispatch($incidentId, $stepId, $attempt + 1)
+            ->delay(now()->addMinutes($minutes));
     }
 
     /**
@@ -187,8 +257,8 @@ class EscalationDispatcher
 
     /**
      * Resolve the escalation policy governing this incident: the primary
-     * monitor's pinned policy wins, otherwise the team's default (the
-     * earliest-created policy) is used. Returns null when neither exists.
+     * monitor's pinned policy wins, then the team's marked default, then the
+     * earliest-created policy. Returns null when none exists.
      */
     protected function resolvePolicy(Incident $incident): ?EscalationPolicy
     {
@@ -203,7 +273,19 @@ class EscalationDispatcher
             }
         }
 
-        // 2. Otherwise fall back to the team's default (earliest-created) policy.
+        // 2. The team's marked default, when it has one.
+        $default = EscalationPolicy::query()
+            ->where('team_id', $incident->team_id)
+            ->where('is_default', true)
+            ->first();
+
+        if ($default !== null) {
+            return $default;
+        }
+
+        // 3. Otherwise the earliest-created policy, which is what this fallback
+        //    has always been. Keeping it is what makes `is_default` additive:
+        //    a team that never marks a policy pages exactly as it did before.
         return EscalationPolicy::query()
             ->where('team_id', $incident->team_id)
             ->orderBy('created_at')
@@ -320,8 +402,15 @@ class EscalationDispatcher
     /**
      * The idempotency cache key for a paged (incident, step) pair.
      */
-    protected function guardKey(string $incidentId, string $stepId): string
+    protected function guardKey(string $incidentId, string $stepId, int $attempt = 0): string
     {
-        return "escalation-step-paged:{$incidentId}:{$stepId}";
+        // Attempt 0 keeps the key this has always produced, so a job queued
+        // before repeats existed still finds (and still claims) its own marker
+        // after a deploy. Only a repeat adds the suffix, and each repeat needs
+        // its own marker or the second pass would read the first one's claim and
+        // silently decline to page.
+        $key = "escalation-step-paged:{$incidentId}:{$stepId}";
+
+        return $attempt === 0 ? $key : "{$key}:{$attempt}";
     }
 }

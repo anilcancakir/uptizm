@@ -26,10 +26,9 @@ import '../../../app/support/escalation_support.dart'
 ///
 /// The body is a single stacked column:
 ///
-/// - A Branding [Card] with the policy name + description [Input]s (the
-///   backend model only persists `name`; see [EscalationController]'s
-///   docblock, so `description` stays a local-only field like the
-///   repeat/default switches below).
+/// - A Branding [Card] with the policy name [Input]. There is no description
+///   field: it had neither a column to persist into nor any surface that
+///   displayed it, so it was removed rather than wired.
 /// - An escalation-ladder section: each rung is a [Card] carrying its rung
 ///   number, a delay [Select] over the fixed delay options
 ///   ([_delayOptions], labelled via [escalationDelayLabel]), a target
@@ -37,10 +36,14 @@ import '../../../app/support/escalation_support.dart'
 ///   a specific team member) bound to that rung, and a remove-rung ghost
 ///   [Button] (disabled while only one rung remains). An "Add rung" [Button]
 ///   appends a fresh on-call rung.
-/// - A settings [Card] with the repeat-last-rung and use-as-default [Switch]es
-///   (local-only inputs; the backend has no matching columns yet).
+/// - A settings [Card] with the repeat-last-rung and use-as-default
+///   [Switch]es, both persisted on the policy. `repeat_last_step` keeps the
+///   final rung firing until somebody acknowledges; `is_default` names the
+///   ladder a monitor pages when it pins none, and at most one policy per team
+///   carries it (marking a second MOVES it, server-side).
 ///
-/// State is a mutable [_RungDraft] list plus name/description text controllers.
+/// State is a mutable [_RungDraft] list plus the name text controller and the
+/// two paging flags.
 /// Save fires [EscalationController.create] (no [id]) or
 /// [EscalationController.save] (existing [id]), which persists the policy
 /// `name` and reconciles the step chain against [_originalStepIds] (add/
@@ -127,20 +130,16 @@ class _EscalationPolicyEditorViewState
   /// The policy-name field controller.
   late TextEditingController _nameController;
 
-  /// The policy-description field controller. Local-only: the backend model
-  /// does not persist a description column (see the class docblock).
-  late TextEditingController _descriptionController;
-
   /// The mutable escalation ladder. Seeded from the resolved detail (edit) or
   /// a single blank rung (create).
   late List<_RungDraft> _rungs;
 
-  /// Whether the last rung keeps firing until the alert is acknowledged.
-  /// Local-only (see the class docblock).
+  /// Whether the last rung keeps firing until the incident is acknowledged.
+  /// Persisted as the policy's `repeat_last_step`.
   late bool _repeatLastStep;
 
-  /// Whether this policy applies to any monitor that does not pick one.
-  /// Local-only (see the class docblock).
+  /// Whether this policy pages for any monitor that pins none of its own.
+  /// Persisted as the policy's `is_default`.
   late bool _isDefault;
 
   /// Whether the resolved id maps to a real, loaded policy (edit mode).
@@ -168,7 +167,6 @@ class _EscalationPolicyEditorViewState
     Magic.findOrPut(EscalationController.new);
     super.initState();
     _nameController = TextEditingController();
-    _descriptionController = TextEditingController();
     _seedFrom(controller.detailById(widget.id));
     // One-shot single-resource refresh for the prefill (never from build; see
     // [EscalationController.refreshDetail], which notifies listeners on
@@ -199,7 +197,6 @@ class _EscalationPolicyEditorViewState
   @override
   void dispose() {
     _nameController.dispose();
-    _descriptionController.dispose();
     super.dispose();
   }
 
@@ -214,13 +211,16 @@ class _EscalationPolicyEditorViewState
     if (existing == null) {
       _isEdit = false;
       _nameController.text = '';
-      _descriptionController.text = '';
       _rungs = <_RungDraft>[
         _RungDraft(
           afterMinutes: 0,
           targetType: EscalationTargetType.onCall,
         ),
       ];
+      // A new policy repeats by default, which is what this form has always
+      // shown. The COLUMN defaults to false, for an API client that omits the
+      // field; the two differ on purpose, and on an alerting product the
+      // form's direction is the safe one (more paging, never less).
       _repeatLastStep = true;
       _isDefault = false;
       _originalStepIds = <String>{};
@@ -228,7 +228,6 @@ class _EscalationPolicyEditorViewState
     }
     _isEdit = true;
     _nameController.text = existing.name ?? '';
-    _descriptionController.text = '';
     _rungs = <_RungDraft>[
       for (final EscalationStepWire step in existing.steps)
         _RungDraft(
@@ -238,8 +237,12 @@ class _EscalationPolicyEditorViewState
           targetUserId: step.targetId,
         ),
     ];
-    _repeatLastStep = true;
-    _isDefault = false;
+    // Read back from the policy rather than reset. Both used to be assigned
+    // constants here, so opening a repeating policy showed the switch on
+    // whatever its real state was, and opening the team's default showed that
+    // switch off. Saving then wrote the constants back.
+    _repeatLastStep = existing.repeatLastStep;
+    _isDefault = existing.isDefault;
     // Only identifiable steps belong in the original-id set: it drives the
     // delete side of the save diff, and a step the backend gave no id for
     // cannot be deleted by id.
@@ -320,8 +323,20 @@ class _EscalationPolicyEditorViewState
     ];
 
     final Map<String, String> serverErrors = _isEdit
-        ? await controller.save(widget.id!, name, rungs, _originalStepIds)
-        : await controller.create(name, rungs);
+        ? await controller.save(
+            widget.id!,
+            name,
+            rungs,
+            _originalStepIds,
+            repeatLastStep: _repeatLastStep,
+            isDefault: _isDefault,
+          )
+        : await controller.create(
+            name,
+            rungs,
+            repeatLastStep: _repeatLastStep,
+            isDefault: _isDefault,
+          );
 
     if (!mounted) return;
     setState(() => _saving = false);
@@ -513,15 +528,6 @@ class _EscalationPolicyEditorViewState
               ),
               // Clear the inline required error as soon as the name is edited.
               onChanged: (String _) => setState(() => _nameError = null),
-            ),
-          ),
-          MSFormField(
-            label: trans('uptizm.teams.escalation_editor_desc_label'),
-            child: MSInput(
-              controller: _descriptionController,
-              placeholder: trans(
-                'uptizm.teams.escalation_editor_desc_placeholder',
-              ),
             ),
           ),
         ],

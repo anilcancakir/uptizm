@@ -40,6 +40,105 @@ class EscalationPolicyControllerTest extends TestCase
         ]);
     }
 
+    public function test_store_accepts_and_returns_the_paging_flags(): void
+    {
+        $team = $this->actingAsTeamMember();
+
+        $response = $this->postJson('/api/v1/escalation-policies', [
+            'name' => 'Repeating Escalation',
+            'repeat_last_step' => true,
+            'is_default' => true,
+        ]);
+
+        $response->assertStatus(201);
+        $response->assertJsonPath('data.repeat_last_step', true);
+        $response->assertJsonPath('data.is_default', true);
+
+        $this->assertDatabaseHas('escalation_policies', [
+            'team_id' => $team->id,
+            'name' => 'Repeating Escalation',
+            'repeat_last_step' => true,
+            'is_default' => true,
+        ]);
+    }
+
+    public function test_a_policy_created_without_the_flags_keeps_todays_behaviour(): void
+    {
+        $team = $this->actingAsTeamMember();
+
+        // A client that predates the columns, which is every client until the
+        // matching Flutter release ships. It must create the policy it always
+        // created rather than one that repeats or claims the team default.
+        $this->postJson('/api/v1/escalation-policies', ['name' => 'Plain'])
+            ->assertStatus(201)
+            ->assertJsonPath('data.repeat_last_step', false)
+            ->assertJsonPath('data.is_default', false);
+
+        $this->assertDatabaseHas('escalation_policies', [
+            'team_id' => $team->id,
+            'name' => 'Plain',
+            'repeat_last_step' => false,
+            'is_default' => false,
+        ]);
+    }
+
+    public function test_marking_a_default_demotes_the_teams_previous_one(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $first = $this->makePolicy($team->id, 'First');
+        $first->update(['is_default' => true]);
+
+        $second = $this->makePolicy($team->id, 'Second');
+
+        $this->putJson("/api/v1/escalation-policies/{$second->id}", [
+            'is_default' => true,
+        ])->assertStatus(200)->assertJsonPath('data.is_default', true);
+
+        // Marking MOVES the default rather than answering 422 and asking the
+        // operator to unmark the other one first. A team has one fallback
+        // ladder, so two marked policies is a state the API must not hold.
+        $this->assertFalse($first->refresh()->is_default);
+        $this->assertTrue($second->refresh()->is_default);
+    }
+
+    public function test_marking_a_default_leaves_another_teams_default_alone(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $foreignTeam = $this->makeForeignTeam();
+        $foreignDefault = $this->makePolicy($foreignTeam->id, 'Theirs');
+        $foreignDefault->update(['is_default' => true]);
+
+        $mine = $this->makePolicy($team->id, 'Mine');
+
+        $this->putJson("/api/v1/escalation-policies/{$mine->id}", [
+            'is_default' => true,
+        ])->assertStatus(200);
+
+        // The demotion is scoped by team. Without that predicate one team
+        // marking a default would silently clear every other team's.
+        $this->assertTrue($foreignDefault->refresh()->is_default);
+    }
+
+    public function test_renaming_a_policy_does_not_clear_its_flags(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $policy = $this->makePolicy($team->id, 'Before');
+        $policy->update(['repeat_last_step' => true, 'is_default' => true]);
+
+        // A PATCH-shaped update that mentions neither flag. `sometimes` is what
+        // keeps them; a plain `boolean` rule would leave them absent from
+        // validated() and the update would be a no-op, but a `required` one
+        // would 422 and a defaulted one would silently clear them.
+        $this->putJson("/api/v1/escalation-policies/{$policy->id}", [
+            'name' => 'After',
+        ])->assertStatus(200);
+
+        $policy->refresh();
+        $this->assertSame('After', $policy->name);
+        $this->assertTrue($policy->repeat_last_step);
+        $this->assertTrue($policy->is_default);
+    }
+
     public function test_index_lists_only_the_current_teams_policies(): void
     {
         $team = $this->actingAsTeamMember();

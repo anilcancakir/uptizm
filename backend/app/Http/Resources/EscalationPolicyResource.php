@@ -30,6 +30,12 @@ class EscalationPolicyResource extends JsonResource
             'id' => $this->resource->id,
             'team_id' => $this->resource->team_id,
             'name' => $this->resource->name,
+            // Emitted on every read, list included: the editor seeds both
+            // switches from the roster it already holds, so gating these behind
+            // the detail response would make an edit form open with the flags
+            // off and then silently save them off.
+            'repeat_last_step' => $this->resource->repeat_last_step,
+            'is_default' => $this->resource->is_default,
             'steps' => $this->whenLoaded('steps', function (): array {
                 return $this->resource->steps
                     ->map(static fn ($step): array => [
