@@ -287,6 +287,61 @@ class RosterPaginationTest extends TestCase
             ->assertJsonCount(1, 'data');
     }
 
+    public function test_incidents_filter_to_one_monitor_by_either_link(): void
+    {
+        // The monitor screen reads this endpoint now instead of filtering the
+        // shared roster in Dart, so the filter it relies on has to be covered
+        // here: nothing on the client checks monitor identity any more.
+        $team = $this->actingAsTeamMember();
+        $api = self::makeMonitor($team->id, MonitorStatus::Down);
+        $marketing = self::makeMonitor($team->id, MonitorStatus::Down);
+
+        // Linked as the denormalized primary hint.
+        self::makeIncident($team->id, $api, 'Gateway is down');
+        // Linked ONLY through the affected-component pivot, which is the half a
+        // `where primary_monitor_id` alone would silently drop.
+        $viaPivot = self::makeIncident($team->id, $marketing, 'Shared dependency');
+        $viaPivot->monitors()->attach($api->id, [
+            // Both required: the pivot freezes the component's health at open
+            // time and mirrors it as the live one.
+            'component_status_at_start' => MonitorStatus::Down->value,
+            'component_status_current' => MonitorStatus::Down->value,
+        ]);
+        // Neither: it must not appear on the api monitor's screen.
+        self::makeIncident($team->id, $marketing, 'Marketing only');
+
+        $this->getJson("/api/v1/incidents?monitor_id={$api->id}")
+            ->assertJsonCount(2, 'data');
+    }
+
+    public function test_incidents_filter_to_the_ai_owned_ones(): void
+    {
+        $team = $this->actingAsTeamMember();
+        $monitor = self::makeMonitor($team->id, MonitorStatus::Down);
+        self::makeIncident($team->id, $monitor, 'Human opened this');
+        self::makeIncident($team->id, $monitor, 'AI opened this')
+            ->update(['ai_owned' => true]);
+
+        $this->getJson('/api/v1/incidents?ai_owned=1')
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.title', 'AI opened this');
+    }
+
+    public function test_an_absent_ai_owned_parameter_filters_nothing(): void
+    {
+        // The trap this pins: `$request->boolean('ai_owned')` answers FALSE for
+        // a parameter that was never sent, so reading it as a boolean would
+        // turn every unfiltered request into "show me the ones AI does not
+        // own" and hide every AI incident from the All tab.
+        $team = $this->actingAsTeamMember();
+        $monitor = self::makeMonitor($team->id, MonitorStatus::Down);
+        self::makeIncident($team->id, $monitor, 'Human opened this');
+        self::makeIncident($team->id, $monitor, 'AI opened this')
+            ->update(['ai_owned' => true]);
+
+        $this->getJson('/api/v1/incidents')->assertJsonCount(2, 'data');
+    }
+
     public function test_incidents_filter_to_the_open_ones(): void
     {
         $team = $this->actingAsTeamMember();

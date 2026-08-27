@@ -946,14 +946,62 @@ void main() {
       await tester.tap(find.text(trans('uptizm.monitors.tab_incidents')));
       await tester.pump();
 
-      // This used to read the design-lab `incidentsForMonitor` fixture keyed by
-      // monitor NAME, so the tab listed five invented incidents. It now filters
-      // the real roster by monitor identity: exactly the one incident that
-      // names this monitor, and never another monitor's.
+      // This tab READS FOR THIS MONITOR now: `GET /incidents?monitor_id=api`,
+      // rather than filtering the shared roster in Dart. That roster is one
+      // page deep and carries whatever tab or search the incidents list left on
+      // it, so a monitor whose outage sat on page two showed "No incidents".
+      //
+      // Which rows come back is therefore the SERVER's answer, and is covered
+      // where it is decided (RosterPaginationTest: primary link, pivot link,
+      // and another monitor's incident excluded). What belongs here is that
+      // this screen asks the right question and renders what it is handed.
       expect(tester.takeException(), isNull);
-      expect(find.byType(IncidentCard), findsOneWidget);
+      expect(
+        fakeNetwork.recorded.last.$1.queryParameters?['monitor_id'],
+        'api',
+        reason: 'the roster in hand cannot answer for one monitor',
+      );
+      expect(find.byType(IncidentCard), findsWidgets);
       expect(find.text('API gateway returning 503s'), findsOneWidget);
-      expect(find.text('Marketing site slow'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'MonitorDetailView a failed incidents read says so instead of claiming none',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // The sharp edge of moving this read to the server: a failure now has
+      // somewhere to go wrong that an in-memory filter never did. "No
+      // incidents" is the most reassuring thing this panel can say and the
+      // least safe thing to guess, so a read that did not answer must not
+      // render it, and the KPI beside it must not render 0 either.
+      fakeNetwork.stub('incidents', Http.response(<String, dynamic>{}, 500));
+
+      await tester.pumpWidget(
+        wrap(const MonitorDetailView(id: 'api'), size: const Size(1280, 4000)),
+      );
+      await settleSkeleton(tester);
+
+      await tester.ensureVisible(
+        find.text(trans('uptizm.monitors.tab_incidents')),
+      );
+      await tester.pump();
+      await tester.tap(find.text(trans('uptizm.monitors.tab_incidents')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.text(trans('uptizm.monitors.incidents_failed_title')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(trans('uptizm.monitors.no_incidents_title')),
+        findsNothing,
+        reason: 'a read that failed has not established that there are none',
+      );
     },
   );
 

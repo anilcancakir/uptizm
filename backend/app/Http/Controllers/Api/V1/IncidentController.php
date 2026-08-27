@@ -86,6 +86,14 @@ class IncidentController extends Controller
             $query->where('lifecycle', '!=', IncidentStatus::Resolved->value);
         }
 
+        // `?ai_owned=1` is the list screen's AI tab. Present-or-absent rather
+        // than a boolean read on both sides: `boolean()` answers false for a
+        // missing parameter, so a `where('ai_owned', false)` here would turn
+        // every unfiltered request into "show me the ones AI does not own".
+        if ($request->has('ai_owned')) {
+            $query->where('ai_owned', $request->boolean('ai_owned'));
+        }
+
         // Free-text search over the incident title. The client filtered this in
         // Dart over a roster it believed was complete; with one page in hand it
         // would search whatever 25 rows it happened to hold.
@@ -121,16 +129,51 @@ class IncidentController extends Controller
             ->cursorPaginate($this->perPage($request, 25, 100));
 
         return IncidentResource::collection($incidents)
-            ->additional(['meta' => [
-                // The list header counts OPEN incidents across the team, which
-                // a page cannot speak for. Deliberately unaffected by the
-                // filters above: it answers "how many are open", not "how many
-                // of what you are looking at are open".
-                'open_total' => Incident::query()
-                    ->where('team_id', $request->user()->current_team_id)
-                    ->where('lifecycle', '!=', IncidentStatus::Resolved->value)
-                    ->count(),
-            ]]);
+            ->additional([
+                'meta' => $this->headlineCounts($request->user()->current_team_id),
+            ]);
+    }
+
+    /**
+     * The four counts the list header states, ACROSS THE TEAM.
+     *
+     * Deliberately unaffected by the filters above, and that is the whole point
+     * of computing them here rather than in the client. They answer "how many
+     * are open", not "how many of what you are looking at are open": the screen
+     * used to derive all four from the rows it happened to hold, so a team with
+     * sixty incidents reported on its first twenty-five, and selecting the
+     * Resolved tab made it report "0 active" while three were burning.
+     *
+     * One query rather than four, and `SUM(CASE ...)` rather than the `FILTER`
+     * clause: this suite runs against SQLite and PostgreSQL, and only one of
+     * them has had `FILTER` for its whole supported range.
+     *
+     * @return array<string, int>
+     */
+    protected function headlineCounts(?string $teamId): array
+    {
+        $resolved = IncidentStatus::Resolved->value;
+
+        $row = Incident::query()
+            ->where('team_id', $teamId)
+            ->selectRaw('SUM(CASE WHEN lifecycle != ? THEN 1 ELSE 0 END) AS open_total', [$resolved])
+            ->selectRaw(
+                'SUM(CASE WHEN lifecycle != ? AND severity = ? THEN 1 ELSE 0 END) AS critical_total',
+                [$resolved, IncidentSeverity::Critical->value],
+            )
+            ->selectRaw('SUM(CASE WHEN ai_owned = ? THEN 1 ELSE 0 END) AS ai_total', [true])
+            ->selectRaw('SUM(CASE WHEN lifecycle = ? THEN 1 ELSE 0 END) AS resolved_total', [$resolved])
+            ->first();
+
+        // `SUM` over no rows is NULL, not 0: a team with no incidents at all
+        // would otherwise ship four nulls and the client would render them as
+        // absent rather than as none.
+        return [
+            'open_total' => (int) ($row->open_total ?? 0),
+            'critical_total' => (int) ($row->critical_total ?? 0),
+            'ai_total' => (int) ($row->ai_total ?? 0),
+            'resolved_total' => (int) ($row->resolved_total ?? 0),
+        ];
     }
 
     /**

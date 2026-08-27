@@ -643,6 +643,8 @@
       "paused_description": "Uptizm isn't probing this monitor right now. Resume it to collect response times again.",
       "no_response_data_title": "No response data",
       "no_response_data_description": "This monitor isn't returning a response time right now, so there's nothing to chart for this window.",
+      "incidents_failed_title": "Could not load incidents",
+      "incidents_failed_description": "This monitor's incidents did not come back. That is not the same as having none, so nothing is claimed here.",
       "no_incidents_title": "No incidents",
       "no_incidents_description": "This monitor has no incidents on record. Uptizm opens one automatically the moment something goes wrong.",
       "action_pause": "Pause",

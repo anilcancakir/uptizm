@@ -51,6 +51,17 @@ class IncidentController extends MagicController
   /// first read answers.
   int? _openTotal;
 
+  /// The other three headline counts, TEAM-WIDE, as the server computed them.
+  ///
+  /// The list header used to derive all four from the rows in hand, which
+  /// answered for one page rather than for the team: a team with sixty
+  /// incidents reported on its first twenty-five, and once the tabs moved
+  /// server-side, selecting Resolved made the header say "0 active" while three
+  /// were burning. Null until a read answers, which is not the same as zero.
+  int? _criticalTotal;
+  int? _aiTotal;
+  int? _resolvedTotal;
+
   /// The active filters, kept so [loadMore] asks for the next page of the SAME
   /// query. Paging a filtered list with the filter dropped would append rows
   /// the operator filtered out.
@@ -58,6 +69,14 @@ class IncidentController extends MagicController
   String? _lifecycle;
   bool _openOnly = false;
   String? _search;
+
+  /// Whether the roster is narrowed to the incidents Uptizm AI owns.
+  ///
+  /// Nullable on purpose, and not a `bool` defaulting to false: absent means
+  /// "do not filter on this at all", while `false` would mean "only the ones AI
+  /// does NOT own". The wire parameter is present-or-absent for the same
+  /// reason.
+  bool? _aiOwned;
 
   /// Singleton accessor, registering the controller and kicking off its
   /// one-shot initial load on first access.
@@ -154,6 +173,83 @@ class IncidentController extends MagicController
   /// A caller that gets a requirement must render the upgrade path and NOT a
   /// retry: nothing about trying again changes the plan.
   PlanUpgradeRequirement? analysisGate(String id) => _analysisGateById[id];
+
+  // ---------------------------------------------------------------------------
+  // One monitor's incidents
+  // ---------------------------------------------------------------------------
+
+  /// The monitor whose incidents [_monitorRoster] holds.
+  ///
+  /// One slot rather than a map, for the same reason [_detailId] is one: a
+  /// person is looking at one monitor at a time.
+  String? _monitorRosterId;
+
+  /// That monitor's incidents, or null when the read has not answered or
+  /// failed. Empty means the server answered and the monitor is clean.
+  List<Incident>? _monitorRoster;
+
+  /// Whether the read behind [_monitorRosterId] has answered, either way.
+  bool _monitorRosterSettled = false;
+
+  /// Every incident touching [monitorId], READ FOR THAT MONITOR.
+  ///
+  /// Not filtered out of [incidents], which is what the monitor screen used to
+  /// do and cannot any more: that roster is one page deep and carries whatever
+  /// search or tab the incidents list left on it. A monitor whose outage sat on
+  /// page two showed an empty state saying it had none, and an operator who had
+  /// searched the list first saw that search applied here.
+  ///
+  /// Returns null while the read is in flight or after it failed, so a caller
+  /// can tell those apart from an answered empty; see [isFirstLoadForMonitor].
+  /// Requesting a monitor this has not read starts the read, which mirrors
+  /// [incidentById] and is what lets a build ask without an explicit fetch.
+  List<Incident>? incidentsForMonitor(String? monitorId) {
+    if (monitorId == null || monitorId.isEmpty) return null;
+
+    if (_monitorRosterId == monitorId) return _monitorRoster;
+
+    _monitorRosterId = monitorId;
+    _monitorRoster = null;
+    _monitorRosterSettled = false;
+    unawaited(_loadMonitorRoster(monitorId));
+
+    return null;
+  }
+
+  /// Whether the read behind [incidentsForMonitor] for [monitorId] is still in
+  /// flight, which is the difference between "no incidents" and "not yet".
+  bool isFirstLoadForMonitor(String? monitorId) {
+    if (monitorId == null || _monitorRosterId != monitorId) return false;
+
+    return !_monitorRosterSettled;
+  }
+
+  /// Fetches one monitor's incidents.
+  ///
+  /// Discards a response whose monitor is no longer the selected one, exactly
+  /// as [_loadDetail] does: navigating between monitors must not let an older
+  /// answer land on a newer screen.
+  Future<void> _loadMonitorRoster(String monitorId) async {
+    final RosterPage<Incident> page = await readRosterPage<Incident>(
+      resource: 'incidents',
+      fromMap: Incident.fromMap,
+      logTag: 'IncidentController.incidentsForMonitor',
+      // One monitor's whole history is small next to a team's, and this screen
+      // has no "load more": a page bound is what would silently truncate it.
+      perPage: 100,
+      filters: <String, dynamic>{'monitor_id': monitorId},
+    );
+
+    if (_monitorRosterId != monitorId) return;
+
+    // Settled either way. A failure has answered, and leaving it unsettled
+    // would skeleton forever with nothing in flight to end it.
+    _monitorRosterSettled = true;
+    // `rows` is null on a failure, which is exactly what this getter reports:
+    // the screen draws "could not load", never an empty state.
+    _monitorRoster = page.rows;
+    refreshUI();
+  }
 
   // ---------------------------------------------------------------------------
   // Lifecycle
@@ -263,6 +359,43 @@ class IncidentController extends MagicController
   /// would otherwise show a filtered list under an empty box.
   String? get searchTerm => _search;
 
+  /// The lifecycle stage the roster is narrowed to, or null for every stage.
+  String? get lifecycleFilter => _lifecycle;
+
+  /// Whether the roster is narrowed to open incidents only.
+  bool get openOnlyFilter => _openOnly;
+
+  /// Whether the roster is narrowed to AI-owned incidents, or null when it is
+  /// not narrowed on that axis at all.
+  bool? get aiOwnedFilter => _aiOwned;
+
+  /// Narrow the roster to one tab, ON THE SERVER.
+  ///
+  /// The list screen's tabs used to be a Dart `where` over [incidents], which
+  /// reads the page in hand: a roster whose only resolved incident sat on page
+  /// three showed nothing under "Resolved" until the operator loaded that far,
+  /// and the tab counter agreed with it.
+  ///
+  /// Separate from [load] for the same reason [search] is: this controller is
+  /// session-scoped and shared, and [load] resets every other filter to its
+  /// default. Passing all three axes together rather than one at a time is what
+  /// makes a tab switch replace the previous tab instead of accumulating with
+  /// it.
+  Future<void> filterTo({
+    String? lifecycle,
+    bool openOnly = false,
+    bool? aiOwned,
+  }) async {
+    if (lifecycle == _lifecycle && openOnly == _openOnly && aiOwned == _aiOwned) {
+      return;
+    }
+
+    _lifecycle = lifecycle;
+    _openOnly = openOnly;
+    _aiOwned = aiOwned;
+    await _load(reset: true);
+  }
+
   /// Narrow the roster to a free-text term, ON THE SERVER.
   ///
   /// Separate from [load] rather than a call into it because this controller is
@@ -310,6 +443,34 @@ class IncidentController extends MagicController
   /// you are looking at are open".
   int? get openTotal => _openTotal;
 
+  /// Open incidents at critical severity, team-wide. Null before a read
+  /// answers.
+  int? get criticalTotal => _criticalTotal;
+
+  /// Incidents Uptizm AI opened, team-wide. Null before a read answers.
+  int? get aiTotal => _aiTotal;
+
+  /// Resolved incidents, team-wide. Null before a read answers.
+  int? get resolvedTotal => _resolvedTotal;
+
+  /// Takes the four team-wide counts off a page's envelope.
+  ///
+  /// Left untouched when a key is missing or is not a number, so a server that
+  /// has not shipped them yet leaves the previous answer standing rather than
+  /// replacing it with a guess.
+  void _readHeadlineCounts(Map<String, dynamic> meta) {
+    int? read(String key) {
+      final Object? value = meta[key];
+
+      return value is num ? value.toInt() : null;
+    }
+
+    _openTotal = read('open_total') ?? _openTotal;
+    _criticalTotal = read('critical_total') ?? _criticalTotal;
+    _aiTotal = read('ai_total') ?? _aiTotal;
+    _resolvedTotal = read('resolved_total') ?? _resolvedTotal;
+  }
+
   /// Reads one page of `GET /incidents` under the active filters.
   Future<void> _load({required bool reset}) async {
     // Only when there is nothing to show yet. A refetch runs on every route
@@ -327,6 +488,7 @@ class IncidentController extends MagicController
         'monitor_id': ?_monitorId,
         'lifecycle': ?_lifecycle,
         if (_openOnly) 'open': 1,
+        if (_aiOwned != null) 'ai_owned': _aiOwned! ? 1 : 0,
         if (_search != null && _search!.trim().isNotEmpty) 'q': _search!.trim(),
       },
     );
@@ -344,8 +506,7 @@ class IncidentController extends MagicController
     }
 
     _nextCursor = page.nextCursor;
-    final Object? open = page.meta['open_total'];
-    if (open is num) _openTotal = open.toInt();
+    _readHeadlineCounts(page.meta);
 
     final List<Incident> rows = reset
         ? page.rows!
@@ -402,6 +563,12 @@ class IncidentController extends MagicController
     _analysisGateById.clear();
     _analysisFailedIds.clear();
     _analysisPendingIds.clear();
+    // As team-scoped as everything above it: a monitor belongs to one team, and
+    // keeping the slot would answer the next team's screen with the previous
+    // one's incidents until a fetch replaced them.
+    _monitorRosterId = null;
+    _monitorRoster = null;
+    _monitorRosterSettled = false;
     setState(null, status: const RxStatus.empty(), notify: false);
     refreshUI();
 
