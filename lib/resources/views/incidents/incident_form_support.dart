@@ -53,9 +53,14 @@ List<MetricOption> get kIncidentImpacts => [
 /// consumer mapped a pick back by comparing against the TRANSLATED enum label,
 /// so the two only lined up in English: on a Turkish UI the select showed no
 /// current selection and every status pick was silently dropped.
+/// [mocks.IncidentLifecycle.mitigated] is skipped: it decodes, so a legacy row
+/// renders as what it is, but it is not a rung of the current ladder and
+/// offering it would let an operator move a live incident onto a stage the
+/// product no longer uses.
 List<MetricOption> get kIncidentStatuses => [
   for (final mocks.IncidentLifecycle stage in mocks.IncidentLifecycle.values)
-    MetricOption(
+    if (stage != mocks.IncidentLifecycle.mitigated)
+      MetricOption(
       label: trans('uptizm.incidents.detail_composer_status_${stage.name}'),
       value: stage.name,
     ),
