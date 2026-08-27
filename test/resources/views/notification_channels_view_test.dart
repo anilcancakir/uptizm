@@ -215,6 +215,95 @@ void main() {
   );
 
   testWidgets(
+    'connecting the webhook with a URL but no secret is blocked client-side',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // The regression: the secret has a hint and no required marker, the
+      // client check covered only the URL, and the backend declares it
+      // `required_if:channel_type,webhook`. So Save posted a body without it,
+      // took a 422 keyed `credentials.secret`, and the form had no slot for
+      // that key and no unmapped fallback: no toast, no inline error, no state
+      // change. The operator tapped Save on a form that never reacted.
+      final FakeNetworkDriver fake = Http.fake();
+
+      await tester.pumpWidget(wrap(const NotificationChannelsView()));
+      await tester.pump();
+
+      await tester.tap(find.text('Connect').at(1));
+      await tester.pump();
+      await tester.enterText(
+        find.byType(EditableText).first,
+        'https://hooks.example.com/uptizm',
+      );
+      await tester.pump();
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+
+      expect(
+        find.text('The Signing secret field is required.'),
+        findsOneWidget,
+      );
+      expect(
+        fake.recorded.any((entry) => entry.$1.method == 'POST'),
+        isFalse,
+        reason: 'a request the backend will certainly reject is not worth '
+            'making',
+      );
+    },
+  );
+
+  testWidgets(
+    'a server 422 on the signing secret paints its inline slot',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // The other half of the same defect: even once a request is made, the
+      // form mapped only token/url/routing_key, so a 422 keyed
+      // `credentials.secret` was assigned nowhere and `create` raises no toast
+      // of its own. Save produced no feedback at all.
+      //
+      // Reached by bypassing the client check with a secret the SERVER rejects
+      // (too long for its `max:255`), which is the shape of every 422 that can
+      // still arrive once the client-side guard above is satisfied.
+      Http.fake({
+        'notification-channels': Http.response({
+          'message': 'The given data was invalid.',
+          'errors': {
+            'credentials.secret': [
+              'The signing secret may not be greater than 255 characters.',
+            ],
+          },
+        }, 422),
+      });
+
+      await tester.pumpWidget(wrap(const NotificationChannelsView()));
+      await tester.pump();
+
+      await tester.tap(find.text('Connect').at(1));
+      await tester.pump();
+      await tester.enterText(
+        find.byType(EditableText).first,
+        'https://hooks.example.com/uptizm',
+      );
+      await tester.pump();
+      await tester.enterText(find.byType(EditableText).at(1), 'too-long');
+      await tester.pump();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          'The signing secret may not be greater than 255 characters.',
+        ),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets(
     'connecting the webhook and saving with an empty URL shows an inline '
     'required error',
     (tester) async {

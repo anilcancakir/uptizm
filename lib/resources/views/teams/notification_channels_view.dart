@@ -90,6 +90,13 @@ class _ChannelDraft {
 
   /// Inline validation error for the PagerDuty routing key field, or `null`.
   String? routingKeyError;
+
+  /// Inline error for the webhook signing secret.
+  ///
+  /// Its absence is what made a failed webhook connect invisible: the backend
+  /// requires this field, answered 422 keyed `credentials.secret`, and the form
+  /// had no slot to paint it into.
+  String? secretError;
 }
 
 class _NotificationChannelsViewState extends State<NotificationChannelsView> {
@@ -481,9 +488,13 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
         MSFormField(
           label: trans('uptizm.teams.channels_webhook_secret_label'),
           hint: trans('uptizm.teams.channels_webhook_secret_hint'),
+          error: draft.secretError,
           child: MSInput(
             value: draft.secret,
-            onChanged: (String value) => setState(() => draft.secret = value),
+            onChanged: (String value) => setState(() {
+              draft.secret = value;
+              draft.secretError = null;
+            }),
             type: InputType.password,
           ),
         ),
@@ -605,11 +616,37 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
 
     if (!mounted || errors.isEmpty) return;
 
+    const List<String> owned = <String>[
+      'credentials.token',
+      'credentials.url',
+      'credentials.secret',
+      'credentials.routing_key',
+    ];
+
     setState(() {
       draft.tokenError = errors['credentials.token'];
       draft.urlError = errors['credentials.url'];
+      draft.secretError = errors['credentials.secret'];
       draft.routingKeyError = errors['credentials.routing_key'];
     });
+
+    // Everything this form has no slot for. `create` returns field errors
+    // WITHOUT raising a toast, so a 422 on a key none of the four slots match
+    // used to produce no toast, no inline message and no state change: the
+    // operator tapped Save on a form that never reacted. Mirrors the fallback
+    // in status_page_editor_view, incident_create_view and
+    // escalation_policy_editor_view.
+    final Map<String, String> unmapped = <String, String>{
+      for (final MapEntry<String, String> entry in errors.entries)
+        if (!owned.contains(entry.key)) entry.key: entry.value,
+    };
+
+    if (unmapped.isNotEmpty) {
+      // `common.error_occurred` rather than a channels-specific title, matching
+      // NotificationChannelController._toastError, whose docblock notes the
+      // channels namespace carries no dedicated error strings.
+      Magic.error(trans('common.error_occurred'), unmapped.values.first);
+    }
   }
 
   /// Runs the client-side required check for [type]'s credential field,
@@ -627,11 +664,21 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
         trans('uptizm.teams.channels_slack_token_label'),
         (String? error) => setState(() => draft.tokenError = error),
       ),
-      ChannelType.webhook => _requireCredential(
-        draft.url,
-        trans('uptizm.teams.channels_webhook_url_label'),
-        (String? error) => setState(() => draft.urlError = error),
-      ),
+      // Both, and deliberately not short-circuited with `&&`: an operator who
+      // left the whole card blank should see both fields marked, not fix the
+      // url and then discover the secret was required too.
+      ChannelType.webhook => [
+        _requireCredential(
+          draft.url,
+          trans('uptizm.teams.channels_webhook_url_label'),
+          (String? error) => setState(() => draft.urlError = error),
+        ),
+        _requireCredential(
+          draft.secret,
+          trans('uptizm.teams.channels_webhook_secret_label'),
+          (String? error) => setState(() => draft.secretError = error),
+        ),
+      ].every((bool ok) => ok),
       ChannelType.pagerduty => _requireCredential(
         draft.routingKey,
         trans('uptizm.teams.channels_pagerduty_routing_key_label'),
