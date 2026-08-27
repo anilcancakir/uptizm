@@ -6,75 +6,16 @@ import 'package:magic/magic.dart';
 import 'package:magic_notifications/magic_notifications.dart'
     show DatabaseNotification, Notify;
 import 'package:magic_starter/magic_starter.dart'
-    show MagicStarter, MagicStarterAuthController, MagicStarterTeamController;
+    show MagicStarterTeamController;
 
 import '../../app/models/team.dart';
 import '../../app/models/user.dart';
+import 'shell_account.dart';
 import '../components/notification_center/index.dart';
 import 'shell_control_semantics.dart';
 
 /// Computes uppercase avatar initials from a display [name].
 ///
-/// Takes the first letter of up to the first two words, falling back to `?`
-/// when [name] is null or blank. Mirrors the sidebar's identically named
-/// helper (kept local per file to avoid cross-layout coupling).
-String _userInitials(String? name) {
-  final String trimmed = name?.trim() ?? '';
-  if (trimmed.isEmpty) return '?';
-
-  final List<String> words = trimmed.split(RegExp(r'\s+'));
-  final String first = words[0][0];
-  final String second = words.length > 1 && words[1].isNotEmpty
-      ? words[1][0]
-      : '';
-  return (first + second).toUpperCase();
-}
-
-/// The leading initial rendered inside a team's colored avatar square.
-String _teamInitial(String? name) {
-  final String trimmed = name?.trim() ?? '';
-  return trimmed.isEmpty ? '?' : trimmed[0].toUpperCase();
-}
-
-/// A never-mutated fallback used when the auth guard is unavailable (e.g. a
-/// widget test that renders the shell without booting a Magic app / binding
-/// the `auth` service). Keeps [AnimatedBuilder] satisfied without reacting to
-/// anything.
-final ValueNotifier<int> _fallbackAuthNotifier = ValueNotifier<int>(0);
-
-/// Resolves the auth guard's `stateNotifier`, tolerating an unconfigured
-/// container. Mirrors `MagicRouter._resolveAuthRefreshListenable`'s
-/// try/catch tolerance (magic/lib/src/routing/magic_router.dart:239) so the
-/// shell degrades to a static (non-reactive) display instead of crashing.
-Listenable _authStateNotifier() {
-  try {
-    return Auth.stateNotifier;
-  } catch (e) {
-    debugPrint(
-      'MobileTopBar: auth state notifier unavailable; the shell will not '
-      'react to auth-state changes ($e).',
-    );
-    return _fallbackAuthNotifier;
-  }
-}
-
-/// Resolves the authenticated [User], tolerating an unconfigured auth
-/// container the same way [_authStateNotifier] does (e.g. a widget test that
-/// renders the shell without booting a Magic app). Falls back to an empty,
-/// unauthenticated [User] so name/email/team reads degrade to blanks instead
-/// of crashing.
-User _currentUserSafe() {
-  try {
-    return User.current;
-  } catch (e) {
-    debugPrint(
-      'MobileTopBar: authenticated user unavailable; showing an empty user '
-      '($e).',
-    );
-    return User();
-  }
-}
-
 /// **The Mobile Top Bar**
 ///
 /// A sticky, safe-area-aware glass header shown only below `lg` (the desktop
@@ -141,9 +82,9 @@ class _MobileTeamSwitcher extends StatelessWidget {
     // `Auth.restore()`, which bumps `Auth.stateNotifier`, so the active team
     // + team list here reflect a switch without a manual reload.
     return AnimatedBuilder(
-      animation: _authStateNotifier(),
+      animation: authStateNotifier('MobileTopBar'),
       builder: (context, _) {
-        final User user = _currentUserSafe();
+        final User user = currentUserSafe('MobileTopBar');
         final Team? activeTeam = user.currentTeam;
         final List<Team> allTeams = user.allTeams;
 
@@ -208,29 +149,17 @@ class _MobileTeamSwitcher extends StatelessWidget {
                         ),
                       ),
                     WDiv(className: 'my-1 border-t border-color-border-subtle'),
-                    _menuRow(trans('uptizm.team_menu.settings'), '/teams/settings', close),
-                    _menuRow(trans('uptizm.team_menu.members'), '/teams/settings', close),
-                    _menuRow(trans('uptizm.team_menu.channels'), '/teams/notifications', close),
-                    _menuRow(trans('uptizm.team_menu.create'), '/teams/create', close),
+                    // ONE list for both shells: see `teamMenuDestinations`.
+                    // These used to be two literals, and the mobile one was
+                    // three rows short.
+                    for (final TeamMenuDestination row in teamMenuDestinations)
+                      teamMenuRow(trans(row.labelKey), row.route, close),
                   ],
                 ),
               ),
             ),
         );
       },
-    );
-  }
-
-  Widget _menuRow(String label, String route, VoidCallback close) {
-    return WAnchor(
-      onTap: () {
-        close();
-        MagicRoute.to(route);
-      },
-      child: WDiv(
-        className: 'px-3 py-2 text-sm text-fg hover:bg-surface-container',
-        child: WText(label, className: 'truncate'),
-      ),
     );
   }
 
@@ -244,29 +173,12 @@ class _MobileTeamSwitcher extends StatelessWidget {
           ? 'w-5 h-5 rounded shrink-0 flex items-center justify-center bg-primary-container'
           : 'w-7 h-7 rounded-md shrink-0 flex items-center justify-center bg-primary-container',
       child: WText(
-        _teamInitial(team?.name),
+        teamInitial(team?.name),
         className: small
             ? 'text-[10px] font-bold text-fg'
             : 'text-xs font-bold text-fg',
       ),
     );
-  }
-}
-
-/// Resolves the live notification feed, tolerating an unconfigured container
-/// the same way [_authStateNotifier] does (e.g. a widget test that renders
-/// the shell without booting a Magic app / binding the `notifications`
-/// service). Falls back to a stream that never emits so the bell renders
-/// [NotificationCenter]'s own empty state instead of crashing.
-Stream<List<DatabaseNotification>> _notificationsStream() {
-  try {
-    return Notify.notifications();
-  } catch (e) {
-    debugPrint(
-      'MobileTopBar: notification stream unavailable; showing an empty feed '
-      '($e).',
-    );
-    return const Stream.empty();
   }
 }
 
@@ -280,7 +192,7 @@ class _MobileBell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<DatabaseNotification>>(
-      stream: _notificationsStream(),
+      stream: notificationsStream('MobileTopBar'),
       initialData: const [],
       builder: (context, snapshot) {
         final List<NotificationItem> items =
@@ -364,9 +276,9 @@ class _MobileAccountMenu extends StatelessWidget {
     // Rebuilds on login/logout/restore: a profile-update also calls
     // `Auth.restore()`, so a name/email change reflects here without reload.
     return AnimatedBuilder(
-      animation: _authStateNotifier(),
+      animation: authStateNotifier('MobileTopBar'),
       builder: (context, _) {
-        final User user = _currentUserSafe();
+        final User user = currentUserSafe('MobileTopBar');
 
         return ShellControlSemantics(
             label: trans('uptizm.a11y.account_menu'),
@@ -383,7 +295,7 @@ class _MobileAccountMenu extends StatelessWidget {
                   flex items-center justify-center hover:bg-surface-container-high
                 ''',
                 child: WText(
-                  _userInitials(user.name),
+                  userInitials(user.name),
                   className: 'text-xs font-semibold text-fg',
                 ),
               ),
@@ -418,7 +330,7 @@ class _MobileAccountMenu extends StatelessWidget {
                   WAnchor(
                     onTap: () {
                       close();
-                      _handleLogout();
+                      handleLogout();
                     },
                     child: WDiv(
                       className: 'px-3 py-2 text-sm text-fg hover:bg-surface-container',
@@ -433,15 +345,4 @@ class _MobileAccountMenu extends StatelessWidget {
     );
   }
 
-  /// Signs the user out via the app's registered [MagicStarter.useLogout]
-  /// callback, falling back to the starter's default auth controller logout.
-  Future<void> _handleLogout() async {
-    final customLogout = MagicStarter.manager.onLogout;
-    if (customLogout != null) {
-      await customLogout();
-      return;
-    }
-
-    await MagicStarterAuthController.instance.logout();
-  }
 }
