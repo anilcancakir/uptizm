@@ -345,9 +345,117 @@ void main() {
     expect(badges[2].status, equals(StatusKey.degraded));
   });
 
+  // ---------------------------------------------------------------------------
+  // Paginated mode
+  // ---------------------------------------------------------------------------
+
+  testWidgets('the paginated table keeps its header and builds only the '
+      'viewport', (tester) async {
+    // The eager constructor renders one row per element, so a 200-check history
+    // costs 200 rows of build, layout and semantics on the first frame whether
+    // or not the reader ever scrolls that far. The paginated constructor hands
+    // the body to a bounded lazy list; the header stays outside it, because a
+    // header that scrolls away with the rows is not a table header.
+    Http.fake(
+      (_) => Http.response({
+        'data': [
+          for (int index = 0; index < 200; index++)
+            {
+              'id': 'check-$index',
+              'region': 'eu-central',
+              'status': 'up',
+              'status_code': 200,
+              'response_ms': 100 + index,
+              'checked_at': '2026-08-26T01:00:00Z',
+            },
+        ],
+        'meta': {'next_cursor': null, 'per_page': 200},
+      }, 200),
+    );
+    final paginator = MagicPaginator<CheckRow>(
+      url: 'monitors/m1/checks',
+      fromMap: CheckRow.fromMap,
+    );
+    await paginator.loadFirst();
+    expect(paginator.items.length, equals(200));
+
+    await tester.pumpWidget(
+      wrap(CheckHistoryTable.paginated(paginator: paginator, maxHeight: 300)),
+    );
+    await tester.pump();
+
+    expect(
+      find.text('TIME'),
+      findsOneWidget,
+      reason: 'the header is not one of the virtualised rows',
+    );
+    final badges = tester.widgetList<StatusBadge>(find.byType(StatusBadge));
+    expect(
+      badges.length,
+      lessThan(30),
+      reason: '200 checks must not cost 200 rows in a 300px body',
+    );
+    expect(badges, isNotEmpty);
+
+    Http.unfake();
+  });
+
+  testWidgets('scrolling the paginated body asks for the next page', (
+    tester,
+  ) async {
+    // The end-to-end claim this screen makes: the reader scrolls the check
+    // history and older checks arrive. Driven here rather than through a real
+    // browser because the live version depends on where the table happens to
+    // sit in the viewport, which is not what is under test.
+    int requests = 0;
+    Http.fake((MagicRequest request) {
+      requests++;
+      final bool isFirst = request.queryParameters?['cursor'] == null;
+
+      return Http.response({
+        'data': [
+          for (int index = 0; index < 50; index++)
+            {
+              'id': '${isFirst ? 'a' : 'b'}-$index',
+              'region': 'eu-central',
+              'status': 'up',
+              'status_code': 200,
+              'response_ms': 100 + index,
+              'checked_at': '2026-08-26T01:00:00Z',
+            },
+        ],
+        'meta': {'next_cursor': isFirst ? 'page-2' : null, 'per_page': 50},
+      }, 200);
+    });
+    final paginator = MagicPaginator<CheckRow>(
+      url: 'monitors/m1/checks',
+      fromMap: CheckRow.fromMap,
+    );
+    await paginator.loadFirst();
+    expect(requests, equals(1));
+    expect(paginator.items.length, equals(50));
+
+    await tester.pumpWidget(
+      wrap(CheckHistoryTable.paginated(paginator: paginator, maxHeight: 300)),
+    );
+    await tester.pump();
+
+    await tester.drag(find.byType(ListView), const Offset(0, -3000));
+    await tester.pumpAndSettle();
+
+    expect(
+      requests,
+      equals(2),
+      reason: 'reaching the tail is what fetches the older checks',
+    );
+    expect(paginator.items.length, equals(100));
+
+    Http.unfake();
+  });
+
   testWidgets('CheckHistoryTablePreview renders without error', (tester) async {
     // Wrap in SingleChildScrollView to avoid vertical overflow in the fixed
-    // scaffold body — the preview's 2 sections (6 + 3 rows) exceed 552 px.
+    // scaffold body: the preview's 2 sections (6 + 3 rows) exceed 552 px.
     await tester.pumpWidget(
       wrap(const SingleChildScrollView(child: CheckHistoryTablePreview())),
     );

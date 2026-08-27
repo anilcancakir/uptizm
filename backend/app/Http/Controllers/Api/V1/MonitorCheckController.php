@@ -30,6 +30,25 @@ class MonitorCheckController extends Controller
 
     /**
      * Recent checks for a monitor, newest first, team-scoped.
+     *
+     * CURSOR paginated, not offset, and the difference is correctness rather
+     * than speed. The client renders this as an infinite scroll, so it walks the
+     * pages while the monitor keeps recording new ones, and a new check lands at
+     * the HEAD of this ordering. Offset addresses a page by counting from the
+     * start, so one insert between two requests shifts every later row down and
+     * page two returns the last row of page one again: on a monitor checked
+     * every 60 seconds that is the normal case, not a race. A cursor names a
+     * position in the ordering instead, so it cannot drift, and PostgreSQL
+     * answers it by seeking rather than by counting past the rows it skips.
+     *
+     * `id` is the tiebreaker because `checked_at` is not unique: several regions
+     * report the same instant, and a cursor over a non-unique order can skip or
+     * repeat rows. This table stores `id` as an ordered UUID (see
+     * {@see MonitorCheck}), so it both breaks the tie and sorts with insertion
+     * order.
+     *
+     * What this gives up is a total count and the ability to jump to page five.
+     * Neither is used: the screen scrolls.
      */
     public function index(Request $request, Monitor $monitor): AnonymousResourceCollection
     {
@@ -41,7 +60,8 @@ class MonitorCheckController extends Controller
         $checks = MonitorCheck::query()
             ->where('monitor_id', $monitor->id)
             ->orderByDesc('checked_at')
-            ->paginate($perPage);
+            ->orderByDesc('id')
+            ->cursorPaginate($perPage);
 
         return MonitorCheckResource::collection($checks);
     }

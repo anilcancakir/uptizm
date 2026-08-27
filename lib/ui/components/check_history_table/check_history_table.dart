@@ -40,27 +40,57 @@ import 'check_history_table.recipe.dart';
 /// or `Colors.*` anywhere. Composes [StatusBadge] instead of duplicating the
 /// status dot + pill logic.
 ///
+/// ## Two modes, and when each is right
+///
+/// The default constructor renders one row per element, eagerly. That is right
+/// for a short, complete list (the preview catalog, a three-row excerpt) and
+/// wrong for a monitor's real history: a check every 60 seconds means the
+/// endpoint's own page is 50 rows and its cap is 200, and every one of them
+/// costs a build, a layout and a semantics node on the FIRST frame whether or
+/// not the reader ever scrolls that far.
+///
+/// [CheckHistoryTable.paginated] hands the body to a bounded lazy list instead,
+/// building the rows the viewport can show and asking the paginator for the
+/// next page as the reader nears the end. The HEADER stays outside that list on
+/// purpose: a header that scrolls away with its rows is not a table header.
+///
 /// ### Example Usage:
 ///
 /// ```dart
-/// // All recent checks from the fixture:
-/// CheckHistoryTable(rows: recentChecks)
+/// // A short, complete list:
+/// CheckHistoryTable(rows: recentChecks.take(3).toList())
 ///
-/// // A custom subset:
-/// CheckHistoryTable(
-///   rows: recentChecks.take(3).toList(),
-/// )
+/// // A monitor's live history, paged as the reader scrolls:
+/// CheckHistoryTable.paginated(paginator: controller.checks)
 /// ```
 @immutable
 class CheckHistoryTable extends StatelessWidget {
   /// The ordered list of check results to display.
   ///
-  /// Typically sourced from a monitor's recent-checks API response, most
-  /// recent first.
+  /// Empty in [CheckHistoryTable.paginated], where [paginator] owns the rows.
   final List<CheckRow> rows;
 
-  /// Creates a [CheckHistoryTable] for the given [rows].
-  const CheckHistoryTable({super.key, required this.rows});
+  /// The collection to page through, or null for the eager mode.
+  final MagicPaginator<CheckRow>? paginator;
+
+  /// Height of the scrolling body in the paginated mode.
+  ///
+  /// A [ListView] needs a bound, and this is what bounds it. Roughly a dozen
+  /// rows: enough that the table reads as a table, short enough that the page
+  /// around it stays reachable without scrolling through the whole history.
+  final double maxHeight;
+
+  /// Creates a [CheckHistoryTable] for the given [rows], rendered eagerly.
+  const CheckHistoryTable({super.key, required this.rows})
+    : paginator = null,
+      maxHeight = 0;
+
+  /// Creates a [CheckHistoryTable] that pages [paginator] as the reader scrolls.
+  const CheckHistoryTable.paginated({
+    super.key,
+    required MagicPaginator<CheckRow> this.paginator,
+    this.maxHeight = 520,
+  }) : rows = const <CheckRow>[];
 
   /// Formats an optional response-time value.
   ///
@@ -81,11 +111,23 @@ class CheckHistoryTable extends StatelessWidget {
     // row per check. Content columns flex-1 to fill the desktop width; the table
     // floors at 680px (min-w) so a flex column never squeezes its content below
     // the point where the widest status badge fits.
+    final MagicPaginator<CheckRow>? paginator = this.paginator;
     final Widget table = WDiv(
       className: classes['table'],
       children: [
         _buildHeader(classes),
-        for (final row in rows) _buildRow(row, classes),
+        if (paginator == null)
+          for (final row in rows) _buildRow(row, classes)
+        else
+          // Bounded, so the ListView has a main-axis constraint to work with,
+          // and lazy, so a 200-row history costs a dozen rows rather than 200.
+          WDiv(
+            className: 'h-[${maxHeight.toInt()}px]',
+            child: MagicPaginatedListView<CheckRow>(
+              paginator: paginator,
+              itemBuilder: (_, CheckRow row, _) => _buildRow(row, classes),
+            ),
+          ),
       ],
     );
 
