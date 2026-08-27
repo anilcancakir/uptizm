@@ -924,7 +924,7 @@
       "subscribers_empty_subs_disabled_title": "Henüz abone yok",
       "subscribers_empty_subs_disabled_description": "Bu sayfa için abonelikler kapalı. Ziyaretçilerin abone olmasına izin vermek için düzenleyicide etkinleştirin.",
       "subscribers_search_placeholder": "Abone ara",
-      "subscribers_subscribed_at": ":date tarihinde abone oldu",
+      "subscribers_subscribed_at": ":date abone oldu",
       "subscribers_remove_button": "Kaldır",
       "subscribers_remove_confirm_title": "Abone kaldırılsın mı?",
       "subscribers_remove_confirm_description": ":email, :page için durum güncellemeleri almayı bırakacak.",
@@ -950,7 +950,9 @@
       "editor_section_visibility": "Görünürlük",
       "editor_section_visibility_hint": "Bu sayfayı kimler açabilir.",
       "editor_form_is_public_label": "Bağlantıya sahip herkes bu sayfayı görebilir",
-      "editor_private_gated": "Sayfayı gizli tutmak :plan ve üzeri planlarda var. Herkese açık sayfa için yükseltme gerekmiyor."
+      "editor_private_gated": "Sayfayı gizli tutmak :plan ve üzeri planlarda var. Herkese açık sayfa için yükseltme gerekmiyor.",
+      "status_draft_name": "Durum Sayfası",
+      "status_draft_description": "Servislerimizin anlık durumu. Olaylar ve bakımlardan haberdar olmak için abone olun."
     },
     "ai": {
       "tldr": "Özet",

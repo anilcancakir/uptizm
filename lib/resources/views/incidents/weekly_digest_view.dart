@@ -210,11 +210,14 @@ class _WeeklyDigestViewState extends State<WeeklyDigestView> {
     );
   }
 
-  /// Title-cases the confidence enum name for display (`high` -> `High`).
-  String _confidenceLabel(AiConfidence c) {
-    final String name = c.name;
-    return name[0].toUpperCase() + name.substring(1);
-  }
+  /// The localized label for a confidence level.
+  ///
+  /// This used to title-case the enum name, so the digest's confidence KPI read
+  /// "High" / "Medium" / "Low" in English on a Turkish UI. The keys it needs
+  /// already existed: `ai_confidence_badge.dart` renders this same enum through
+  /// them and a test pins all three.
+  String _confidenceLabel(AiConfidence c) =>
+      trans('uptizm.ai.confidence_${c.name}');
 
   /// The AI highlights: a heading over a bordered [MSCard] of check-marked rows.
   Widget _buildHighlights(List<String> highlights) {
