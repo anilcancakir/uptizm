@@ -18,6 +18,7 @@ use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\User;
 use App\Services\Monitoring\IncidentWriteService;
+use App\Support\SearchText;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -91,28 +92,28 @@ class IncidentController extends Controller
         $search = $request->query('q');
 
         if (is_string($search) && trim($search) !== '') {
-            // Two engine differences are load-bearing here, and this suite runs
-            // against both SQLite and PostgreSQL precisely so neither hides.
+            // Searched against `title_search`, NOT `title`. The stored title is
+            // the English sentence; the operator is reading `title_key` +
+            // `title_params` rendered in their own language, so matching the
+            // column would make every automatically opened incident
+            // unmatchable by the words on their screen. `title_search` carries
+            // both renders plus the monitor's name.
             //
-            // 1. LOWER on both sides. SQLite's LIKE is case-INSENSITIVE for
-            //    ASCII by default and PostgreSQL's is case-SENSITIVE, so an
-            //    operator typing "checkout" matched "Checkout is returning
-            //    503s" in development and found nothing in production. Lowering
-            //    both sides with the same engine makes them agree.
-            // 2. The ESCAPE clause is not optional. PostgreSQL treats `\` as
-            //    the default LIKE escape; SQLite has NO default one, so the
-            //    backslashes `escapeLike` adds would themselves be matched
-            //    literally and a search for `%` would find nothing rather than
-            //    everything.
+            // Both sides are folded by the same PHP function, which is what
+            // makes this behave identically on the two engines the suite runs
+            // against: SQLite's LIKE is case-insensitive for ASCII and
+            // PostgreSQL's is case-sensitive, so lowering in SQL meant picking
+            // whose LOWER you got, and neither one implements the Turkish rule
+            // that makes `İstanbul` findable by `istanbul`.
             //
-            // KNOWN LIMIT, stated rather than papered over: LOWER is not the
-            // Turkish casing rule. A title carrying `İ` lowercases to `i̇`
-            // rather than `i`, so a search for `istanbul` can miss `İstanbul`.
-            // Fixing that properly means a citext column or an ICU collation,
-            // which is a migration rather than a query change.
+            // The ESCAPE clause survives that change and is still not optional:
+            // PostgreSQL treats `\` as the default LIKE escape, SQLite has NO
+            // default one, so without it the backslashes `escapeLike` adds
+            // would be matched literally and a search for `%` would find
+            // nothing rather than everything.
             $query->whereRaw(
-                "LOWER(incidents.title) LIKE LOWER(?) ESCAPE '\\'",
-                ['%'.$this->escapeLike(trim($search)).'%'],
+                "incidents.title_search LIKE ? ESCAPE '\\'",
+                ['%'.$this->escapeLike(SearchText::fold(trim($search))).'%'],
             );
         }
 

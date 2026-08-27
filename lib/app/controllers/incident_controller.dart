@@ -255,6 +255,36 @@ class IncidentController extends MagicController
     await _load(reset: true);
   }
 
+  /// The term the roster is currently narrowed by, or null when it is not.
+  ///
+  /// Read by the list view on mount so its search box and this controller
+  /// cannot disagree: the box is view state and dies with the widget, the term
+  /// is controller state and does not, so a return from an incident detail
+  /// would otherwise show a filtered list under an empty box.
+  String? get searchTerm => _search;
+
+  /// Narrow the roster to a free-text term, ON THE SERVER.
+  ///
+  /// Separate from [load] rather than a call into it because this controller is
+  /// session-scoped and shared: [load] resets the monitor, lifecycle and
+  /// open-only filters to their defaults, so searching through it would quietly
+  /// widen whatever another view had narrowed.
+  ///
+  /// Searching in Dart is not an option any more, and stopped being one when
+  /// this roster became paginated: a client filter reads the page it happens to
+  /// hold, so a term matching an incident on page four returned nothing.
+  Future<void> search(String? term) async {
+    final String? trimmed = term?.trim();
+    final String? next = trimmed == null || trimmed.isEmpty ? null : trimmed;
+
+    // A debounce that fires with an unchanged term (a keystroke and its undo)
+    // would otherwise refetch the whole first page for no change in the result.
+    if (next == _search) return;
+
+    _search = next;
+    await _load(reset: true);
+  }
+
   /// Appends the next page of incidents. A no-op at the end of the roster.
   Future<void> loadMore() async {
     if (_nextCursor == null || _loadingMore) return;

@@ -656,7 +656,7 @@ void main() {
       );
     });
 
-    testWidgets('an impossible search query renders the empty state', (
+    testWidgets('an impossible search query asks the server, after a pause', (
       tester,
     ) async {
       await tester.binding.setSurfaceSize(const Size(1280, 3200));
@@ -665,6 +665,14 @@ void main() {
       await tester.pumpWidget(wrap(const IncidentsListView()));
       await tester.pump();
 
+      // The search is the SERVER's answer now, not a Dart filter over the page
+      // in hand: this roster is paginated, so a filter here would search the 25
+      // rows it happened to hold. This is what "nothing matches" looks like on
+      // the wire.
+      Http.fake({
+        'incidents': Http.response({'data': <Map<String, dynamic>>[]}),
+      });
+
       final Finder searchInput = find.widgetWithText(
         MSInput,
         trans('uptizm.incidents.search_placeholder'),
@@ -672,6 +680,14 @@ void main() {
       await tester.tap(searchInput);
       await tester.pump();
       await tester.enterText(searchInput, 'zzzz-no-such-incident-zzzz');
+      await tester.pump();
+
+      // Still showing the roster: the debounce is holding the keystroke back,
+      // which is what stops one request per character.
+      expect(find.byType(IncidentCard), findsWidgets);
+
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
       await tester.pump();
 
       expect(tester.takeException(), isNull);
