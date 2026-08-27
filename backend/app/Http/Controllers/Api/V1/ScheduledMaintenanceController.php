@@ -7,9 +7,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreScheduledMaintenanceRequest;
 use App\Http\Requests\UpdateScheduledMaintenanceRequest;
 use App\Http\Resources\ScheduledMaintenanceResource;
+use App\Jobs\AnnounceMaintenanceCancelled;
 use App\Jobs\AnnounceScheduledMaintenance;
 use App\Jobs\TranslateStatusPageText;
 use App\Models\ScheduledMaintenance;
+use App\Services\StatusPages\StatusPageAssembler;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -140,11 +142,46 @@ class ScheduledMaintenanceController extends Controller
     /**
      * Delete a window owned by the current team. The pivot rows cascade.
      */
-    public function destroy(Request $request, ScheduledMaintenance $maintenance): Response
-    {
+    public function destroy(
+        Request $request,
+        ScheduledMaintenance $maintenance,
+        StatusPageAssembler $assembler,
+    ): Response {
         $this->authorizeTeam($request, $maintenance);
 
+        // Everything the cancellation mail needs, read BEFORE the delete. The
+        // row is gone by the time a worker picks the job up, so a job holding
+        // the model would resolve nothing and be dropped silently.
+        //
+        // The component names come from the ASSEMBLER, not the window's pivot,
+        // for the reason the announcement spells out: the pivot names
+        // components the page owner hid and uses internal monitor names where
+        // the page publishes a `custom_label`, and these names reach
+        // self-selected public readers.
+        $wasAnnounced = $maintenance->announced_at !== null;
+        $maintenanceId = (string) $maintenance->getKey();
+        $statusPageId = (string) $maintenance->status_page_id;
+        $title = (string) $maintenance->title;
+        $componentNames = $wasAnnounced
+            ? $assembler->publicComponentLabels(
+                $maintenance->statusPage()->firstOrFail(),
+                $maintenance->monitors()->pluck('monitors.id')->all(),
+            )
+            : [];
+
         $maintenance->delete();
+
+        // Only a window that was ANNOUNCED gets a cancellation. One cancelled
+        // before its announcement went out is one nobody was told about, and
+        // mailing its cancellation would be the first they hear of either.
+        if ($wasAnnounced) {
+            AnnounceMaintenanceCancelled::dispatch(
+                $maintenanceId,
+                $statusPageId,
+                $title,
+                $componentNames,
+            );
+        }
 
         return response()->noContent();
     }

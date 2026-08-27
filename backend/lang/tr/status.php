@@ -166,5 +166,17 @@ return [
                 'critical' => 'Kritik etki',
             ],
         ],
+        'maintenance_cancelled' => [
+            'subject' => ':page için planlı bakım iptal edildi',
+            'heading' => 'Planlı bakım iptal edildi',
+
+            // Follows the page name, which both languages put at the head of
+            // this sentence.
+            'intro_after_page' => 'sayfasında duyurulan bakımı iptal etti.',
+
+            'components' => 'Etkilenecek bileşenler:',
+            'footer' => 'Bu e-postayı :page sayfasına aboneliğinizi onayladığınız için alıyorsunuz.',
+            'unsubscribe' => 'Aboneliği bırak',
+        ],
     ],
 ];
