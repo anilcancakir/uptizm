@@ -390,7 +390,8 @@
         "investigating": "Investigating",
         "identified": "Identified",
         "monitoring": "Monitoring",
-        "resolved": "Resolved"
+        "resolved": "Resolved",
+        "mitigated": "Mitigated"
       },
       "incident_severity": {
         "critical": "Critical",

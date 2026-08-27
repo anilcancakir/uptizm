@@ -390,7 +390,8 @@
         "investigating": "İnceleniyor",
         "identified": "Belirlendi",
         "monitoring": "İzleniyor",
-        "resolved": "Çözüldü"
+        "resolved": "Çözüldü",
+        "mitigated": "Giderildi"
       },
       "incident_severity": {
         "critical": "Kritik",
