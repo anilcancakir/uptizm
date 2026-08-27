@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
@@ -55,6 +57,18 @@ class MonitorMetricDetail extends StatefulWidget {
   /// `onPreview`), so the sheet stays unaware of the monitor id.
   final Future<List<MetricSeriesPoint>> Function() onLoadSeries;
 
+  /// Opens a pager over this metric's whole reading history, newest first.
+  ///
+  /// A factory rather than a paginator, and a callback for the same reason
+  /// [onLoadSeries] is one: the paginator needs a URL, the URL needs the
+  /// monitor id, and this sheet is deliberately unaware of it. The sheet owns
+  /// what the factory returns and disposes it.
+  ///
+  /// SEPARATE FROM THE SERIES on purpose. The series is a windowed, capped
+  /// slice a chart can draw; this is a history a person walks back through, and
+  /// the two would fight over page size and ordering if they shared a call.
+  final MagicPaginator<MetricSeriesPoint> Function() onCreateReadings;
+
   /// Called when the user taps Edit.
   final VoidCallback onEdit;
 
@@ -66,6 +80,7 @@ class MonitorMetricDetail extends StatefulWidget {
     super.key,
     required this.metric,
     required this.onLoadSeries,
+    required this.onCreateReadings,
     required this.onEdit,
     required this.onDelete,
   });
@@ -88,12 +103,27 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
   /// Whether the series fetch is still in flight.
   bool _loading = true;
 
+  /// The pager behind the readings table. Owned here, so disposed here.
+  late final MagicPaginator<MetricSeriesPoint> _readings;
+
   MetricForm get metric => widget.metric;
 
   @override
   void initState() {
     super.initState();
+    _readings = widget.onCreateReadings();
+    // The list view only LISTENS; the first page is the owner's to ask for.
+    // Without this the table renders its empty state forever, on a metric with
+    // thousands of readings, and nothing anywhere says a request was never
+    // made. `MonitorDetailView` does the same for its check history.
+    unawaited(_readings.refresh());
     _load();
+  }
+
+  @override
+  void dispose() {
+    _readings.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -203,7 +233,7 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
 
       // Newest-first, from the RAW readings (not the numeric-filtered `data`),
       // so a string/status metric's real readings show up here too.
-      _buildRecentReadings(_points.reversed.take(6).toList()),
+      _buildRecentReadings(),
     ];
   }
 
@@ -286,23 +316,40 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
   /// its type (numeric via [fmt], status/string as-is); this widget never
   /// fabricates one.
   Widget _buildLatestValue(String valueText, StatusKey? band) {
+    // Two alignments, because the three things here are not the same kind of
+    // thing and `items-end` treated them as if they were.
+    //
+    // `items-end` aligns BOX BOTTOMS. The value is 30px of monospace and the
+    // meta label is 12px of sans, so their boxes carry different descender
+    // room and bottom-aligning them left the small text sitting below the
+    // value's baseline rather than on it. The dot, having no baseline at all,
+    // then hung off the bottom of a tall line box: the asymmetry a reader
+    // notices without being able to name it.
+    //
+    // So: the dot is CENTERED against the value, which is what a bullet beside
+    // a number should do, and the two texts sit on a shared BASELINE, which is
+    // what makes a unit or a caption look attached to a number rather than
+    // dropped next to it.
     return WDiv(
-      // items-end bottom-aligns the dot + meta label against the large value's
-      // baseline (replacing the old per-child bottom-padding nudges).
-      className: 'flex flex-row items-end gap-2',
+      className: 'flex flex-row items-center gap-3',
       children: [
         // Only when the reading carried a frozen band; an unbanded reading
         // shows no dot rather than a green one. Not gated on the metric being
         // numeric: a string metric bands by value-list membership now, so that
         // gate hid the band on the readings this feature exists to flag.
         ?(band == null ? null : StatusDot(band, size: StatusDotSize.lg)),
-        WText(
-          valueText,
-          className: 'text-fg font-mono text-3xl font-semibold tabular-nums',
-        ),
-        WText(
-          trans('uptizm.monitors.metrics_detail_latest'),
-          className: 'text-fg-muted text-xs',
+        WDiv(
+          className: 'flex flex-row items-baseline gap-2',
+          children: [
+            WText(
+              valueText,
+              className: 'text-fg font-mono text-3xl font-semibold tabular-nums',
+            ),
+            WText(
+              trans('uptizm.monitors.metrics_detail_latest'),
+              className: 'text-fg-muted text-xs',
+            ),
+          ],
         ),
       ],
     );
@@ -338,7 +385,7 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
   ///
   /// [readings] are the RAW points (not the numeric-filtered `data`), so a
   /// string/status metric's real readings appear here too.
-  Widget _buildRecentReadings(List<MetricSeriesPoint> readings) {
+  Widget _buildRecentReadings() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -353,15 +400,45 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
           trans('uptizm.monitors.metrics_recent_readings_frozen_note'),
           className: 'text-fg-muted text-xs',
         ),
-        ...readings.asMap().entries.map((
-          MapEntry<int, MetricSeriesPoint> entry,
-        ) {
-          final bool isLast = entry.key == readings.length - 1;
-          return _buildReadingRow(entry.value, isLast);
-        }),
+        const SizedBox(height: 8),
+        // PAGED, and bounded, matching the monitor screen's check history.
+        //
+        // This used to be the six newest points from the CHART's series, which
+        // made the section a preview of a preview: the series is a windowed,
+        // capped slice, so "recent readings" could not reach past its window and
+        // there was no way to look further back at all. It pages its own
+        // endpoint now, and the reader scrolls.
+        //
+        // The height bound is what makes that possible: a ListView needs one,
+        // and this sheet is already inside a scroll view, so an unbounded list
+        // here would either overflow or nest a second scroll area inside the
+        // first.
+        SizedBox(
+          height: _readingsViewportHeight,
+          child: MagicPaginatedListView<MetricSeriesPoint>(
+            paginator: _readings,
+            itemBuilder: (BuildContext context, MetricSeriesPoint point, int i) {
+              // Never `isLast`: the list is lazy and pages, so no row is the
+              // last one until the history ends. The separator belongs to the
+              // row above it, uniformly.
+              return _buildReadingRow(point, false);
+            },
+            emptyState: WText(
+              trans('uptizm.monitors.metrics_detail_no_readings'),
+              className: 'text-sm text-fg-muted',
+            ),
+          ),
+        ),
       ],
     );
   }
+
+  /// Height of the scrolling readings body.
+  ///
+  /// Roughly a dozen rows, the same reasoning `CheckHistoryTable.paginated`
+  /// applies: enough that it reads as a table rather than a peek, short enough
+  /// that the sheet around it stays reachable.
+  static const double _readingsViewportHeight = 420;
 
   /// Builds one row in the "Recent readings" list.
   ///
