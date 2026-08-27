@@ -920,7 +920,6 @@
       "preview_subscribe_placeholder": "you@example.com",
       "preview_subscribe_button": "Subscribe",
       "subscribers_title": "Subscribers",
-      "subscribers_export_csv": "Export CSV",
       "subscribers_total_label": "Total subscribers",
       "subscribers_subscriptions_label": "Subscriptions",
       "subscribers_subscriptions_on": "On",

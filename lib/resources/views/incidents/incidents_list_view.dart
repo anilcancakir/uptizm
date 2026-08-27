@@ -20,16 +20,20 @@ import '../../../ui/components/maintenance_card/index.dart';
 
 /// **The Incidents list screen.**
 ///
-/// Renders the full incident history from the design-lab mock fixtures (no
-/// controller, no network): a page header with a "New incident" action, a
-/// counts row, a search + [SegmentedControl] filter, and a scrollable list of
-/// [IncidentCard] rows. An [MSEmptyState] placeholder is shown when the active
-/// filter + search query yields zero matches.
+/// Renders the team's incident history live over `api/v1`: a page header with
+/// a "New incident" action, a counts row, a search + [SegmentedControl] filter,
+/// and a scrollable list of [IncidentCard] rows. An [MSEmptyState] placeholder
+/// is shown when the active filter + search query yields zero matches.
 ///
-/// Reads the incident fixtures through [IncidentController]; this is a mock
-/// screen with no mutations, so the binding is read-only. The page body is a
-/// Wind flex column (`gap-*` carries the section rhythm, not `SizedBox`
-/// spacers); the shared [MSPageContainer] bounds the width.
+/// Reads [IncidentController] and [MaintenanceController], and it MUTATES: the
+/// maintenance tab cancels a window through a confirm dialog. The docblock here
+/// used to say the opposite, calling this a mock screen with no controller, no
+/// network and no mutations, on a 500-line file that has all three. On a screen
+/// carrying a destructive action that is the most misleading sentence it could
+/// have opened with.
+///
+/// The page body is a Wind flex column (`gap-*` carries the section rhythm, not
+/// `SizedBox` spacers); the shared [MSPageContainer] bounds the width.
 ///
 /// Composition mirrors `IncidentsListPage.tsx`:
 ///   header → counts row → search + filter row → incident list or empty state.

@@ -19,7 +19,7 @@ import '../../../ui/components/kpi_stat_card/index.dart';
 ///    [PageHeader.backLabel] / [PageHeader.backFallback] (the app's unified
 ///    back-affordance, same as [IncidentDetailView]).
 /// 2. **Header** — title "Subscribers", a subtitle naming the page, and an
-///    "Export CSV" action disabled when there are zero subscribers.
+///    no header action: the export it used to offer did nothing.
 /// 3. **KPI row** — total subscriber count and the page's subscriptions
 ///    on/off state.
 /// 4. **Body** — when subscriptions are off or there are no subscribers, a
@@ -128,18 +128,13 @@ class _StatusPageSubscribersViewState
             }),
             backLabel: pageName,
             backFallback: '/status/${page.id}',
-            actions: [
-              MSButton(
-                intent: ButtonIntent.secondary,
-                onPressed: hasSubscribers
-                    ? () {
-                        // Export is a mock action: no CSV is generated, only
-                        // the disabled-state contract from the plan applies.
-                      }
-                    : null,
-                child: WText(trans('uptizm.status.subscribers_export_csv')),
-              ),
-            ],
+            // No actions. There was an "Export CSV" button here, enabled
+            // whenever the page had subscribers, whose `onPressed` was an empty
+            // closure: a page with 400 subscribers offered an export that
+            // produced no file, no toast, no error and no spinner. Nothing in
+            // the backend generates a CSV either, so the button was a promise
+            // with nothing behind it in either half of the product.
+            actions: const [],
           ),
 
           // 3. KPI row: total subscribers + subscriptions on/off.
