@@ -225,5 +225,13 @@ return [
                 'critical' => 'Critical impact',
             ],
         ],
+        'maintenance_cancelled' => [
+            'subject' => 'Maintenance cancelled for :page',
+            'heading' => 'Maintenance cancelled',
+            'intro_after_page' => 'has cancelled the maintenance it announced.',
+            'components' => 'It would have affected:',
+            'footer' => 'You are receiving this because you confirmed a subscription to :page.',
+            'unsubscribe' => 'Unsubscribe',
+        ],
     ],
 ];
