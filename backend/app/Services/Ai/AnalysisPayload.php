@@ -175,7 +175,7 @@ readonly class AnalysisPayload
     {
         return $this->render(
             'Suggest a monitor configuration using only the evidence above.'
-                ." Write the monitor name and every human-readable label in {$this->language}."
+                ." Write the monitor name, the rationale and every human-readable label in {$this->language}."
                 .' Leave the URL, the method, header names, metric keys and region codes as they are.',
             $researchNotes,
         );
