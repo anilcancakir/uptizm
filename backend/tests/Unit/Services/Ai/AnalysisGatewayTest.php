@@ -17,6 +17,7 @@ use App\Services\Ai\FakeAnalysisGateway;
 use App\Services\Ai\LaravelAiAnalysisGateway;
 use App\Services\Monitoring\ResponseDigestResult;
 use App\Services\Monitoring\TargetLocationResult;
+use App\Support\Ai\PromptLanguage;
 use Illuminate\JsonSchema\JsonSchemaTypeFactory;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -609,6 +610,85 @@ class AnalysisGatewayTest extends TestCase
         );
     }
 
+    // ---------------------------------------------------------------------
+    // The answer's LANGUAGE, which the shape check cannot see
+    // ---------------------------------------------------------------------
+
+    public function test_the_instruction_asks_for_the_rationale_in_that_language_too(): void
+    {
+        // The first half of the 2026-08-29 defect. This line used to name only
+        // the monitor name and the labels, so the field an operator actually
+        // reads was never asked for, and a run answering in English was not
+        // disobeying anything. Both siblings name it (TriagePayload,
+        // IncidentAnalysisPayload); this one is the outlier that did not.
+        $message = $this->payload(language: 'Turkish')->buildUserMessage();
+
+        $this->assertStringContainsString('rationale', $message);
+        $this->assertStringContainsString('in Turkish', $message);
+        $this->assertMatchesRegularExpression(
+            '/rationale[^.]*in Turkish/',
+            $message,
+            'the rationale must sit inside the sentence that names the language, not merely somewhere in the prompt'
+        );
+    }
+
+    public function test_a_rationale_in_the_wrong_language_is_retried_once(): void
+    {
+        // Measured on production 2026-08-29: three analyze runs on a `tr` team
+        // came back Turkish, Turkish, English. A perfectly-shaped answer in the
+        // wrong language passed every check there was.
+        $gateway = $this->gatewayAnsweringSequence([
+            $this->answer(['rationale' => 'A JSON health payload answered from this region in 180 ms, so the thresholds sit above it.']),
+            $this->answer(['rationale' => 'JSON sağlık yanıtı bu bölgeden 180 ms içinde döndü ve eşikler bunun üzerinde tutuldu.']),
+        ]);
+
+        $result = $gateway->analyze($this->payload(language: 'Turkish'));
+
+        $this->assertSame(2, $gateway->calls, 'the wrong language must spend the retry');
+        $this->assertStringContainsString('eşikler', $result->rationale);
+    }
+
+    public function test_a_rationale_in_the_right_language_spends_no_retry(): void
+    {
+        $gateway = $this->gatewayAnsweringSequence([
+            $this->answer(['rationale' => 'JSON sağlık yanıtı bu bölgeden 180 ms içinde döndü ve eşikler bunun üzerinde tutuldu.']),
+        ]);
+
+        $gateway->analyze($this->payload(language: 'Turkish'));
+
+        $this->assertSame(1, $gateway->calls);
+    }
+
+    public function test_a_malformed_retry_keeps_the_wrong_language_answer(): void
+    {
+        // Degrade to the wrong language, never to nothing: a first answer that
+        // was merely in the wrong language is still a usable suggestion, and the
+        // operator reading English beats the operator reading a 500.
+        $gateway = $this->gatewayAnsweringSequence([
+            $this->answer(['rationale' => 'A JSON health payload answered from this region in 180 ms, so the thresholds sit above it.']),
+            null,
+        ]);
+
+        $result = $gateway->analyze($this->payload(language: 'Turkish'));
+
+        $this->assertSame(2, $gateway->calls);
+        $this->assertStringContainsString('thresholds', $result->rationale);
+    }
+
+    public function test_a_rationale_too_short_to_read_spends_no_retry(): void
+    {
+        // The detector answers "unsure" rather than "wrong", and unsure must
+        // cost nothing: a false positive here is a model call bought for a
+        // sentence nobody could classify.
+        $gateway = $this->gatewayAnsweringSequence([
+            $this->answer(['rationale' => 'Slow.']),
+        ]);
+
+        $gateway->analyze($this->payload(language: 'Turkish'));
+
+        $this->assertSame(1, $gateway->calls);
+    }
+
     /**
      * Build an analysis payload with the full owned-region catalog and
      * overridable untrusted probe fields.
@@ -621,6 +701,7 @@ class AnalysisGatewayTest extends TestCase
         array $responseHeaders = [],
         ?ResponseDigestResult $digest = null,
         ?TargetLocationResult $targetLocation = null,
+        ?string $language = null,
     ): AnalysisPayload {
         return new AnalysisPayload(
             url: 'https://example.com/health',
@@ -639,6 +720,7 @@ class AnalysisGatewayTest extends TestCase
             teamId: self::TEAM_ID,
             digest: $digest,
             targetLocation: $targetLocation,
+            language: $language ?? PromptLanguage::FALLBACK,
         );
     }
 

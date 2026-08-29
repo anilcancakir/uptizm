@@ -45,6 +45,26 @@ class PromptLanguage
      * {@see RequestLocaleDetector::detectLocale()}
      * negotiates the header the stored locale originally came from.
      */
+    /**
+     * The locale behind a language NAME, or null when the name is not one of
+     * ours.
+     *
+     * The inverse of {@see self::nameFor()}, and it exists because the payloads
+     * carry the NAME (that is the thing the prompt needs) while anything
+     * checking what came BACK works in locales. Without it every caller would
+     * hardcode its own `'Turkish' => 'tr'`, which is how the two halves drift.
+     *
+     * Deliberately NOT falling back: `nameFor()` answers `English` for an
+     * unknown locale because a prompt must say something, and this one answers
+     * null because a caller comparing an answer needs to know it does not know.
+     */
+    public static function localeFor(string $name): ?string
+    {
+        $locale = array_search($name, self::NAMES, true);
+
+        return $locale === false ? null : $locale;
+    }
+
     public static function nameFor(?string $locale): string
     {
         if ($locale === null || $locale === '') {

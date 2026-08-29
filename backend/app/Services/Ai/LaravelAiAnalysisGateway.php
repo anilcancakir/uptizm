@@ -14,6 +14,8 @@ use App\Services\Ai\Tools\ResearchUrlAllowList;
 use App\Services\Ai\Tools\WebFetchTool;
 use App\Services\Ai\Tools\WebSearchTool;
 use App\Services\Research\KodizmResearchClient;
+use App\Support\Ai\AnswerLanguage;
+use App\Support\Ai\PromptLanguage;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
@@ -276,12 +278,20 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
         //    any reason, and the suggestion below still answers.
         $message = $payload->buildUserMessage($this->research($payload));
 
-        // 3. First attempt, then validate-then-retry once on non-conforming
-        //    structured output.
+        // 3. First attempt, then ONE retry, spent on whichever check the answer
+        //    fails: a non-conforming shape, or a rationale confidently written in
+        //    a language the operator did not ask for.
+        //
+        //    One retry TOTAL rather than one each, so the two-call ceiling
+        //    BoundsRetriesToTheWall budgets for is unchanged.
         $data = $this->parse($this->rawSuggestion($message));
 
-        if ($data === null) {
-            $data = $this->parse($this->rawSuggestion($message));
+        if ($data === null || $this->answeredInTheWrongLanguage($data, $payload)) {
+            // `?? $data` and not a bare assignment: a first answer that was
+            // merely in the wrong language is still a usable suggestion, and a
+            // retry that comes back malformed must not throw it away. Degrade to
+            // the wrong language, never to nothing.
+            $data = $this->parse($this->rawSuggestion($message)) ?? $data;
         }
 
         if ($data === null) {
@@ -458,6 +468,51 @@ class LaravelAiAnalysisGateway implements Agent, AnalysisGateway, Conversational
         $agent->allowList = new ResearchUrlAllowList($payload->url);
 
         return $agent;
+    }
+
+    /**
+     * True when the rationale came back in a language the operator did not ask
+     * for, and the detector is sure of it.
+     *
+     * Measured 2026-08-29: three analyze runs on one team whose
+     * `preferredLocale()` is `tr` returned Turkish, Turkish, then English. The
+     * first half of that was an instruction naming only the monitor name and the
+     * labels, so the rationale was never asked for and two runs answering in
+     * Turkish were inference rather than compliance; {@see AnalysisPayload} names
+     * it now. This is the second half: an instruction is a request, and nothing
+     * was checking whether it had been honoured.
+     *
+     * Deliberately quiet wherever it is unsure.
+     * {@see AnswerLanguage::differsFrom()} answers false on prose it cannot read,
+     * and a language name outside our own table answers false here, because the
+     * only thing a wrong verdict buys is a wasted model call.
+     *
+     * The log line matters as much as the retry. A model that keeps answering in
+     * the wrong language is a real signal, and without this the only trace would
+     * be a quietly doubled call count.
+     *
+     * @param  array<string, mixed>  $data  A parsed, shape-conforming answer.
+     */
+    protected function answeredInTheWrongLanguage(array $data, AnalysisPayload $payload): bool
+    {
+        $expected = PromptLanguage::localeFor($payload->language);
+
+        if ($expected === null) {
+            return false;
+        }
+
+        $rationale = $data['rationale'] ?? null;
+
+        if (! is_string($rationale) || ! AnswerLanguage::differsFrom($rationale, $expected)) {
+            return false;
+        }
+
+        Log::warning('Analysis rationale came back in the wrong language; retrying once.', [
+            'expected_locale' => $expected,
+            'detected_locale' => AnswerLanguage::detect($rationale),
+        ]);
+
+        return true;
     }
 
     /**
