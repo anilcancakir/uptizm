@@ -32,6 +32,13 @@ use DateTimeInterface;
  * {@see self::raisedAboveBaseline()}, which drops a fire whose latest reading is
  * not actually above its own baseline. A shift is not a reading, and this
  * detector is only ever asked about one direction.
+ *
+ * EWMA carries a SECOND direction gate inside {@see self::detectEwma()}, because
+ * for that branch the two questions come apart: `raisedAboveBaseline()` reads the
+ * latest raw sample and the branch's own statistic reads the smoothed centre, so
+ * a falling series ending on a sample that grazes the mean passes the first and
+ * fails the second. MAD needs no such gate: its score is a monotone function of
+ * `observed - median`, the very comparison the shared guard makes.
  */
 class ResponseTimeAnomalyDetector
 {
@@ -263,12 +270,28 @@ class ResponseTimeAnomalyDetector
             return null;
         }
 
+        // A negative statistic is a centre that drifted DOWN, which is the
+        // endpoint answering faster. `raisedAboveBaseline()` cannot catch it:
+        // that guard reads the latest RAW sample and this one reads the smoothed
+        // CENTRE, and the two disagree whenever a falling series ends on a
+        // sample that grazes the window mean. Measured on `betanket.com`,
+        // 2026-08-28: observed 414ms over a 409.97ms baseline cleared the
+        // reading guard by 1% while the centre sat at 286.93ms.
+        //
+        // Dropping it here rather than downstream is what keeps `threshold` an
+        // UPPER bound. A negative direction wrote it BELOW the baseline, into a
+        // field {@see SweepAiSuggestions::readingsAreUnder()} reads as the level
+        // readings must fall under to recover, so the incident opened against a
+        // level the monitor never reaches and no tick could ever close it.
+        if ($latestScore < 0.0) {
+            return null;
+        }
+
         $magnitude = abs($latestScore);
         $severity = $magnitude > self::EWMA_CRITICAL_FACTOR * $limitL
             ? IncidentSeverity::Critical
             : IncidentSeverity::Warn;
 
-        $direction = $latestScore >= 0.0 ? 1.0 : -1.0;
         $lastFactor = ($lambda / (2.0 - $lambda)) * (1.0 - (1.0 - $lambda) ** (2 * count($values)));
         $controlLimit = $limitL * $sigma * sqrt($lastFactor);
 
@@ -281,7 +304,7 @@ class ResponseTimeAnomalyDetector
             evidence: [
                 'observed' => $values[array_key_last($values)],
                 'baseline' => $baseline,
-                'threshold' => $baseline + $direction * $controlLimit,
+                'threshold' => $baseline + $controlLimit,
                 'smoothed' => $smoothed[array_key_last($smoothed)],
                 'unit' => 'ms',
             ],
