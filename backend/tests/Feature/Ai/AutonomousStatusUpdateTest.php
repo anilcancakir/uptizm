@@ -48,6 +48,25 @@ class AutonomousStatusUpdateTest extends TestCase
         $this->app->bind(IncidentDraftGateway::class, FakeIncidentDraftGateway::class);
     }
 
+    /**
+     * The routing the timing chain rests on, asserted on the constructed job.
+     *
+     * `Tests\Unit\JobTimeoutFitsItsConnectionTest` reads the `CONNECTION`
+     * constant and can prove the number is right; it cannot prove the
+     * constructor passed it to `onConnection()`, and a constant nobody applies
+     * puts this job back on the shared connection at `retry_after` 90 with a
+     * 160-second timeout. That gap is exactly how it shipped, so it is closed
+     * here, where the object exists.
+     */
+    public function test_the_job_rides_the_dedicated_analyze_connection_and_queue(): void
+    {
+        $job = new PublishAiIncidentUpdate('incident-id', 'investigating');
+
+        $this->assertSame('redis-analyze', $job->connection);
+        $this->assertSame('analyze', $job->queue);
+        $this->assertSame(160, $job->timeout);
+    }
+
     public function test_an_auto_monitor_publishes_its_own_update(): void
     {
         $incident = $this->makeIncident($this->makeMonitor(true));
