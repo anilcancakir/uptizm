@@ -250,6 +250,28 @@
     },
     "timezone": {
       "subtitle": "Set the timezone used for displaying dates and times."
+    },
+    "titles": {
+      "appearance": "Appearance",
+      "forgot_password": "Forgot password",
+      "language": "Language",
+      "login": "Sign in",
+      "newsletter": "Newsletter",
+      "notification_preferences": "Notification preferences",
+      "notifications": "Notifications",
+      "otp": "Verification code",
+      "password": "Password",
+      "profile": "Profile",
+      "register": "Create account",
+      "reset_password": "Reset password",
+      "sessions": "Active sessions",
+      "settings": "Settings",
+      "team_create": "Create team",
+      "team_invitation": "Team invitation",
+      "team_settings": "Team settings",
+      "timezone": "Timezone",
+      "two_factor": "Two-factor authentication",
+      "two_factor_challenge": "Two-factor challenge"
     }
   },
   "nav": {
@@ -1629,7 +1651,8 @@
       "escalation_policy_new": "New escalation policy",
       "escalation_policy_edit": "Edit escalation policy",
       "on_call": "On-call",
-      "billing": "Plan & billing"
+      "billing": "Plan & billing",
+      "welcome": "Welcome"
     },
     "slo": {
       "error_budget": "Error budget",
