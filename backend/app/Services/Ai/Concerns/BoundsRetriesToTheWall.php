@@ -23,13 +23,13 @@ namespace App\Services\Ai\Concerns;
  *
  * These gateways run on two paths with two different walls: inside an Octane
  * request (`octane.max_execution_time`, 90) and inside
- * `PublishAiIncidentUpdate` on the queue (`$timeout`, 180, running
+ * `PublishAiIncidentUpdate` on the queue (`$timeout`, 160, running
  * an analysis and then a draft). Budgeting the OPERATION at 75 satisfies both
  * without asking which path it is on, which is the reason it is one number and
  * not a branch on `runningInConsole()`:
  *
  *   HTTP:  one operation  <= 75  < 90
- *   queue: two operations <= 150 < 180
+ *   queue: two operations <= 150 < 160
  *
  * A branch would have to be right about the context at every call site, and it
  * would be one more thing to be wrong about than an arithmetic that holds either

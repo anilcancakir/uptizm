@@ -218,6 +218,11 @@ class IncidentDispatcher
      * The stage is `investigating` at open rather than the incident's own
      * `detected`: detected is what the monitoring system calls an incident
      * nobody has picked up, and it is never what a customer is told.
+     *
+     * Neither the connection nor the queue is named here any more. Both live on
+     * the job as constants its constructor applies, so the routing travels with
+     * the class rather than with each dispatch site; a `->onQueue('ai')` here was
+     * how the job came to ride a connection whose `retry_after` it outlives.
      */
     protected function dispatchAutonomousUpdate(
         Monitor $monitor,
@@ -228,8 +233,7 @@ class IncidentDispatcher
             return;
         }
 
-        PublishAiIncidentUpdate::dispatch((string) $incident->getKey(), $stage->value)
-            ->onQueue('ai');
+        PublishAiIncidentUpdate::dispatch((string) $incident->getKey(), $stage->value);
     }
 
     /**

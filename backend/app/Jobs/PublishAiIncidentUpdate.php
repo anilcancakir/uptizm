@@ -62,6 +62,34 @@ class PublishAiIncidentUpdate implements ShouldQueue
     protected const string AUTHOR = 'Uptizm AI';
 
     /**
+     * The connection and queue sized for a job that outlives the shared 90.
+     *
+     * This job runs an analysis and then a draft, so its ceiling has always been
+     * past the shared `redis` connection's `retry_after` of 90. It rode that
+     * connection anyway from 2026-08-17, and Redis did what the invariant in
+     * `config/queue.php` says it does: released the reservation at 90 while the
+     * first worker was still running, handed the job to a second, and that second
+     * one found `attempts()` past `$tries` and failed it. Eleven times in
+     * production, each one an error naming a job that had done nothing wrong.
+     *
+     * `redis-analyze` (`retry_after` 200) is the connection built for exactly
+     * this, and `analyze` is the only queue drained on it. Sharing that
+     * supervisor is deliberate rather than a compromise: this job IS an analysis
+     * followed by a draft, it is the same shape the two processes were sized for
+     * (a response body held two or three times over), and it is rare enough not
+     * to crowd them. Measured on production 2026-08-29: two monitors carry
+     * `ai_auto_updates` against 65 analyses in seven days.
+     *
+     * BOTH are required. `onConnection()` alone would enqueue onto a queue nobody
+     * drains on that connection; `onQueue()` alone would put the work in front of
+     * the right worker while the wrong connection still owns the reservation, and
+     * `retry_after` is a property of the CONSUMER's connection.
+     */
+    protected const string CONNECTION = 'redis-analyze';
+
+    protected const string QUEUE = 'analyze';
+
+    /**
      * One attempt. A retry would re-spend two AI budget units to post a second
      * customer-facing message about a moment that has already passed.
      */
@@ -70,8 +98,14 @@ class PublishAiIncidentUpdate implements ShouldQueue
     /**
      * Room for two model calls end to end, each of which runs 13 to 21 seconds
      * against the real provider, plus the evidence assembly around them.
+     *
+     * 160 rather than the 180 it carried before, and the number is not free
+     * choice: it has to clear `BoundsRetriesToTheWall::WALL_SECONDS` twice (75
+     * each, so 150) and stay under the `analyze` supervisor's own 170 so the
+     * worker cannot kill the job before the job gives up on itself.
+     * `AnalyzeMonitorJob` sits at the same 160 for the same reasons.
      */
-    public int $timeout = 180;
+    public int $timeout = 160;
 
     /**
      * @param  string  $incidentId  The incident to write about.
@@ -80,7 +114,10 @@ class PublishAiIncidentUpdate implements ShouldQueue
     public function __construct(
         public string $incidentId,
         public string $stage,
-    ) {}
+    ) {
+        $this->onConnection(self::CONNECTION);
+        $this->onQueue(self::QUEUE);
+    }
 
     public function handle(
         IncidentAnalysisService $analysisService,

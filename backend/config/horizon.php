@@ -306,6 +306,14 @@ return [
         | teams may analyze at once. Two suits a product that meters analyze per
         | team, and each process has to be able to hold a full response body.
         |
+        | `PublishAiIncidentUpdate` shares these two processes, because it is the
+        | same shape (an analysis, then a draft, holding the same evidence) and
+        | needs the same connection. It is rare next to operator analyze and was
+        | measured before it was moved here: two monitors carry `ai_auto_updates`
+        | against 65 analyses in seven days, so it does not crowd the slots an
+        | operator is waiting on. Raise this number, not the queue list, if that
+        | ever stops being true.
+        |
         | `memory` 512 is sized on RSS rather than on the payload. The job carries
         | a probe response body (1 MB ceiling) and JSON-encodes it into a prompt
         | fence, so that body exists two or three times over inside one worker,
@@ -323,10 +331,18 @@ return [
         | load-bearing half. The shared connection's retry_after is 90, below
         | this timeout, so on it Redis would hand every analyze that passes 90
         | seconds to a second worker: two AI spends, two broadcast streams, two
-        | writers on one run. This is the first job in the repo to cross that 90.
-        | See the invariant comment in config/queue.php; AnalyzeQueueConfigTest
-        | pins the whole chain, including this supervisor's presence in every
-        | environment below.
+        | writers on one run. See the invariant comment in config/queue.php;
+        | AnalyzeQueueConfigTest pins the whole chain, including this supervisor's
+        | presence in every environment below.
+        |
+        | This was written claiming analyze was "the first job in the repo to
+        | cross that 90". It was not: `PublishAiIncidentUpdate` declared 180 and
+        | rode the shared connection, and had been double-delivered in production
+        | since 2026-08-17. The claim was made in good faith by reading the jobs
+        | that had a chain, which is the one place the answer was not. It is a
+        | sweep now rather than a sentence: JobTimeoutFitsItsConnectionTest reads
+        | every job in app/Jobs and fails on any timeout its connection cannot
+        | carry.
         */
         'analyze' => [
             'connection' => 'redis-analyze',
