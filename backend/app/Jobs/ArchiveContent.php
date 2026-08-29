@@ -67,19 +67,38 @@ class ArchiveContent implements ShouldQueue
     public $tries = 1;
 
     /**
-     * Whole-job budget in seconds. Below the Horizon supervisor's 60s so a stalled
+     * Whole-job budget in seconds. Below the Horizon supervisor's 85s so a stalled
      * mount surfaces as this job's own failure (which runs the hook that releases
      * the claim) rather than as a worker kill, and the supervisor in turn stays
      * below the redis connection's 90s `retry_after` so a still-running write is
      * never released to a second worker.
      *
-     * The whole chain (50 < 60 < 90) is asserted by Tests\Unit\ContentQueueConfigTest,
+     * 80 rather than the 50 it carried until 2026-08-29, and the number comes
+     * from a measurement rather than from headroom. Google Drive write latency
+     * through the mount is BIMODAL: twelve 300 KB writes to distinct directories,
+     * three seconds apart so rclone could not serve them warm, came back
+     *
+     *     min 662 ms   p50 735 ms   p90 17,329 ms   max 34,465 ms
+     *
+     * with four of twelve over 13 seconds. Against the old 50s budget that tail
+     * was losing writes at an accelerating rate: 6% of attempts on 2026-08-25,
+     * 39% by 2026-08-29, while the successful count fell from 261 a day to 116.
+     * 80 absorbs the measured worst case with margin and is the largest value the
+     * chain allows without moving this queue to its own connection, since
+     * `retry_after` on `redis` is 90.
+     *
+     * If the tail grows past this again, the answer is NOT another raise: 90 is
+     * the ceiling here, and the next step is taking Drive off the critical path
+     * (write locally, push on a schedule) rather than a private connection for a
+     * queue whose latency is not the product's to control.
+     *
+     * The whole chain (80 < 85 < 90) is asserted by Tests\Unit\ContentQueueConfigTest,
      * which reflects this property. Changing the number here without re-deriving
      * the chain fails that test.
      *
      * @var int
      */
-    public $timeout = 50;
+    public $timeout = 80;
 
     /**
      * A monitor force-deleted between dispatch and handle ends the job quietly.

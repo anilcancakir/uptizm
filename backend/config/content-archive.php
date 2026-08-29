@@ -49,6 +49,22 @@ return [
     // would abort every write in development and in tests. Production sets it.
     'sentinel' => env('CONTENT_ARCHIVE_SENTINEL'),
 
+    // When the archive is losing enough writes to be worth an operator's
+    // attention. Read by App\Jobs\AlarmContentArchiveFailures, which logs once
+    // per crossing rather than once per tick.
+    //
+    // 0.15 is set from the measured history rather than picked: this path sat at
+    // 6% on 2026-08-25 and reached 39% by 2026-08-29, so a threshold in that gap
+    // separates the ordinary tail of a slow Google Drive upload from a path that
+    // is actually degrading. `minimum_attempts` is what stops a quiet hour from
+    // alarming on one unlucky upload, since one failure out of one attempt is a
+    // 100% failure rate and means nothing.
+    'alarm' => [
+        'window_minutes' => (int) env('CONTENT_ARCHIVE_ALARM_WINDOW_MINUTES', 60),
+        'failure_rate' => (float) env('CONTENT_ARCHIVE_ALARM_FAILURE_RATE', 0.15),
+        'minimum_attempts' => (int) env('CONTENT_ARCHIVE_ALARM_MINIMUM_ATTEMPTS', 20),
+    ],
+
     // The allowed response content types, pinned exactly: this list travels on
     // the HMAC-signed probe spec, and the TypeScript Cloudflare Worker
     // reimplements the matcher below from it, so its shape and order must never

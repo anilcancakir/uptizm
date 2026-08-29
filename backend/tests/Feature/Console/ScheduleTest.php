@@ -32,6 +32,7 @@ class ScheduleTest extends TestCase
         'monitoring:daily-uptime' => 'no day ever gets a rolled-up uptime figure',
         'monitoring:schedule-ssl-checks' => 'no certificate is ever inspected',
         'monitoring:prune-content-archive' => 'archived bodies accumulate forever',
+        'monitoring:alarm-content-archive-failures' => 'the archive can lose most of its writes with nothing saying so, which is what it did for five days in August 2026',
         'monitoring:sweep-ai-suggestions' => 'no anomaly is ever proposed',
         'ai:prune-expired-suggestions' => 'expired suggestions stay in the table',
         'ai:dispatch-weekly-digests' => 'the digest endpoint answers 404 forever',

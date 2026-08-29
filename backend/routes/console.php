@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\AggregateMonitorDailyUptime;
+use App\Jobs\AlarmContentArchiveFailures;
 use App\Jobs\AlarmDarkProbeRegions;
 use App\Jobs\BustStatusPageCacheForMaintenanceBoundaries;
 use App\Jobs\DispatchWeeklyDigests;
@@ -75,6 +76,20 @@ Schedule::job(new PruneContentArchive)
     ->withoutOverlapping()
     ->onOneServer()
     ->name('monitoring:prune-content-archive');
+
+// Watch the archive's failure RATE, because every individual failure is already
+// quiet by design: it logs, releases its claim, and reads downstream exactly like
+// content that had not changed. That is why a degradation from 6% to 39% of
+// writes over five days went unnoticed in August 2026.
+//
+// Hourly, on the `feeds` lane rather than `content`: a serial worker parked in the
+// rclone mount is precisely the state worth reporting, and an alarm queued behind
+// that stall would never fire. Minute 23 keeps it clear of the nightly jobs above.
+Schedule::job(new AlarmContentArchiveFailures)
+    ->hourlyAt(23)
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->name('monitoring:alarm-content-archive-failures');
 
 // Sweep the ai_mode=suggest fleet for response-time anomalies every 2 minutes
 // (supervisor `ai` queue, single-server, unique lock prevents overlap with a
