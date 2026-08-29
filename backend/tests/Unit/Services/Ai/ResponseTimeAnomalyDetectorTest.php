@@ -225,6 +225,65 @@ class ResponseTimeAnomalyDetectorTest extends TestCase
         );
     }
 
+    public function test_a_downward_drift_is_not_flagged_by_one_sample_over_the_mean(): void
+    {
+        // The production shape, measured on `betanket.com` on 2026-08-28:
+        // observed 414ms against a baseline of 409.97ms cleared the reading
+        // guard by 1%, while the SMOOTHED centre sat at 286.93ms, far below the
+        // same baseline. The two answer different questions, and only the first
+        // one was being asked.
+        //
+        // 74x600, 25x200, then a single 500. MAD is guarded off (74 of 100
+        // deviations from the median are 0), so EWMA owns this.
+        //
+        // mean = (74*600 + 25*200 + 500)/100 = 499, so the latest sample clears
+        // its own baseline by 1ms and the reading guard passes.
+        // EWMA settles at ~200.30 over the 25 low samples, then the 500 lifts it
+        // to 0.25*500 + 0.75*200.30 = 275.23: still 224ms UNDER the baseline.
+        // sigma = 172.913, sigma_Z = sigma*sqrt(1/7) = 65.353, so the statistic
+        // is -3.42 and confirms in the negative direction over the trailing 3.
+        //
+        // Left unguarded this raises a `response_time` anomaly whose threshold
+        // is baseline - 3*sigma_Z = 302.9, i.e. BELOW the baseline, on a monitor
+        // that never answers that fast. SweepAiSuggestions resolves an incident
+        // only once the trailing readings all sit under the level it was raised
+        // against, so such an incident opens and can never close.
+        $window = array_merge(array_fill(0, 74, 600), array_fill(0, 25, 200), [500]);
+
+        $this->assertNull($this->detect($window, $this->config()));
+    }
+
+    public function test_a_raised_threshold_is_always_above_its_baseline(): void
+    {
+        // The contract SweepAiSuggestions::readingsAreUnder() consumes: the
+        // stored `threshold` is an UPPER bound, so "the readings came back under
+        // it" is a satisfiable recovery test. A threshold written below the
+        // baseline inverts that predicate into one nothing can satisfy.
+        // The falling window is in this list on purpose: it is the one that
+        // raised an inverted threshold, so a list of rising windows alone would
+        // pass with the defect in place and prove nothing.
+        $windows = [
+            'mad spike' => $this->spikeWindow(),
+            'ewma step' => array_merge(array_fill(0, 90, 100), array_fill(0, 10, 110)),
+            'ewma drift' => array_merge(array_fill(0, 90, 100), array_fill(0, 10, 400)),
+            'ewma fall' => array_merge(array_fill(0, 74, 600), array_fill(0, 25, 200), [500]),
+        ];
+
+        foreach ($windows as $label => $window) {
+            $candidate = $this->detect($window, $this->config(confirmK: 1));
+
+            if ($candidate === null) {
+                continue;
+            }
+
+            $this->assertGreaterThan(
+                $candidate->evidence['baseline'],
+                $candidate->evidence['threshold'],
+                $label,
+            );
+        }
+    }
+
     // ---------------------------------------------------------------------
     // Cold-start gate + static bounds
     // ---------------------------------------------------------------------
