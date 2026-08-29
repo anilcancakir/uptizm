@@ -250,6 +250,28 @@
     },
     "timezone": {
       "subtitle": "Tarih ve saatlerin görüntülenmesinde kullanılan saat dilimini ayarlayın."
+    },
+    "titles": {
+      "appearance": "Görünüm",
+      "forgot_password": "Şifremi unuttum",
+      "language": "Dil",
+      "login": "Giriş yap",
+      "newsletter": "Bülten",
+      "notification_preferences": "Bildirim tercihleri",
+      "notifications": "Bildirimler",
+      "otp": "Doğrulama kodu",
+      "password": "Şifre",
+      "profile": "Profil",
+      "register": "Hesap oluştur",
+      "reset_password": "Şifre sıfırla",
+      "sessions": "Aktif oturumlar",
+      "settings": "Ayarlar",
+      "team_create": "Takım oluştur",
+      "team_invitation": "Takım daveti",
+      "team_settings": "Takım ayarları",
+      "timezone": "Saat dilimi",
+      "two_factor": "İki adımlı doğrulama",
+      "two_factor_challenge": "Doğrulama adımı"
     }
   },
   "nav": {
@@ -1629,7 +1651,8 @@
       "escalation_policy_new": "Yeni yükseltme politikası",
       "escalation_policy_edit": "Yükseltme politikasını düzenle",
       "on_call": "Nöbet",
-      "billing": "Plan ve faturalandırma"
+      "billing": "Plan ve faturalandırma",
+      "welcome": "Hoş geldiniz"
     },
     "slo": {
       "error_budget": "Hata bütçesi",

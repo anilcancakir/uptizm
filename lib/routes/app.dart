@@ -290,9 +290,17 @@ void registerAppRoutes() {
   //     UNGATED (no 'auth' middleware) so a fresh, unauthenticated launch can
   //     reach onboarding. Invitation acceptance is now owned by magic_starter
   //     (`/invitations/:token/accept`), so uptizm no longer registers
-  //     `/invite/:token`. Standalone routes carry no `.title(...)`.
+  //     `/invite/:token`.
+  //
+  //     It carries a title like every other page. This used to say "standalone
+  //     routes carry no `.title(...)`", which was a rule stated for a
+  //     population of one and with no reason attached: a route without a title
+  //     falls back to the bare app name, so the tab read `Uptizm` on the one
+  //     screen a first-time visitor is most likely to have open. magic_starter
+  //     registers its guest routes outside the app shell too and titles all of
+  //     them, so there was no convention here to be consistent with either.
   MagicRoute.page(
     '/welcome',
     () => const WelcomeView(),
-  ).transition(RouteTransition.none);
+  ).title('uptizm.titles.welcome').transition(RouteTransition.none);
 }

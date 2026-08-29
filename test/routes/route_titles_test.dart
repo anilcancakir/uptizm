@@ -22,6 +22,59 @@ class _TitlesLangLoader implements TranslationLoader {
   }
 }
 
+/// The `magic_starter.titles.*` keys the RESOLVED magic_starter ships.
+///
+/// Located through `.dart_tool/package_config.json` rather than a hardcoded
+/// `../magic_starter`, so it follows whatever the solver actually picked: the
+/// sibling working tree locally, the cloned default branch in CI, or a hosted
+/// version once the package is published.
+Set<String> _starterTitleKeys() {
+  final config =
+      jsonDecode(File('.dart_tool/package_config.json').readAsStringSync())
+          as Map<String, dynamic>;
+
+  final package = (config['packages'] as List<dynamic>)
+      .cast<Map<String, dynamic>>()
+      .firstWhere(
+        (entry) => entry['name'] == 'magic_starter',
+        orElse: () => throw StateError(
+          'magic_starter is not in the resolved package graph. Run '
+          '`flutter pub get` before this test.',
+        ),
+      );
+
+  // `rootUri` is relative to `.dart_tool/` (`../../magic_starter` for a sibling
+  // checkout) and absolute for a hosted package. The TRAILING SLASH is
+  // load-bearing: without it `resolve()` treats the last segment as a file name
+  // and replaces it, so `assets/...` lands one directory too high. The first
+  // draft of this dropped it and the test reported "magic_starter ships no
+  // titles" about a package that shipped twenty.
+  final raw = package['rootUri'] as String;
+  final root = Uri.parse(raw.endsWith('/') ? raw : '$raw/');
+  final resolved = root.hasScheme
+      ? root
+      : Directory('.dart_tool').uri.resolveUri(root);
+
+  final stub = File.fromUri(resolved.resolve('assets/stubs/install/en.stub'));
+
+  // Not a graceful degrade: a stub we cannot read is a broken lookup, and
+  // returning an empty set here would report it as a magic_starter that
+  // predates the titles, which is a different problem with a different fix.
+  if (!stub.existsSync()) {
+    throw StateError(
+      'magic_starter resolved to ${resolved.toFilePath()} but its install stub '
+      'is not there. The package layout moved, or this lookup is wrong.',
+    );
+  }
+
+  final decoded = jsonDecode(stub.readAsStringSync()) as Map<String, dynamic>;
+  final titles =
+      (decoded['magic_starter'] as Map<String, dynamic>?)?['titles']
+          as Map<String, dynamic>?;
+
+  return titles?.keys.toSet() ?? const {};
+}
+
 void main() {
   setUp(() {
     TitleManager.reset();
@@ -64,6 +117,46 @@ void main() {
         missingKeys,
         isEmpty,
         reason: 'Route titles reference keys missing from en.json: $missingKeys',
+      );
+    });
+
+    test('every magic_starter title key it ships exists in en.json', () {
+      // The account surface (login, register, the Settings hub and its
+      // sub-pages, teams, notification preferences) is magic_starter's, and so
+      // are its `.title()` calls. The CATALOGUE is ours: `trans()` returns the
+      // key itself when we have no entry, so a starter route we have not
+      // supplied renders `magic_starter.titles.login` in the browser tab.
+      //
+      // Read from the package we actually resolve rather than from a copy, so
+      // a starter release that adds a route fails here instead of shipping a
+      // raw key. All 20 of its routes were untitled until magic_starter#115,
+      // and every tab on that surface read the bare app name.
+      final shipped = _starterTitleKeys();
+
+      expect(
+        shipped,
+        isNotEmpty,
+        reason:
+            'The resolved magic_starter ships no `magic_starter.titles` block. '
+            'It predates the release that titled its routes, so every account '
+            'and settings page shows the bare app name in the tab.',
+      );
+
+      final enJson =
+          jsonDecode(File('assets/lang/en.json').readAsStringSync())
+              as Map<String, dynamic>;
+      final ours =
+          ((enJson['magic_starter'] as Map<String, dynamic>)['titles']
+                  as Map<String, dynamic>?) ??
+              const <String, dynamic>{};
+
+      final missing = shipped.difference(ours.keys.toSet());
+      expect(
+        missing,
+        isEmpty,
+        reason:
+            'magic_starter titles its routes with keys our catalogue does not '
+            'carry, so each renders as a raw key in the tab: $missing',
       );
     });
   });
