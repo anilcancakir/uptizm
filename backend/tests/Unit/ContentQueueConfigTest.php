@@ -41,7 +41,7 @@ class ContentQueueConfigTest extends TestCase
      * test_the_pinned_job_timeout_matches_the_archive_job, so the chain asserted
      * here cannot drift away from the job it is sized for.
      */
-    private const JOB_TIMEOUT = 50;
+    private const JOB_TIMEOUT = 80;
 
     /** The archive job. */
     private const JOB_CLASS = 'App\Jobs\ArchiveContent';

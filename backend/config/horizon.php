@@ -268,13 +268,20 @@ return [
         | Memory stays modest: the job carries a spool-file PATH, and only the
         | compressed bytes (a fraction of the 1 MB body ceiling) are ever held.
         |
-        | The 60s timeout is load bearing. It must stay ABOVE the archive job's own
-        | 50s timeout, so the job can run the failure hook that releases its
+        | The 85s timeout is load bearing. It must stay ABOVE the archive job's own
+        | 80s timeout, so the job can run the failure hook that releases its
         | claimed version row before the worker kills it, and BELOW the redis
-        | connection's retry_after, so a still-running write is never released to a
-        | second worker. See the invariant comment in config/queue.php;
+        | connection's retry_after (90), so a still-running write is never released
+        | to a second worker. See the invariant comment in config/queue.php;
         | ContentQueueConfigTest pins the whole chain, including this supervisor's
         | presence and its single process in every environment below.
+        |
+        | It was 60 over a 50s job until 2026-08-29, and that budget was losing
+        | writes: measured Drive latency through this mount is bimodal (p50 735 ms,
+        | p90 17.3 s, max 34.5 s over twelve cold writes), and the failure rate had
+        | climbed from 6% to 39% in five days. 85/80 absorbs the measured tail and
+        | is the most this connection allows. The reasoning lives on
+        | ArchiveContent::$timeout, next to the number it justifies.
         */
         'content' => [
             'connection' => 'redis',
@@ -286,7 +293,7 @@ return [
             'maxJobs' => 0,
             'memory' => 192,
             'tries' => 1,
-            'timeout' => 60,
+            'timeout' => 85,
             'nice' => 0,
         ],
 
