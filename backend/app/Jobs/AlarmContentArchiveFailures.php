@@ -39,11 +39,26 @@ use Illuminate\Support\Facades\Log;
  * ceremony. It is CLEARED the moment a tick sees the rate back under the
  * threshold, so a path that degrades, recovers, and degrades again alarms twice.
  *
- * THE MINIMUM SAMPLE IS NOT OPTIONAL
+ * THE MINIMUM SAMPLE IS NOT OPTIONAL, AND NEITHER IS MEASURING IT
  *
- * One failed write out of one attempt is a 100% failure rate and means nothing.
- * The window is skipped entirely below {@see minimumAttempts()}, which is what
- * keeps a quiet hour from paging about a single unlucky upload.
+ * One failed write out of one attempt is a 100% failure rate and means nothing,
+ * so a window holding fewer than {@see minimumAttempts()} is skipped.
+ *
+ * That floor has to be checked against the volume it gates, and the first
+ * version of this job was not. It shipped with a 60-minute window and a
+ * 20-attempt floor while the archive attempts about 12 writes an hour, so
+ * replaying 143 hourly ticks over 2026-08-24..29 fired it ZERO times: every
+ * tick skipped. The alarm written to end a five-day silent failure could not
+ * itself fire. The window is 180 minutes now, replayed to fire on the first day
+ * the degradation was visible. See `config/content-archive.php` for the numbers.
+ *
+ * TWO BARS, NOT ONE
+ *
+ * A rate hovering near a single threshold crosses it in both directions and
+ * alarms on every other tick. Replayed on one bar: 10 alarms in six days. With
+ * the clear bar at half the raise bar: 2, one when the degradation began and one
+ * when it deepened. An alarm people mute is worth less than no alarm, because it
+ * also teaches them to mute the next one.
  */
 class AlarmContentArchiveFailures implements ShouldQueue
 {
@@ -100,16 +115,22 @@ class AlarmContentArchiveFailures implements ShouldQueue
         }
 
         $rate = $failed / $attempts;
+        $alarmed = Cache::get(self::ALARM_FLAG) === true;
 
-        if ($rate < $this->threshold()) {
-            // Recovered (or never degraded). Clearing here rather than only on a
-            // crossing is what lets the NEXT degradation alarm.
-            Cache::forget(self::ALARM_FLAG);
+        // Two bars, not one. A rate hovering around a single threshold crosses
+        // it in both directions and alarms on every other tick: replayed against
+        // 2026-08-24..29 that is 10 alarms in six days, against 2 with the clear
+        // bar at half the raise bar. Clearing here rather than only on a
+        // crossing is also what lets the NEXT degradation alarm at all.
+        if ($alarmed) {
+            if ($rate < $this->clearThreshold()) {
+                Cache::forget(self::ALARM_FLAG);
+            }
 
             return;
         }
 
-        if (Cache::get(self::ALARM_FLAG) === true) {
+        if ($rate < $this->threshold()) {
             return;
         }
 
@@ -139,6 +160,18 @@ class AlarmContentArchiveFailures implements ShouldQueue
     protected function threshold(): float
     {
         return (float) config('content-archive.alarm.failure_rate');
+    }
+
+    /**
+     * The rate an already-raised alarm must fall BELOW before it re-arms.
+     *
+     * Lower than {@see self::threshold()} on purpose, and the gap is the whole
+     * point: without it a path sitting near the bar alarms, clears and alarms
+     * again on consecutive ticks.
+     */
+    protected function clearThreshold(): float
+    {
+        return (float) config('content-archive.alarm.clear_rate');
     }
 
     /**

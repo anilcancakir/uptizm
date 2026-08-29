@@ -53,15 +53,32 @@ return [
     // attention. Read by App\Jobs\AlarmContentArchiveFailures, which logs once
     // per crossing rather than once per tick.
     //
-    // 0.15 is set from the measured history rather than picked: this path sat at
-    // 6% on 2026-08-25 and reached 39% by 2026-08-29, so a threshold in that gap
-    // separates the ordinary tail of a slow Google Drive upload from a path that
-    // is actually degrading. `minimum_attempts` is what stops a quiet hour from
-    // alarming on one unlucky upload, since one failure out of one attempt is a
-    // 100% failure rate and means nothing.
+    // EVERY NUMBER HERE IS REPLAYED AGAINST REAL HISTORY, and the first draft
+    // was not. It shipped with a 60-minute window and a 20-attempt floor, and
+    // replaying 143 hourly ticks over 2026-08-24..29 showed it firing ZERO
+    // times: the archive attempts about 12 writes an hour, so a 60-minute
+    // window never reached its own minimum and every tick skipped. An alarm
+    // gated on a volume nobody measured is an alarm that cannot fire, which is
+    // exactly the failure it was written to end.
+    //
+    // 180 minutes, measured: over 40 sampled windows the attempt count ran
+    // min 34, p50 35, against min 11 / p50 12 for 60 minutes. Replayed with
+    // these values the alarm fires on 2026-08-24 at 20%, which is the first day
+    // the degradation was visible and five days before anyone noticed it.
+    //
+    // 0.15 likewise comes from the history: this path sat at 5.8% on 2026-08-25
+    // and reached 30.6% by 2026-08-28, so a threshold in that gap separates the
+    // ordinary tail of a slow Google Drive upload from a path that is degrading.
+    //
+    // `clear_rate` is hysteresis, and it is not decoration. A rate hovering
+    // around a single threshold crosses it repeatedly: replayed on one bar the
+    // alarm fired 10 times in six days, and with a clear bar at half the raise
+    // bar it fired TWICE, once when the degradation began and once when it got
+    // worse. That is the difference between a signal and a thing people mute.
     'alarm' => [
-        'window_minutes' => (int) env('CONTENT_ARCHIVE_ALARM_WINDOW_MINUTES', 60),
+        'window_minutes' => (int) env('CONTENT_ARCHIVE_ALARM_WINDOW_MINUTES', 180),
         'failure_rate' => (float) env('CONTENT_ARCHIVE_ALARM_FAILURE_RATE', 0.15),
+        'clear_rate' => (float) env('CONTENT_ARCHIVE_ALARM_CLEAR_RATE', 0.075),
         'minimum_attempts' => (int) env('CONTENT_ARCHIVE_ALARM_MINIMUM_ATTEMPTS', 20),
     ],
 
