@@ -573,9 +573,9 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
     );
   }
 
-  /// Builds the Save + Send-test action row. Send-test only renders once the
-  /// channel exists ([record] non-null; there is nothing to test before the
-  /// first connect).
+  /// Builds the Save + Send-test + Delete action row. Send-test and Delete
+  /// only render once the channel exists ([record] non-null; there is
+  /// nothing to test or remove before the first connect).
   Widget _buildActions(ChannelType type, NotificationChannelRecord? record) {
     return WDiv(
       className: 'flex flex-row flex-wrap gap-2',
@@ -591,6 +591,13 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
             size: ButtonSize.sm,
             onPressed: () => _sendTest(record),
             child: WText(trans('uptizm.teams.channels_test_button')),
+          ),
+        if (record != null)
+          MSButton(
+            intent: ButtonIntent.ghost,
+            size: ButtonSize.sm,
+            onPressed: () => _confirmDelete(type, record),
+            child: WText(trans('uptizm.teams.channels_delete_button')),
           ),
       ],
     );
@@ -758,5 +765,35 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
   /// own honest success/failure toast, so this stays silent beyond firing it.
   Future<void> _sendTest(NotificationChannelRecord record) async {
     await NotificationChannelController.instance.sendTest(record.id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Delete confirmation
+  // ---------------------------------------------------------------------------
+
+  /// Opens the delete [MagicStarterConfirmDialog]; on confirm, fires
+  /// [NotificationChannelController.delete] (`DELETE
+  /// /notification-channels/{id}`), which reloads the roster and surfaces
+  /// its own toast either way. Mirrors `escalation_policies_view.dart`'s
+  /// `_confirmDelete`, including the `if (!mounted) return;` guard after the
+  /// awaited dialog: this view stays mounted on its own route, but the guard
+  /// costs nothing and matches every other delete in this codebase.
+  Future<void> _confirmDelete(
+    ChannelType type,
+    NotificationChannelRecord record,
+  ) async {
+    final bool confirmed = await MagicStarterConfirmDialog.show(
+      context,
+      title: trans('uptizm.teams.channels_delete_confirm_title', {
+        'name': type.label,
+      }),
+      description: trans('uptizm.teams.channels_delete_confirm_description'),
+      confirmLabel: trans('uptizm.teams.channels_delete_confirm_label'),
+      variant: ConfirmDialogVariant.danger,
+    );
+    if (!confirmed) return;
+    if (!mounted) return;
+
+    await NotificationChannelController.instance.delete(record.id);
   }
 }
