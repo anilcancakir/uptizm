@@ -108,7 +108,7 @@ class RecordNotificationDelivery implements ShouldBeDiscovered
             // Denormalised from the channel so the row stays legible after the
             // channel is deleted and `channel_id` goes null.
             'channel_type' => $channel->channel_type->value,
-            'notification_type' => $this->notificationType($event->notification),
+            'notification_type' => $this->storableClassName($event->notification),
             'event' => $this->lifecycleEvent($event->notification, $isTest),
             'is_test' => $isTest,
             ...$this->outcomeColumns($event),
@@ -142,16 +142,31 @@ class RecordNotificationDelivery implements ShouldBeDiscovered
                 'status_code' => null,
                 'error_code' => null,
                 // The class, never the message. The message is where the
-                // target URL rides.
-                'exception_class' => $exception instanceof Throwable ? $exception::class : null,
+                // target URL rides. Routed through the same NUL strip as
+                // `notification_type`: an anonymous exception class carries the
+                // byte PostgreSQL rejects, and throwing a QueryException from
+                // inside the failure handler would replace the transport
+                // failure it was recording.
+                'exception_class' => $exception instanceof Throwable
+                    ? $this->storableClassName($exception)
+                    : null,
             ];
         }
 
         // Step 1 gave all four channels a ChannelDeliveryResult return value,
         // which is what `NotificationSent::$response` carries here. The type
         // check is a guard rather than a branch: reaching a channel that
-        // returned something else would mean the contract had been broken, and
-        // NotificationSent still means the send returned without throwing.
+        // returned something else would mean the contract had been broken.
+        //
+        // The fallback below then records `delivered`, and that is an
+        // ASSUMPTION rather than a reading: all `NotificationSent` proves is
+        // that `send()` returned without throwing. It is the best available
+        // signal and the alternative (`failed`) would be equally invented, but
+        // a channel added later that forgets the return type will be recorded
+        // as a success it never claimed. Pinned by
+        // `test_a_channel_returning_no_result_is_recorded_as_delivered` so the
+        // behaviour is a decision on the record rather than a default nobody
+        // chose.
         $result = $event->response instanceof ChannelDeliveryResult ? $event->response : null;
 
         return [
@@ -163,7 +178,7 @@ class RecordNotificationDelivery implements ShouldBeDiscovered
     }
 
     /**
-     * The notification's class, in a form a varchar column can hold.
+     * Any object's class, in a form a varchar column can hold.
      *
      * PHP names an anonymous class `Parent@anonymous` + a NUL byte + the
      * absolute file path and line it was declared at. That NUL is not
@@ -172,10 +187,16 @@ class RecordNotificationDelivery implements ShouldBeDiscovered
      * would pass the default suite and fail on the box. Everything after the
      * NUL is a deployment path anyway; the half before it is the only stable
      * half and the only one worth recording.
+     *
+     * Both class-name columns go through here. `notification_type` is the live
+     * case (the test-send notification IS an anonymous class); `exception_class`
+     * is latent, since no anonymous exception exists in this codebase today,
+     * but an asymmetry between the two reads as an oversight and would fail in
+     * the one place it must not: inside the handler recording a failure.
      */
-    private function notificationType(object $notification): string
+    private function storableClassName(object $subject): string
     {
-        $class = $notification::class;
+        $class = $subject::class;
         $marker = strpos($class, "\0");
 
         return $marker === false ? $class : substr($class, 0, $marker);

@@ -40,8 +40,13 @@ class PruneNotificationDeliveries implements ShouldQueue
      * Rows held in memory at once. `chunkById` keyset-paginates on the primary
      * key, which is what makes it safe to delete inside the callback: an
      * offset-paginated chunk would skip a row for every row removed.
+     *
+     * Public, unlike {@see PruneContentArchive}'s, because the test that proves
+     * the multi-page path seeds `CHUNK_SIZE + 1` rows. Hardcoding 200 there
+     * would let a change to this number silently turn that test back into a
+     * single-page one, which is exactly the way it was first written wrong.
      */
-    protected const int CHUNK_SIZE = 200;
+    public const int CHUNK_SIZE = 200;
 
     /**
      * One attempt. A retry would re-derive the same cutoff and re-visit rows
@@ -51,6 +56,19 @@ class PruneNotificationDeliveries implements ShouldQueue
      * @var int
      */
     public $tries = 1;
+
+    /**
+     * Name the lane explicitly, the way {@see PruneContentArchive} does.
+     *
+     * A job that never calls `onQueue()` lands on `default`, and `default` is
+     * consumed here only because it appears in supervisor-1's queue list. That
+     * is an accident to depend on: remove it from the list and this sweep stops
+     * running with no error raised anywhere.
+     */
+    public function __construct()
+    {
+        $this->onQueue((string) config('notification-deliveries.queue'));
+    }
 
     /**
      * Delete every delivery row outside the retention window.

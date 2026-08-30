@@ -10,6 +10,7 @@ use App\Models\NotificationDelivery;
 use App\Models\Team;
 use App\Models\User;
 use App\Notifications\Channels\ChannelDeliveryResult;
+use App\Notifications\Channels\WebhookChannel;
 use App\Notifications\IncidentOpened;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
@@ -105,6 +106,37 @@ class NotificationDeliveryRecordTest extends TestCase
         $this->assertSame(RuntimeException::class, $row->exception_class);
         $this->assertNull($row->status_code, 'A throw means no response existed to read a status from.');
         $this->assertNull($row->error_code);
+    }
+
+    /**
+     * A channel that returns no result is recorded as delivered.
+     *
+     * All four channels return a `ChannelDeliveryResult`, so nothing in the
+     * application reaches this branch and no other fixture covers it. It is
+     * pinned anyway because it encodes an assumption rather than a reading: a
+     * `NotificationSent` proves only that `send()` returned without throwing,
+     * so a channel added later that forgets the return type is recorded as a
+     * success it never claimed. If that is ever the wrong default, this test is
+     * what fails and says so.
+     */
+    public function test_a_channel_returning_no_result_is_recorded_as_delivered(): void
+    {
+        $team = $this->makeTeam();
+        $channel = $this->webhookChannel($team);
+
+        event(new NotificationSent(
+            $channel,
+            new IncidentOpened($this->makeIncident($team)),
+            WebhookChannel::class,
+            null,
+        ));
+
+        $row = $this->soleDelivery();
+
+        $this->assertSame(ChannelDeliveryResult::OUTCOME_DELIVERED, $row->outcome);
+        $this->assertNull($row->status_code);
+        $this->assertNull($row->error_code);
+        $this->assertNull($row->exception_class);
     }
 
     /**

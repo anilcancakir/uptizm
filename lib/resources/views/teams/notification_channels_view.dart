@@ -773,8 +773,10 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
 
   /// Opens the delete [MagicStarterConfirmDialog]; on confirm, fires
   /// [NotificationChannelController.delete] (`DELETE
-  /// /notification-channels/{id}`), which reloads the roster and surfaces
-  /// its own toast either way. Mirrors `escalation_policies_view.dart`'s
+  /// /notification-channels/{id}`), which reloads the roster on success and
+  /// raises its own toast only on failure. A successful delete is deliberately
+  /// silent: the row collapsing back to "Connect" is the confirmation.
+  /// Mirrors `escalation_policies_view.dart`'s
   /// `_confirmDelete`, including the `if (!mounted) return;` guard after the
   /// awaited dialog: this view stays mounted on its own route, but the guard
   /// costs nothing and matches every other delete in this codebase.

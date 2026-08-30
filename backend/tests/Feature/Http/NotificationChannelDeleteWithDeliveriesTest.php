@@ -16,10 +16,21 @@ use Tests\TestCase;
  * is `nullOnDelete()` ({@see NotificationDelivery}), so a hard delete of the
  * channel must leave both rows in place with `channel_id` null.
  *
- * SQLite does not enforce foreign key constraints by default in this suite,
- * so this assertion is only meaningful on PostgreSQL: run with
- * `DB_CONNECTION=pgsql DB_DATABASE=uptizm_test php artisan test`
- * (see `.claude/rules/backend.md`).
+ * This test is real on BOTH engines, which is worth stating because the
+ * opposite is easy to assume: `config/database.php:40` sets
+ * `'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true)` and `phpunit.xml`
+ * pins only `DB_CONNECTION` and `DB_DATABASE`, so the SQLite test connection
+ * enforces FKs too. Measured: mutating the FK to `cascadeOnDelete()` reddens
+ * this test on SQLite as well as on PostgreSQL. Do not discount a red here as
+ * an engine artifact.
+ *
+ * Still run it against production's engine when the constraint is what is in
+ * question: `DB_CONNECTION=pgsql DB_DATABASE=uptizm_test php artisan test`.
+ * `.claude/rules/backend.md` lists the five divergences that have actually
+ * produced defects here, and foreign keys are not among them.
+ *
+ * Its value over the model-level test is the path: this one deletes through the
+ * HTTP endpoint an operator actually uses.
  */
 class NotificationChannelDeleteWithDeliveriesTest extends TestCase
 {

@@ -3,7 +3,6 @@
 namespace App\Models;
 
 use FlutterSdk\MagicStarter\Support\ConditionallyUsesUuids;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -27,7 +26,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class NotificationDelivery extends Model
 {
     use ConditionallyUsesUuids;
-    use HasFactory;
 
     /**
      * @var array<int, string>

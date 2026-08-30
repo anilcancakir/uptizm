@@ -39,10 +39,20 @@ use RuntimeException;
  * honest (it reads a reported failure as `delivered:false`) while the
  * no-throw keeps a queued incident send from poisoning the queue.
  *
- * A TRANSPORT failure is the one case that does propagate, because it is the
- * one case a retry can fix. It is replaced first: Guzzle appends the full
- * request URI to a cURL error message, so the tenant URL would otherwise reach
- * `failed_jobs.exception` and Sentry with its path and query intact.
+ * A TRANSPORT failure is the one case that does propagate, and it is replaced
+ * first: Guzzle appends the full request URI to a cURL error message, so the
+ * tenant URL would otherwise reach `failed_jobs.exception` and Sentry with its
+ * path and query intact.
+ *
+ * What propagation buys here is the `NotificationFailed` seam (which is what
+ * records the failed delivery row) and a visible `failed_jobs` entry. It does
+ * NOT buy a retry on this deployment: `config/horizon.php` runs supervisor-1
+ * with `tries: 1`, the production block overrides only `maxProcesses`, and none
+ * of the incident notifications declares its own `$tries`, so the job gets one
+ * attempt. Wanting a real retry is a separate decision, and not one to make by
+ * adding `$tries` to a notification: the mail and escalation lanes send to
+ * several notifiables per job, which is the sibling-resend hazard
+ * {@see RetriesRateLimitedDelivery} already names.
  */
 class WebhookChannel
 {
@@ -75,8 +85,9 @@ class WebhookChannel
      *
      * @throws \JsonException When the webhook payload cannot be JSON-encoded.
      * @throws RuntimeException When the target could not be reached at all; it
-     *                          names the host so the queue can retry without
-     *                          the URL reaching the failed-job record.
+     *                          names the host and nothing else, so the failure
+     *                          reaches `NotificationFailed` and `failed_jobs`
+     *                          without the URL riding along.
      */
     public function send(object $notifiable, Notification $notification): ChannelDeliveryResult
     {
@@ -175,9 +186,11 @@ class WebhookChannel
             //    chain, which would print the URL again one link down.
             //
             //    Rethrown rather than reported, unlike every other failure
-            //    here: a connect failure is the one that a retry can fix, and
-            //    only propagation out of `send()` gives the queued job that
-            //    retry.
+            //    here. Reporting would swallow it into a `delivered`-shaped
+            //    silence: only a throw reaches `NotificationFailed`, which is
+            //    what records the failed delivery row, and only a throw leaves
+            //    a `failed_jobs` entry an operator can find. It does not buy a
+            //    retry; see the class docblock for why.
             throw new RuntimeException(sprintf(
                 'Webhook delivery to %s failed: the target could not be reached.',
                 $host,

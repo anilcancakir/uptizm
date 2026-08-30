@@ -91,16 +91,42 @@ class PruneNotificationDeliveriesTest extends TestCase
     }
 
     /**
-     * More rows than fit in one chunk still all get deleted: proves the
-     * chunked delete does not stop after the first `chunkById` page.
+     * The sweep names the lane it runs on.
+     *
+     * A job that never calls `onQueue()` lands on `default`, and `default` is
+     * consumed here only because it appears in supervisor-1's queue list in
+     * `config/horizon.php`. Depending on that is the silent kind of wrong:
+     * remove `default` from the list and this sweep simply stops running, with
+     * no error raised anywhere and `schedule:list` still looking correct.
+     */
+    public function test_the_sweep_runs_on_the_lane_its_config_names(): void
+    {
+        $this->assertSame(
+            (string) config('notification-deliveries.queue'),
+            (new PruneNotificationDeliveries)->queue,
+        );
+    }
+
+    /**
+     * More rows than fit in one chunk still all get deleted.
+     *
+     * The count has to CROSS `PruneNotificationDeliveries::CHUNK_SIZE`, not
+     * merely be plural: an earlier version of this test seeded five rows
+     * against a chunk size of 200, so it exercised exactly one page and proved
+     * the opposite of its own name. The multi-page path is the one worth
+     * pinning, because deleting inside a `chunkById` callback is where keyset
+     * pagination either holds or silently skips a page's worth of rows.
      */
     public function test_a_backlog_larger_than_one_chunk_is_fully_deleted(): void
     {
         $team = $this->team();
+        $total = PruneNotificationDeliveries::CHUNK_SIZE + 1;
 
-        for ($i = 0; $i < 5; $i++) {
+        for ($i = 0; $i < $total; $i++) {
             $this->delivery($team, $this->beyondWindow());
         }
+
+        $this->assertSame($total, NotificationDelivery::query()->count());
 
         $this->prune();
 

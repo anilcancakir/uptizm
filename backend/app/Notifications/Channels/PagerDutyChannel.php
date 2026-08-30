@@ -35,11 +35,16 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  *   exception handler but NOT rethrown, so a permanent failure does not poison
  *   the queue with retries. The report never carries the routing key.
  *
- * A TRANSPORT failure is the one case that does propagate, because it is the
- * one case a retry can fix, and it is replaced by a host-only error first.
- * This endpoint is a constant, so unlike the two tenant-url channels there is
- * no secret in the URI Guzzle appends to its cURL message; the replacement
- * holds the contract, which is that no raw transport message leaves a channel.
+ * A TRANSPORT failure is the one case that does propagate, and it is replaced
+ * by a host-only error first. This endpoint is a constant, so unlike the two
+ * tenant-url channels there is no secret in the URI Guzzle appends to its cURL
+ * message; the replacement holds the contract, which is that no raw transport
+ * message leaves a channel.
+ *
+ * What propagation buys is the `NotificationFailed` seam (which records the
+ * failed delivery row) and a visible `failed_jobs` entry, NOT a retry:
+ * supervisor-1 runs `tries: 1` and no incident notification overrides it. See
+ * {@see WebhookChannel} for the full reasoning.
  */
 class PagerDutyChannel
 {
@@ -60,8 +65,9 @@ class PagerDutyChannel
      *                               `NotificationSent` listener.
      *
      * @throws RuntimeException When PagerDuty could not be reached at all; it
-     *                          names the host so the queue can retry without the
-     *                          raw transport message reaching the failed-job record.
+     *                          names the host and nothing else, so the failure
+     *                          is recorded without the raw transport message
+     *                          reaching the failed-job record.
      */
     public function send(object $notifiable, Notification $notification): ChannelDeliveryResult
     {
@@ -106,9 +112,10 @@ class PagerDutyChannel
             // URL stops being constant. The original is not chained as
             // `$previous` either, since every renderer walks the chain.
             //
-            // Rethrown rather than reported, unlike the failure below: a
-            // connect failure is the one a retry can fix, and only propagation
-            // out of `send()` gives the queued job that retry.
+            // Rethrown rather than reported, unlike the failure below: only a
+            // throw reaches `NotificationFailed`, which is what records the
+            // failed delivery row, and only a throw leaves a `failed_jobs`
+            // entry. It does not buy a retry; see the class docblock.
             throw new RuntimeException(sprintf(
                 'PagerDuty delivery to %s failed: the host could not be reached.',
                 (string) parse_url(self::ENDPOINT, PHP_URL_HOST),

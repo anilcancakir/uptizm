@@ -43,9 +43,15 @@ use RuntimeException;
  * honest (it reads a reported failure as `delivered:false`) while the no-throw
  * keeps a queued incident send from poisoning the queue.
  *
- * A TRANSPORT failure is the one case that does propagate, because it is the
- * one case a retry can fix. It is replaced first: Guzzle appends the full
- * request URI to a cURL error message, and here that URI carries the SAS.
+ * A TRANSPORT failure is the one case that does propagate, and it is replaced
+ * first: Guzzle appends the full request URI to a cURL error message, and here
+ * that URI carries the SAS.
+ *
+ * What propagation buys is the `NotificationFailed` seam (which records the
+ * failed delivery row) and a visible `failed_jobs` entry, NOT a retry:
+ * supervisor-1 runs `tries: 1` and no incident notification overrides it. See
+ * {@see WebhookChannel} for the full reasoning and why adding `$tries` to a
+ * notification is the wrong fix.
  */
 class TeamsChannel
 {
@@ -73,8 +79,9 @@ class TeamsChannel
      *
      * @throws \JsonException When the Adaptive Card payload cannot be JSON-encoded.
      * @throws RuntimeException When the target could not be reached at all; it
-     *                          names the host so the queue can retry without
-     *                          the SAS-bearing url reaching the failed-job record.
+     *                          names the host and nothing else, so the failure
+     *                          is recorded without the SAS-bearing url riding
+     *                          into the failed-job record.
      */
     public function send(object $notifiable, Notification $notification): ChannelDeliveryResult
     {
@@ -162,9 +169,10 @@ class TeamsChannel
             //    which would print the url again one link down.
             //
             //    Rethrown rather than reported, unlike every other failure
-            //    here: a connect failure is the one that a retry can fix, and
-            //    only propagation out of `send()` gives the queued job that
-            //    retry.
+            //    here: only a throw reaches `NotificationFailed`, which is what
+            //    records the failed delivery row, and only a throw leaves a
+            //    `failed_jobs` entry. It does not buy a retry; see the class
+            //    docblock.
             throw new RuntimeException(sprintf(
                 'Teams delivery to %s failed: the target could not be reached.',
                 $host,
