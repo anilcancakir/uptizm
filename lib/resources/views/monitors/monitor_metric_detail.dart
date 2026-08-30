@@ -339,20 +339,26 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
   /// its type (numeric via [fmt], status/string as-is); this widget never
   /// fabricates one.
   Widget _buildLatestValue(String valueText, StatusKey? band) {
-    // Two alignments, because the three things here are not the same kind of
-    // thing and `items-end` treated them as if they were.
+    // Everything on this line is CENTERED against the value, and the history
+    // behind that is worth keeping because two plausible alternatives were
+    // tried and both looked wrong.
     //
     // `items-end` aligns BOX BOTTOMS. The value is 30px of monospace and the
     // meta label is 12px of sans, so their boxes carry different descender
     // room and bottom-aligning them left the small text sitting below the
     // value's baseline rather than on it. The dot, having no baseline at all,
-    // then hung off the bottom of a tall line box: the asymmetry a reader
-    // notices without being able to name it.
+    // then hung off the bottom of a tall line box.
     //
-    // So: the dot is CENTERED against the value, which is what a bullet beside
-    // a number should do, and the two texts sit on a shared BASELINE, which is
-    // what makes a unit or a caption look attached to a number rather than
-    // dropped next to it.
+    // `items-baseline` on the two texts replaced that and is the right instinct
+    // for a UNIT: `412` and `ms` want a shared baseline, because the second
+    // reads as part of the first. This caption is not a unit. It is a separate
+    // 12px meta phrase next to a 30px number, and at that size gap a shared
+    // baseline drops it visibly toward the bottom of the line, which reads as
+    // misalignment rather than as attachment. Centering is what a reader
+    // expects from two independent things sharing a row.
+    //
+    // Keep baseline alignment if a real unit is ever appended to the value
+    // itself; it does not belong to this caption.
     return WDiv(
       className: 'flex flex-row items-center gap-3',
       children: [
@@ -362,7 +368,7 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
         // gate hid the band on the readings this feature exists to flag.
         ?(band == null ? null : StatusDot(band, size: StatusDotSize.lg)),
         WDiv(
-          className: 'flex flex-row items-baseline gap-2',
+          className: 'flex flex-row items-center gap-2',
           children: [
             WText(
               valueText,
