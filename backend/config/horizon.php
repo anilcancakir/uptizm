@@ -198,16 +198,23 @@ return [
 
     'defaults' => [
         /*
-        | `feeds` (the catalog's official-status-feed ingestion) rides
-        | supervisor-1 deliberately. `previews` and `content` below each earned
-        | their own supervisor for a documented reason (a headless Chromium far
-        | past this worker's memory ceiling; an rclone FUSE mount that can park a
-        | process in an uninterruptible syscall). Feed ingestion is ordinary
-        | outbound HTTP with a 10s timeout and a hard 60s-per-service floor, so
-        | it has no such reason and a supervisor of its own would only add
-        | processes to pay for. It sits LAST in the list because a single worker
-        | drains these in order and a third party's status feed must never be
-        | picked up ahead of a customer's uptime check.
+        | The queues a customer is waiting on, and the only ones that keep a
+        | process pool each. They are one pipeline plus its outbox:
+        | `scheduling` fans out to `checks`, `checks` dispatches to `processing`,
+        | and `default` carries what the product then tells the customer
+        | (DispatchEscalationStep, AnnounceIncident, and the IncidentOpened /
+        | IncidentResolved / IncidentEscalated notifications, none of which call
+        | `onQueue()` and so land there by omission).
+        |
+        | `default` is the least obvious member of that list and the one worth
+        | not moving. It looks like the leftovers queue and it is the paging
+        | path: behind a 60-second feed ingest it is an alert that reaches an
+        | on-call engineer a minute after it mattered.
+        |
+        | `balance` stays `auto` here for the same reason. It opens a pool per
+        | queue, which costs a resident worker each, and that cost is the price
+        | of these four never queueing behind one another. The tolerant queues
+        | do not need it and moved to `background` below.
         |
         | THIS LINE IS HALF OF A TWO-PLACE REGISTRATION. The other half is the
         | `queue:listen --queue=` list in composer.json's `scripts.dev`, which is
@@ -218,9 +225,56 @@ return [
         */
         'supervisor-1' => [
             'connection' => 'redis',
-            'queue' => ['scheduling', 'checks', 'processing', 'aggregates', 'ssl', 'ai', 'default', 'feeds'],
+            'queue' => ['scheduling', 'checks', 'processing', 'default'],
             'balance' => 'auto',
             'autoScalingStrategy' => 'time',
+            'maxProcesses' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 128,
+            'tries' => 1,
+            'timeout' => 60,
+            'nice' => 0,
+        ],
+
+        /*
+        | The tolerant queues, collapsed into ONE pool rather than four.
+        |
+        | Horizon's idle cost is the QUEUE COUNT of a supervisor, not its
+        | `maxProcesses`, and nothing in this file used to say so.
+        | `Supervisor::createProcessPools()` opens a pool per queue whenever
+        | `balance` is `auto` or `simple`, and every pool holds at least
+        | `minProcesses` workers, which Horizon refuses to let fall below one:
+        | `ProvisioningPlan::convert()` throws "must be greater than 0" at boot,
+        | so scaling a pool to zero is not available as a fix. These four queues
+        | therefore held four workers resident around the clock while all four
+        | measured zero depth: ai 104 MB, feeds 110, aggregates 42, ssl 34,
+        | measured on the production box on 2026-08-30.
+        |
+        | `balance` is `off`, which builds a single pool for the whole list. The
+        | floor is one worker, and the autoscaler still adds more up to
+        | `maxProcesses` once the summed backlog across the four exceeds the
+        | running count. `autoScalingStrategy` is absent rather than forgotten:
+        | the non-balancing branch of AutoScaler::numberOfWorkersPerQueue() sizes
+        | on backlog directly and never reads it.
+        |
+        | The order is the drain order now, not a list. Laravel's worker walks
+        | `--queue=` left to right and returns on the first job it finds, so
+        | `feeds` last finally means what this file always claimed: a third
+        | party's status feed is never picked up ahead of our own work. Under
+        | `balance: auto` that sentence was decorative, because every queue had a
+        | dedicated worker and there was no single worker to order anything for.
+        |
+        | What this saves is paid for in isolation: one worker on a 60-second
+        | feed ingest is a worker not polling `ssl`. That trade is acceptable
+        | here and only here, because none of these four is on a path a customer
+        | is waiting on. BackgroundQueueConfigTest pins the split, the order, and
+        | the fact that `default` stayed out of it.
+        */
+        'background' => [
+            'connection' => 'redis',
+            'queue' => ['ssl', 'aggregates', 'ai', 'feeds'],
+            'balance' => 'off',
             'maxProcesses' => 1,
             'maxTime' => 0,
             'maxJobs' => 0,
@@ -304,7 +358,7 @@ return [
         | and only the first is about the analyze itself: its `timeout` is 60, so
         | the worker would kill a 150-second run at 60 and the operator would get
         | nothing back; and it runs the customer uptime `checks` at production
-        | maxProcesses 10, so an analyze parked in one of those slots delays
+        | maxProcesses 7, so an analyze parked in one of those slots delays
         | outage detection, which is the one thing this product exists to do.
         |
         | TWO processes, and unlike `previews` and `content` above this is a COST
@@ -368,8 +422,37 @@ return [
 
     'environments' => [
         'production' => [
+            /*
+            | SEVEN, down from ten when this supervisor still carried eight
+            | queues, and it is more capacity per queue rather than less. Horizon
+            | caps one pool at `maxProcesses - ((pools - 1) * minProcesses)`, so
+            | across the old eight pools any single queue could reach 10 - 7 = 3.
+            | Across four it reaches 7 - 3 = 4, and none of those seven can now
+            | be spent on a status feed.
+            |
+            | The total matters as much as the split on this host. Adding the
+            | `background` ceiling to an unchanged ten would have raised the
+            | whole Horizon ceiling from 14 workers to 17 while lowering the
+            | idle floor, which trades a steady-state saving for a worse worst
+            | case on a box that was already paging.
+            */
             'supervisor-1' => [
-                'maxProcesses' => 10,
+                'maxProcesses' => 7,
+                'balanceMaxShift' => 1,
+                'balanceCooldown' => 3,
+            ],
+
+            /*
+            | THREE at the ceiling, ONE resident. A single pool serves all four
+            | tolerant queues, so this number is only reached when their summed
+            | backlog does, and the steady state on this host is one worker.
+            | Three is enough that a 60-second feed ingest cannot hold up the
+            | daily aggregate behind it for long, and small enough that the
+            | ceiling stays under what the four dedicated workers used to cost
+            | while doing nothing.
+            */
+            'background' => [
+                'maxProcesses' => 3,
                 'balanceMaxShift' => 1,
                 'balanceCooldown' => 3,
             ],
@@ -445,6 +528,10 @@ return [
         'local' => [
             'supervisor-1' => [
                 'maxProcesses' => 3,
+            ],
+
+            'background' => [
+                'maxProcesses' => 2,
             ],
 
             'previews' => [

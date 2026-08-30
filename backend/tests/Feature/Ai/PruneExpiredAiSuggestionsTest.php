@@ -198,13 +198,26 @@ class PruneExpiredAiSuggestionsTest extends TestCase
      * missing-trigger failure one layer lower down, and the test above cannot see
      * it. Asserting membership of Horizon's own list rather than the literal 'ai'
      * pins the property that matters (something is listening) instead of the name.
+     *
+     * It reads EVERY supervisor rather than a named one, because which supervisor
+     * owns `ai` is not the property under test and has already changed once: the
+     * queue moved from `supervisor-1` to `background` when the tolerant queues were
+     * collapsed into a single pool. Naming a supervisor here would have failed that
+     * refactor while the thing it guards (a worker drains this queue) still held.
      */
     public function test_it_is_dispatched_onto_a_queue_horizon_drains(): void
     {
         $queue = (new PruneExpiredAiSuggestions)->queue;
-        $drained = config('horizon.defaults.supervisor-1.queue');
 
-        $this->assertIsArray($drained, 'Horizon lists no queues for supervisor-1 at all.');
+        $supervisors = (array) config('horizon.defaults');
+
+        $this->assertNotEmpty($supervisors, 'Horizon declares no supervisors at all.');
+
+        $drained = array_merge(...array_map(
+            fn (array $supervisor): array => (array) ($supervisor['queue'] ?? []),
+            array_values($supervisors),
+        ));
+
         $this->assertContains(
             $queue,
             $drained,
