@@ -3,6 +3,7 @@
 namespace App\Notifications\Channels;
 
 use App\Notifications\Channels\Concerns\RetriesRateLimitedDelivery;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Facades\Http;
@@ -29,6 +30,12 @@ use RuntimeException;
  *   failure (bad token, unknown channel). That is reported to the exception
  *   handler but NOT rethrown, so a permanent failure does not poison the queue
  *   with retries. The report never carries the token.
+ *
+ * A TRANSPORT failure is the one case that does propagate, because it is the
+ * one case a retry can fix, and it is replaced by a host-only error first.
+ * Slack's endpoint is a constant, so unlike the two tenant-url channels there
+ * is no secret in the URI Guzzle appends to its cURL message; the replacement
+ * holds the contract, which is that no raw transport message leaves a channel.
  */
 class SlackChannel
 {
@@ -44,12 +51,21 @@ class SlackChannel
      *
      * @param  object  $notifiable  Entity exposing `routeNotificationForSlack()`.
      * @param  Notification  $notification  Notification exposing `toSlack()`.
+     * @return ChannelDeliveryResult What the attempt amounted to, for the
+     *                               `NotificationSent` listener.
+     *
+     * @throws RuntimeException When Slack could not be reached at all; it names
+     *                          the host so the queue can retry without the raw
+     *                          transport message reaching the failed-job record.
      */
-    public function send(object $notifiable, Notification $notification): void
+    public function send(object $notifiable, Notification $notification): ChannelDeliveryResult
     {
-        // 1. Skip when the notification cannot render a Slack payload.
+        // 1. Skip when the notification cannot render a Slack payload. Nothing
+        //    was attempted, and `failed` is the honest half of a two-value
+        //    outcome: a null status and a null exception class are what mark it
+        //    as a no-send rather than a refusal.
         if (! is_callable([$notification, 'toSlack'])) {
-            return;
+            return ChannelDeliveryResult::failed();
         }
 
         // 2. Resolve the per-team route; a missing token is a non-delivery,
@@ -63,7 +79,7 @@ class SlackChannel
                 'Slack delivery skipped: no team bot token configured for the channel.',
             ));
 
-            return;
+            return ChannelDeliveryResult::failed();
         }
 
         // 3. Build the message body, targeting the team's channel when present.
@@ -77,18 +93,46 @@ class SlackChannel
         // 4. Post with the team token; a transport error propagates so the
         //    queue can retry a transient failure. A 429 is honored with one
         //    bounded, Retry-After-aware retry before the outcome is judged.
-        $response = $this->sendWithRateLimitBackoff(
-            fn (): Response => Http::withToken($token)->asJson()->post(self::ENDPOINT, $payload),
-        );
+        try {
+            $response = $this->sendWithRateLimitBackoff(
+                fn (): Response => Http::withToken($token)->asJson()->post(self::ENDPOINT, $payload),
+            );
+        } catch (ConnectionException) {
+            // Slack could not be reached. The raw message is dropped rather
+            // than wrapped: Guzzle appends the request URI to its cURL text,
+            // and while this endpoint is a constant, a channel that passes a
+            // transport message through is a channel that leaks one the day
+            // the URL stops being constant. The original is not chained as
+            // `$previous` either, since every renderer walks the chain.
+            //
+            // Rethrown rather than reported, unlike the failures below: a
+            // connect failure is the one a retry can fix, and only propagation
+            // out of `send()` gives the queued job that retry.
+            throw new RuntimeException(sprintf(
+                'Slack delivery to %s failed: the host could not be reached.',
+                (string) parse_url(self::ENDPOINT, PHP_URL_HOST),
+            ));
+        }
 
         // 5. A non-2xx status or a Slack `{ok:false}` body is a delivery
         //    failure: report it (without the token) and stop, never rethrow.
+        //    Slack's `error` is its machine-readable code, so it is the value
+        //    the result carries for a listener to record.
         if ($response->failed() || $response->json('ok') !== true) {
+            $error = $response->json('error');
+
             report(new RuntimeException(sprintf(
                 'Slack chat.postMessage failed: %s',
                 $response->json('error', 'http_'.$response->status()),
             )));
+
+            return ChannelDeliveryResult::failed(
+                statusCode: $response->status(),
+                errorCode: is_string($error) ? $error : null,
+            );
         }
+
+        return ChannelDeliveryResult::delivered(statusCode: $response->status());
     }
 
     /**

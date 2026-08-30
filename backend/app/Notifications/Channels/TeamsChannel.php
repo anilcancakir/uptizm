@@ -4,6 +4,7 @@ namespace App\Notifications\Channels;
 
 use App\Notifications\Channels\Concerns\RetriesRateLimitedDelivery;
 use App\Support\Monitoring\HostGuard;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Facades\Http;
@@ -41,6 +42,10 @@ use RuntimeException;
  * handler without being rethrown: the report keeps the synchronous test-send
  * honest (it reads a reported failure as `delivered:false`) while the no-throw
  * keeps a queued incident send from poisoning the queue.
+ *
+ * A TRANSPORT failure is the one case that does propagate, because it is the
+ * one case a retry can fix. It is replaced first: Guzzle appends the full
+ * request URI to a cURL error message, and here that URI carries the SAS.
  */
 class TeamsChannel
 {
@@ -63,14 +68,22 @@ class TeamsChannel
      *
      * @param  object  $notifiable  The entity exposing `routeNotificationForTeams()`.
      * @param  Notification  $notification  The notification exposing `toTeams()`.
+     * @return ChannelDeliveryResult What the attempt amounted to, for the
+     *                               `NotificationSent` listener.
      *
      * @throws \JsonException When the Adaptive Card payload cannot be JSON-encoded.
+     * @throws RuntimeException When the target could not be reached at all; it
+     *                          names the host so the queue can retry without
+     *                          the SAS-bearing url reaching the failed-job record.
      */
-    public function send(object $notifiable, Notification $notification): void
+    public function send(object $notifiable, Notification $notification): ChannelDeliveryResult
     {
-        // 1. Skip when the notification cannot build an Adaptive Card.
+        // 1. Skip when the notification cannot build an Adaptive Card. Nothing
+        //    was attempted, and `failed` is the honest half of a two-value
+        //    outcome: a null status and a null exception class are what mark it
+        //    as a no-send rather than a refusal.
         if (! is_callable([$notification, 'toTeams'])) {
-            return;
+            return ChannelDeliveryResult::failed();
         }
 
         // 2. Resolve the tenant target; a missing url is a non-delivery,
@@ -82,7 +95,7 @@ class TeamsChannel
                 'Teams delivery skipped: no webhook url configured for the target.',
             ));
 
-            return;
+            return ChannelDeliveryResult::failed();
         }
 
         // 3. Re-validate the url at send time and capture the exact resolved
@@ -103,7 +116,7 @@ class TeamsChannel
                 (string) $host,
             )));
 
-            return;
+            return ChannelDeliveryResult::failed(exceptionClass: ValidationException::class);
         }
 
         // 4. Wrap the card in the Teams message envelope and encode it. The
@@ -121,24 +134,44 @@ class TeamsChannel
         //    on the retry rather than reused.
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
 
-        $response = $this->sendWithRateLimitBackoff(
-            fn (): Response => Http::withOptions([
-                'allow_redirects' => false,
-                // CURLOPT_RESOLVE pins the connection to the validated IP(s), so
-                // connect-time cannot drift from validation-time. It is a
-                // cURL-handler option and assumes Guzzle uses the curl handler
-                // (true under frankenphp/Octane, where ext-curl is present); if
-                // Guzzle ever fell back to the PHP stream handler the pin would
-                // be silently ignored and the rebinding window would reopen.
-                'curl' => [
-                    CURLOPT_RESOLVE => [$host.':443:'.implode(',', $pinnedIps)],
-                ],
-            ])
-                ->withBody($body, 'application/json')
-                ->post($url),
-        );
+        try {
+            $response = $this->sendWithRateLimitBackoff(
+                fn (): Response => Http::withOptions([
+                    'allow_redirects' => false,
+                    // CURLOPT_RESOLVE pins the connection to the validated IP(s), so
+                    // connect-time cannot drift from validation-time. It is a
+                    // cURL-handler option and assumes Guzzle uses the curl handler
+                    // (true under frankenphp/Octane, where ext-curl is present); if
+                    // Guzzle ever fell back to the PHP stream handler the pin would
+                    // be silently ignored and the rebinding window would reopen.
+                    'curl' => [
+                        CURLOPT_RESOLVE => [$host.':443:'.implode(',', $pinnedIps)],
+                    ],
+                ])
+                    ->withBody($body, 'application/json')
+                    ->post($url),
+            );
+        } catch (ConnectionException) {
+            // 6. The target could not be reached. Guzzle appends the full
+            //    request URI to its cURL message and PSR-7 redacts only the
+            //    `user:pass@` component, so the `?sig=` SAS would ride this
+            //    exception into `failed_jobs.exception` and Sentry, where
+            //    SentryScrubber's key matching cannot reach a secret that sits
+            //    inside a URL. Name the host and nothing else, and do NOT pass
+            //    the original as `$previous`: every renderer walks the chain,
+            //    which would print the url again one link down.
+            //
+            //    Rethrown rather than reported, unlike every other failure
+            //    here: a connect failure is the one that a retry can fix, and
+            //    only propagation out of `send()` gives the queued job that
+            //    retry.
+            throw new RuntimeException(sprintf(
+                'Teams delivery to %s failed: the target could not be reached.',
+                $host,
+            ));
+        }
 
-        // 6. Teams answers a 2xx on success. Anything else is a non-delivery,
+        // 7. Teams answers a 2xx on success. Anything else is a non-delivery,
         //    including a 3xx redirect (which the pinned connection refuses to
         //    follow) and a 429 rate-limit. Surface it honestly without
         //    poisoning the queue: report the host + status only, never the SAS.
@@ -146,7 +179,11 @@ class TeamsChannel
             report(new RuntimeException(
                 "Teams delivery to {$host} failed with status {$response->status()}.",
             ));
+
+            return ChannelDeliveryResult::failed(statusCode: $response->status());
         }
+
+        return ChannelDeliveryResult::delivered(statusCode: $response->status());
     }
 
     /**
