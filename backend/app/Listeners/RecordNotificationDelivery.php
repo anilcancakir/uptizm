@@ -20,8 +20,8 @@ use Throwable;
  *
  * It listens on BOTH notification seams because either alone under-records.
  * {@see NotificationSent} fires only once the channel's `send()` has RETURNED,
- * so a transport failure (the one failure a queue retry can fix, and therefore
- * the one the channels rethrow rather than report) never reaches it;
+ * so a transport failure (the one failure the channels rethrow rather than
+ * report, precisely so it reaches this listener) never reaches it;
  * {@see NotificationFailed} sees only that case and nothing that came back
  * normally. Registered for both in `AppServiceProvider::boot()`.
  *
@@ -108,7 +108,7 @@ class RecordNotificationDelivery implements ShouldBeDiscovered
             // Denormalised from the channel so the row stays legible after the
             // channel is deleted and `channel_id` goes null.
             'channel_type' => $channel->channel_type->value,
-            'notification_type' => $this->storableClassName($event->notification),
+            'notification_type' => $this->storableName($event->notification::class),
             'event' => $this->lifecycleEvent($event->notification, $isTest),
             'is_test' => $isTest,
             ...$this->outcomeColumns($event),
@@ -148,7 +148,7 @@ class RecordNotificationDelivery implements ShouldBeDiscovered
                 // inside the failure handler would replace the transport
                 // failure it was recording.
                 'exception_class' => $exception instanceof Throwable
-                    ? $this->storableClassName($exception)
+                    ? $this->storableName($exception::class)
                     : null,
             ];
         }
@@ -173,12 +173,19 @@ class RecordNotificationDelivery implements ShouldBeDiscovered
             'outcome' => $result?->outcome ?? ChannelDeliveryResult::OUTCOME_DELIVERED,
             'status_code' => $result?->statusCode,
             'error_code' => $result?->errorCode,
-            'exception_class' => $result?->exceptionClass,
+            // Through the same NUL strip as the other two write sites. Today
+            // this one cannot carry an anonymous class (its only producers are
+            // the two literal `ValidationException::class` arguments the SSRF
+            // skip paths pass), but three write sites for one column with two
+            // of them guarded is the asymmetry that reads as an oversight.
+            'exception_class' => $result?->exceptionClass === null
+                ? null
+                : $this->storableName($result->exceptionClass),
         ];
     }
 
     /**
-     * Any object's class, in a form a varchar column can hold.
+     * A class name, in a form a varchar column can hold.
      *
      * PHP names an anonymous class `Parent@anonymous` + a NUL byte + the
      * absolute file path and line it was declared at. That NUL is not
@@ -194,9 +201,8 @@ class RecordNotificationDelivery implements ShouldBeDiscovered
      * but an asymmetry between the two reads as an oversight and would fail in
      * the one place it must not: inside the handler recording a failure.
      */
-    private function storableClassName(object $subject): string
+    private function storableName(string $class): string
     {
-        $class = $subject::class;
         $marker = strpos($class, "\0");
 
         return $marker === false ? $class : substr($class, 0, $marker);

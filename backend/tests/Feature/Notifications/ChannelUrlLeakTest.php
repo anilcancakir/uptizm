@@ -31,9 +31,11 @@ use Throwable;
  * message alone: chaining the original transport error as `$previous` would
  * read as a careful rethrow while handing the renderer the same leaking string.
  *
- * The rethrow itself is asserted too. Reporting instead would swallow a
- * recoverable failure, because propagation out of `send()` is what buys the
- * queued notification its retry.
+ * The rethrow itself is asserted too. Reporting instead would turn a transport
+ * failure into silence: propagation out of `send()` is the only thing that
+ * reaches `NotificationFailed`, which is what records the failed delivery row,
+ * and the only thing that leaves a `failed_jobs` entry. It does not buy a
+ * retry on this deployment; {@see WebhookChannel} carries that measurement.
  */
 class ChannelUrlLeakTest extends TestCase
 {

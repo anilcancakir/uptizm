@@ -156,8 +156,9 @@ class AppServiceProvider extends ServiceProvider
         // Record every attempted delivery through a team-scoped
         // NotificationChannel. BOTH events are registered because either alone
         // under-records: NotificationSent fires only once the channel's send()
-        // has RETURNED, so a transport failure (which the channels rethrow, so
-        // the queue can retry it) reaches only NotificationFailed. The listener
+        // has RETURNED, so a transport failure (which the channels rethrow
+        // rather than report, precisely so it lands here) reaches only
+        // NotificationFailed. The listener
         // filters on the notifiable, so the user lanes never write a row.
         Event::listen([
             NotificationSent::class,

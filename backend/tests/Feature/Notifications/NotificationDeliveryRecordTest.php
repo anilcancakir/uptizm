@@ -32,8 +32,9 @@ use Throwable;
  *
  * The two seams are asserted separately because either alone under-records.
  * {@see NotificationSent} fires only once `send()` has returned, so the
- * transport failure the channels rethrow (so the queue can retry it) reaches
- * only {@see NotificationFailed}; a suite that drove one path would report a
+ * transport failure the channels rethrow (rather than report, precisely so it
+ * lands on the other seam) reaches only {@see NotificationFailed}; a suite that
+ * drove one path would report a
  * table that silently loses every connect failure.
  *
  * Nothing here uses `Notification::fake()`: faking replaces the sender, so
@@ -281,7 +282,8 @@ class NotificationDeliveryRecordTest extends TestCase
      * Drive a send that is expected to throw, and swallow only that throw.
      *
      * The channel rethrows a transport failure on purpose (propagation is what
-     * buys the queued notification its retry), and `NotificationSender`
+     * reaches the failed seam at all; it buys no retry, since supervisor-1 runs
+     * `tries: 1`), and `NotificationSender`
      * dispatches `NotificationFailed` before rethrowing it in turn. The test is
      * about the row that dispatch writes, so the throw is caught here and its
      * absence is a failure: a swallowed transport error would mean the row came

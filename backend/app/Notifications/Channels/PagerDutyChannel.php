@@ -97,9 +97,10 @@ class PagerDutyChannel
         $payload = (array) $notification->toPagerDuty($notifiable);
         $payload['routing_key'] = $routingKey;
 
-        // 4. POST to the Events API v2; a transport error propagates so the
-        //    queue can retry a transient failure. A 429 is honored with one
-        //    bounded, Retry-After-aware retry before the outcome is judged.
+        // 4. POST to the Events API v2; a transport error propagates, replaced
+        //    by a host-only failure first (see the class docblock). A 429 is
+        //    honored with one bounded, Retry-After-aware retry before the
+        //    outcome is judged.
         try {
             $response = $this->sendWithRateLimitBackoff(
                 fn (): Response => Http::asJson()->post(self::ENDPOINT, $payload),

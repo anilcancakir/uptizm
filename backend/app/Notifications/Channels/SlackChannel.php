@@ -96,9 +96,10 @@ class SlackChannel
             $payload['channel'] = $channel;
         }
 
-        // 4. Post with the team token; a transport error propagates so the
-        //    queue can retry a transient failure. A 429 is honored with one
-        //    bounded, Retry-After-aware retry before the outcome is judged.
+        // 4. Post with the team token; a transport error propagates, replaced
+        //    by a host-only failure first (see the class docblock). A 429 is
+        //    honored with one bounded, Retry-After-aware retry before the
+        //    outcome is judged.
         try {
             $response = $this->sendWithRateLimitBackoff(
                 fn (): Response => Http::withToken($token)->asJson()->post(self::ENDPOINT, $payload),
