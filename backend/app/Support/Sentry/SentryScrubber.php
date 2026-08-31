@@ -45,7 +45,10 @@ use Sentry\Logs\Log;
  *
  * WHAT THIS CANNOT DO, stated rather than implied:
  *
- * - It matches KEYS, never values. A credential pasted into an exception
+ * - It matches KEYS, never values, with ONE exception: the URL-bearing metadata
+ *   on an HTTP breadcrumb, where the key names are innocent and the values are
+ *   the credential. {@see self::HTTP_URL_KEYS} carries that case and the reason
+ *   it had to be special. Everywhere else a credential pasted into an exception
  *   message, a URL with a token in its query string, or a stack trace argument
  *   is not reached. {@see CredentialRedactor} is the
  *   value-based counterpart, and it covers probe-controlled text only.
@@ -74,6 +77,36 @@ class SentryScrubber
      *
      * @var list<string>
      */
+    /**
+     * The URL-bearing metadata keys on an HTTP breadcrumb, as a set.
+     *
+     * These are the one place key matching cannot work, because the key names
+     * are innocent and the VALUES are the credential. `sentry-laravel`'s
+     * `HttpClientIntegration` attaches all three to every outbound request,
+     * on success as well as on failure
+     * (`HttpClientIntegration::handleResponseReceivedHandlerForBreadcrumb` and
+     * `handleConnectionFailedHandlerForBreadcrumb`), and its `getPartialUri()`
+     * drops only the authority and the query: the PATH survives in `url` and
+     * the raw query survives verbatim in `http.query`.
+     *
+     * That is a leak on this product specifically, because this application
+     * makes outbound HTTP to TENANT-CONTROLLED urls as a core function and two
+     * of those carry their credential in the url itself: an ntfy webhook's
+     * topic lives in the path, and a Teams Workflows url carries a SAS in
+     * `?sig=`. A monitor's probe target is tenant-controlled too.
+     *
+     * So an HTTP breadcrumb keeps its ORIGIN and loses everything after it. The
+     * origin is what makes the breadcrumb worth having (which host did we fail
+     * to reach) and the path is what makes it dangerous. Sentry's own author
+     * named the method "partial" and drew the line one component later than a
+     * monitoring product can afford.
+     */
+    private const array HTTP_URL_KEYS = [
+        'url' => true,
+        'http.query' => true,
+        'http.fragment' => true,
+    ];
+
     private const array SENSITIVE_NEEDLES = [
         'auth_',
         'authorization',
@@ -278,8 +311,19 @@ class SentryScrubber
      */
     private static function scrubBreadcrumb(Breadcrumb $breadcrumb): Breadcrumb
     {
+        $isHttp = $breadcrumb->getType() === Breadcrumb::TYPE_HTTP;
+
         foreach ($breadcrumb->getMetadata() as $key => $value) {
             if (! is_string($key)) {
+                continue;
+            }
+
+            if ($isHttp && isset(self::HTTP_URL_KEYS[$key])) {
+                $breadcrumb = $breadcrumb->withMetadata(
+                    $key,
+                    $key === 'url' ? self::originOnly($value) : self::MARKER,
+                );
+
                 continue;
             }
 
@@ -295,6 +339,31 @@ class SentryScrubber
         }
 
         return $breadcrumb;
+    }
+
+    /**
+     * Reduce a URL to its origin, dropping the path.
+     *
+     * A non-string or unparseable value becomes the marker rather than being
+     * passed through: this runs on a credential path, so the failure mode has
+     * to be losing information rather than leaking it.
+     */
+    private static function originOnly(mixed $url): string
+    {
+        if (! is_string($url) || $url === '') {
+            return self::MARKER;
+        }
+
+        $parts = parse_url($url);
+
+        if (! is_array($parts) || ! isset($parts['host'])) {
+            return self::MARKER;
+        }
+
+        $scheme = isset($parts['scheme']) ? $parts['scheme'].'://' : '';
+        $port = isset($parts['port']) ? ':'.$parts['port'] : '';
+
+        return $scheme.$parts['host'].$port;
     }
 
     /**

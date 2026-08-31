@@ -5,6 +5,7 @@ namespace App\Notifications\Channels;
 use App\Notifications\Channels\Concerns\RetriesRateLimitedDelivery;
 use App\Support\Monitoring\HostGuard;
 use App\Support\Monitoring\RelaySigner;
+use App\Support\Sentry\SentryScrubber;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Notifications\Notification;
@@ -43,6 +44,14 @@ use RuntimeException;
  * first: Guzzle appends the full request URI to a cURL error message, so the
  * tenant URL would otherwise reach `failed_jobs.exception` and Sentry with its
  * path and query intact.
+ *
+ * That rethrow closes ONE of the two routes the url had, and only one. The
+ * second is `sentry-laravel`'s HTTP-client breadcrumb, which attaches the url
+ * and the raw query to every outbound request independently of any exception,
+ * on success as well as on failure. Nothing in this class can reach it; it is
+ * closed in {@see SentryScrubber}, which reduces an HTTP
+ * breadcrumb to its origin. Both halves are needed, and a claim that the
+ * credential is contained is only true while both hold.
  *
  * What propagation buys here is the `NotificationFailed` seam (which is what
  * records the failed delivery row) and a visible `failed_jobs` entry. It does

@@ -7,6 +7,7 @@ use App\Notifications\Channels\SlackChannel;
 use App\Notifications\Channels\TeamsChannel;
 use App\Notifications\Channels\WebhookChannel;
 use App\Support\Monitoring\HostGuard;
+use App\Support\Sentry\SentryScrubber;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Facades\Http;
@@ -22,10 +23,16 @@ use Throwable;
  * `Psr7\Utils::redactUserInfo()` strips only the `user:pass@` component, so the
  * path and the query survive into the message Laravel wraps as
  * {@see ConnectionException}. That message then reaches `failed_jobs.exception`
- * and Sentry, and `SentryScrubber` matches KEYS, so it cannot reach a secret
- * sitting inside a URL. For two of these four channels the URL IS the
- * credential: an ntfy topic lives in the path, a Teams Workflows SAS in the
- * `?sig=` query.
+ * and Sentry, and `SentryScrubber`'s key matching cannot reach a secret sitting
+ * inside a URL. For two of these four channels the URL IS the credential: an
+ * ntfy topic lives in the path, a Teams Workflows SAS in the `?sig=` query.
+ *
+ * This file covers the EXCEPTION route only. The url reaches Sentry by a second,
+ * independent route as well (`sentry-laravel`'s HTTP-client breadcrumb, which
+ * fires on every request rather than only on a failure), and that one is closed
+ * in {@see SentryScrubber} and asserted by
+ * `SentryScrubberTest::test_it_reduces_an_http_breadcrumb_url_to_its_origin`.
+ * Neither test alone means the credential is contained.
  *
  * Each case therefore asserts on the WHOLE exception chain, not on the top
  * message alone: chaining the original transport error as `$previous` would

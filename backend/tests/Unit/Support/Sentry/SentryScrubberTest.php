@@ -191,6 +191,105 @@ class SentryScrubberTest extends TestCase
     }
 
     /**
+     * An HTTP breadcrumb keeps its origin and loses everything after it.
+     *
+     * This is the one case where key matching cannot work: `url` and
+     * `http.query` are innocent names whose VALUES are the credential.
+     * `sentry-laravel` attaches both to every outbound request through
+     * `HttpClientIntegration`, on success as well as on failure, and its own
+     * `getPartialUri()` keeps the PATH while dropping only the authority and
+     * query. On this product that is a live leak: an ntfy webhook carries its
+     * topic in the path and a Teams Workflows url carries a SAS in `?sig=`,
+     * and both are tenant-supplied.
+     *
+     * The shape below is the real breadcrumb metadata, copied from
+     * `HttpClientIntegration::handleConnectionFailedHandlerForBreadcrumb`.
+     */
+    public function test_it_reduces_an_http_breadcrumb_url_to_its_origin(): void
+    {
+        $event = Event::createEvent();
+        $event->setBreadcrumb([
+            new Breadcrumb(
+                Breadcrumb::LEVEL_ERROR,
+                Breadcrumb::TYPE_HTTP,
+                'http',
+                null,
+                [
+                    'url' => 'https://ntfy.sh/secret-topic',
+                    'http.query' => 'sig=abc',
+                    'http.fragment' => '',
+                    'http.request.method' => 'POST',
+                    'http.request.body.size' => 512,
+                ],
+            ),
+        ]);
+
+        $metadata = SentryScrubber::beforeSend($event, null)->getBreadcrumbs()[0]->getMetadata();
+
+        $this->assertSame('https://ntfy.sh', $metadata['url'], 'The host survives; the path does not.');
+        $this->assertSame(SentryScrubber::MARKER, $metadata['http.query']);
+        $this->assertSame(SentryScrubber::MARKER, $metadata['http.fragment']);
+
+        // The non-URL metadata is what makes the breadcrumb worth keeping.
+        $this->assertSame('POST', $metadata['http.request.method']);
+        $this->assertSame(512, $metadata['http.request.body.size']);
+
+        $flat = json_encode($metadata);
+        $this->assertStringNotContainsString('secret-topic', $flat);
+        $this->assertStringNotContainsString('sig=abc', $flat);
+    }
+
+    /**
+     * A non-HTTP breadcrumb keeps a `url` key untouched.
+     *
+     * The reduction is scoped to `Breadcrumb::TYPE_HTTP` on purpose: a
+     * developer-authored log context that happens to carry a `url` is not the
+     * SDK's request metadata, and blanking it would cost debugging information
+     * to close a hole that is not there.
+     */
+    public function test_it_leaves_a_url_on_a_non_http_breadcrumb_alone(): void
+    {
+        $event = Event::createEvent();
+        $event->setBreadcrumb([
+            new Breadcrumb(
+                Breadcrumb::LEVEL_INFO,
+                Breadcrumb::TYPE_DEFAULT,
+                'log.info',
+                'Status page rendered',
+                ['url' => 'https://status.example.com/incidents/7'],
+            ),
+        ]);
+
+        $metadata = SentryScrubber::beforeSend($event, null)->getBreadcrumbs()[0]->getMetadata();
+
+        $this->assertSame('https://status.example.com/incidents/7', $metadata['url']);
+    }
+
+    /**
+     * An unparseable HTTP url becomes the marker rather than passing through.
+     *
+     * This runs on a credential path, so the failure mode has to be losing
+     * information rather than leaking it.
+     */
+    public function test_it_masks_an_http_url_it_cannot_parse(): void
+    {
+        $event = Event::createEvent();
+        $event->setBreadcrumb([
+            new Breadcrumb(
+                Breadcrumb::LEVEL_ERROR,
+                Breadcrumb::TYPE_HTTP,
+                'http',
+                null,
+                ['url' => 'not-a-url-at-all'],
+            ),
+        ]);
+
+        $metadata = SentryScrubber::beforeSend($event, null)->getBreadcrumbs()[0]->getMetadata();
+
+        $this->assertSame(SentryScrubber::MARKER, $metadata['url']);
+    }
+
+    /**
      * A credential nested inside a log context, which is the shape a real call
      * site produces.
      *
