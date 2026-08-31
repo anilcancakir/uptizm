@@ -22,7 +22,9 @@ use App\Services\Ai\TranslationPayload;
 use App\Services\Monitoring\IncidentWriteService;
 use App\Services\Monitoring\ThresholdEvaluator;
 use App\Support\StatusPages\TranslationOutputContract;
+use Illuminate\Contracts\Queue\Job as QueueJob;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
@@ -31,6 +33,7 @@ use Illuminate\Support\Str;
 use Laravel\Ai\Ai;
 use Laravel\Ai\AnonymousAgent;
 use Laravel\Sanctum\Sanctum;
+use Mockery;
 use Tests\TestCase;
 
 /**
@@ -554,6 +557,62 @@ class TranslateStatusPageTextTest extends TestCase
         $this->jobFor($page, 'description')->handle();
 
         $this->assertEveryLocaleForgotten($page->slug);
+    }
+
+    /**
+     * A transport timeout with an attempt left is released, not thrown.
+     *
+     * The queue reports every failed attempt, not only the last one:
+     * `Worker::handleJobException()` releases the job and THEN rethrows, and the
+     * rethrow is what reaches the exception handler. So a timeout the retry went
+     * on to recover from still arrived in Sentry as an error. Measured on
+     * production 2026-09-01: 27 error events against 4 rows in `failed_jobs`, so
+     * 23 of them were the system working.
+     *
+     * The queue job is a double here because that is the only way to observe it:
+     * `InteractsWithQueue::attempts()` answers 0 and `release()` does nothing
+     * when a job is invoked directly, which is how every other test in this file
+     * calls it.
+     */
+    public function test_a_timeout_with_an_attempt_left_is_released_rather_than_reported(): void
+    {
+        Ai::fakeAgent(AnonymousAgent::class, fn () => throw new ConnectionException('cURL error 28'));
+
+        $update = $this->makePublicUpdate('We are investigating.');
+        $job = $this->jobFor($update, 'message');
+
+        $queueJob = Mockery::mock(QueueJob::class);
+        $queueJob->shouldReceive('attempts')->andReturn(1);
+        $queueJob->shouldReceive('release')->once()->with($job->backoff);
+        $job->setJob($queueJob);
+
+        $job->handle();
+
+        $this->assertDatabaseCount('status_page_translations', 0);
+    }
+
+    /**
+     * The last attempt throws, so a translation that is genuinely lost still
+     * fails loudly and still reaches `failed_jobs`.
+     *
+     * The half that makes the test above mean something: without this one,
+     * swallowing every timeout would pass it too.
+     */
+    public function test_a_timeout_on_the_last_attempt_still_throws(): void
+    {
+        Ai::fakeAgent(AnonymousAgent::class, fn () => throw new ConnectionException('cURL error 28'));
+
+        $update = $this->makePublicUpdate('We are investigating.');
+        $job = $this->jobFor($update, 'message');
+
+        $queueJob = Mockery::mock(QueueJob::class);
+        $queueJob->shouldReceive('attempts')->andReturn($job->tries);
+        $queueJob->shouldNotReceive('release');
+        $job->setJob($queueJob);
+
+        $this->expectException(ConnectionException::class);
+
+        $job->handle();
     }
 
     /**

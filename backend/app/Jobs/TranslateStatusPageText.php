@@ -17,6 +17,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
@@ -309,13 +310,57 @@ class TranslateStatusPageText implements ShouldQueue
             return;
         }
 
-        // 3. The call.
-        $answer = $this->translate(new TranslationPayload(
-            text: $source,
-            sourceLocale: $this->sourceLocale,
-            targetLocale: $this->targetLocale,
-            field: $this->field,
-        ));
+        // 3. The call. A transport failure with an attempt left is RELEASED
+        //    rather than thrown, and that is the whole of this branch.
+        //
+        //    Laravel reports every failed attempt, not only the last one:
+        //    `Worker::handleJobException()` releases the job back to the queue
+        //    and then rethrows, and the rethrow is what reaches
+        //    `$this->exceptions->report()`. So a timeout the retry went on to
+        //    recover from still arrived in Sentry as an error.
+        //
+        //    Measured on production 2026-09-01: 27 error events against 4 rows
+        //    in `failed_jobs`. Twenty-three of the twenty-seven were the system
+        //    working, reported as the system failing. An error channel that is
+        //    85% self-healed events is one people stop reading, which is the
+        //    same argument `config/content-archive.php` makes about its own
+        //    alarm bars.
+        //
+        //    The last attempt still throws, so a translation that is genuinely
+        //    lost still fails loudly, still lands in `failed_jobs`, and still
+        //    runs {@see self::failed()}.
+        try {
+            $answer = $this->translate(new TranslationPayload(
+                text: $source,
+                sourceLocale: $this->sourceLocale,
+                targetLocale: $this->targetLocale,
+                field: $this->field,
+            ));
+        } catch (ConnectionException $exception) {
+            // `$this->job` null is not a hypothetical: `InteractsWithQueue`
+            // answers `attempts()` with 0 and makes `release()` a no-op when the
+            // job was invoked directly, which is how most of this class's own
+            // tests call it. Releasing there would swallow the exception into
+            // nothing at all, so the absence of a queue job means throw.
+            if ($this->job === null || $this->attempts() >= $this->tries) {
+                throw $exception;
+            }
+
+            // The reason is kept, at the level this actually is: something worth
+            // knowing if it becomes a pattern, and not an error while the retry
+            // has not been tried yet.
+            Log::info('Status page translation call timed out; releasing for retry.', [
+                'translatable_type' => $translatable->getMorphClass(),
+                'translatable_id' => (string) $translatable->getKey(),
+                'field' => $this->field,
+                'locale' => $this->targetLocale,
+                'attempt' => $this->attempts(),
+            ]);
+
+            $this->release($this->backoff);
+
+            return;
+        }
 
         // 4. The verdict, and the row either way. A rejection is recorded rather
         //    than retried, so the page can tell "not translated yet" from
