@@ -8,6 +8,7 @@ use Sentry\Breadcrumb;
 use Sentry\Event;
 use Sentry\Logs\Log;
 use Sentry\Logs\LogLevel;
+use Sentry\Tracing\Span;
 use Tests\TestCase;
 
 /**
@@ -188,6 +189,206 @@ class SentryScrubberTest extends TestCase
         $this->assertSame(SentryScrubber::MARKER, $breadcrumbs[0]->getMetadata()['auth_config']);
         $this->assertSame(42, $breadcrumbs[0]->getMetadata()['monitor_id']);
         $this->assertSame('Probe failed', $breadcrumbs[0]->getMessage(), 'The message must survive intact.');
+    }
+
+    /**
+     * An HTTP breadcrumb keeps its origin and loses everything after it.
+     *
+     * This is the one case where key matching cannot work: `url` and
+     * `http.query` are innocent names whose VALUES are the credential.
+     * `sentry-laravel` attaches both to every outbound request through
+     * `HttpClientIntegration`, on success as well as on failure, and its own
+     * `getPartialUri()` keeps the PATH while dropping only the authority and
+     * query. On this product that is a live leak: an ntfy webhook carries its
+     * topic in the path and a Teams Workflows url carries a SAS in `?sig=`,
+     * and both are tenant-supplied.
+     *
+     * The shape below is the real breadcrumb metadata, copied from
+     * `HttpClientIntegration::handleConnectionFailedHandlerForBreadcrumb`.
+     */
+    public function test_it_reduces_an_http_breadcrumb_url_to_its_origin(): void
+    {
+        $event = Event::createEvent();
+        $event->setBreadcrumb([
+            new Breadcrumb(
+                Breadcrumb::LEVEL_ERROR,
+                Breadcrumb::TYPE_HTTP,
+                'http',
+                null,
+                [
+                    'url' => 'https://ntfy.sh/secret-topic',
+                    'http.query' => 'sig=abc',
+                    'http.fragment' => '',
+                    'http.request.method' => 'POST',
+                    'http.request.body.size' => 512,
+                ],
+            ),
+        ]);
+
+        $metadata = SentryScrubber::beforeSend($event, null)->getBreadcrumbs()[0]->getMetadata();
+
+        $this->assertSame('https://ntfy.sh', $metadata['url'], 'The host survives; the path does not.');
+        $this->assertSame(SentryScrubber::MARKER, $metadata['http.query']);
+        $this->assertSame(SentryScrubber::MARKER, $metadata['http.fragment']);
+
+        // The non-URL metadata is what makes the breadcrumb worth keeping.
+        $this->assertSame('POST', $metadata['http.request.method']);
+        $this->assertSame(512, $metadata['http.request.body.size']);
+
+        $flat = json_encode($metadata);
+        $this->assertStringNotContainsString('secret-topic', $flat);
+        $this->assertStringNotContainsString('sig=abc', $flat);
+    }
+
+    /**
+     * A transaction's `http.client` span loses the path from both places.
+     *
+     * Transactions are a third pipeline: `Client::applyBeforeSendCallback`
+     * switches on the event type, so a transaction reaches
+     * `before_send_transaction` and never `before_send`. Nothing in this class
+     * ran on one before that hook was wired, so the span shipped the path and
+     * the raw query, and the breadcrumb reduction never ran either.
+     *
+     * The span shape below is copied from
+     * `HttpClientIntegration::handleRequestSendingHandlerForTracing`, which puts
+     * the uri in `data['url']` AND in the description, so both are asserted.
+     */
+    public function test_it_reduces_an_http_client_span_url_to_its_origin(): void
+    {
+        $span = (new Span)
+            ->setOp('http.client')
+            ->setDescription('POST https://ntfy.sh/secret-topic')
+            ->setData([
+                'url' => 'https://ntfy.sh/secret-topic',
+                'http.query' => 'sig=abc',
+                'http.fragment' => '',
+                'http.request.method' => 'POST',
+                'http.request.body.size' => 512,
+            ]);
+
+        $event = Event::createTransaction();
+        $event->setSpans([$span]);
+
+        $scrubbed = SentryScrubber::beforeSendTransaction($event, null)->getSpans()[0];
+        $data = $scrubbed->getData();
+
+        $this->assertSame('https://ntfy.sh', $data['url']);
+        $this->assertSame(SentryScrubber::MARKER, $data['http.query']);
+        $this->assertSame(
+            'POST https://ntfy.sh',
+            $scrubbed->getDescription(),
+            'The verb is worth keeping; the uri half is what carries the credential.',
+        );
+
+        // The rest of the span is what makes it worth sending at all.
+        $this->assertSame('POST', $data['http.request.method']);
+        $this->assertSame(512, $data['http.request.body.size']);
+
+        $flat = json_encode([$data, $scrubbed->getDescription()]);
+        $this->assertStringNotContainsString('secret-topic', $flat);
+        $this->assertStringNotContainsString('sig=abc', $flat);
+    }
+
+    /**
+     * A span description that is a BARE uri, with no method verb, is reduced too.
+     *
+     * Nothing in this codebase produces that shape today; the reduction does not
+     * assume the verb-space-uri form because a shape assumption on a credential
+     * path is a hole waiting for the next SDK release to open, and a review that
+     * noticed the gap declined to raise it only because it could not find a
+     * producer.
+     */
+    public function test_it_reduces_a_span_description_that_is_a_bare_uri(): void
+    {
+        $span = (new Span)
+            ->setOp('http.client')
+            ->setDescription('https://ntfy.sh/secret-topic?sig=abc');
+
+        $event = Event::createTransaction();
+        $event->setSpans([$span]);
+
+        $this->assertSame(
+            'https://ntfy.sh',
+            SentryScrubber::beforeSendTransaction($event, null)->getSpans()[0]->getDescription(),
+        );
+    }
+
+    /**
+     * A transaction's breadcrumbs are scrubbed too.
+     *
+     * The span fix alone would be half a fix: `Scope::applyToEvent` attaches
+     * breadcrumbs to a transaction as well, and they bypassed the scrubber for
+     * the same reason the spans did.
+     */
+    public function test_it_scrubs_breadcrumbs_on_a_transaction_as_well(): void
+    {
+        $event = Event::createTransaction();
+        $event->setBreadcrumb([
+            new Breadcrumb(
+                Breadcrumb::LEVEL_INFO,
+                Breadcrumb::TYPE_HTTP,
+                'http',
+                null,
+                ['url' => 'https://ntfy.sh/secret-topic', 'http.query' => 'sig=abc'],
+            ),
+        ]);
+
+        $metadata = SentryScrubber::beforeSendTransaction($event, null)
+            ->getBreadcrumbs()[0]
+            ->getMetadata();
+
+        $this->assertSame('https://ntfy.sh', $metadata['url']);
+        $this->assertSame(SentryScrubber::MARKER, $metadata['http.query']);
+    }
+
+    /**
+     * A non-HTTP breadcrumb keeps a `url` key untouched.
+     *
+     * The reduction is scoped to `Breadcrumb::TYPE_HTTP` on purpose: a
+     * developer-authored log context that happens to carry a `url` is not the
+     * SDK's request metadata, and blanking it would cost debugging information
+     * to close a hole that is not there.
+     */
+    public function test_it_leaves_a_url_on_a_non_http_breadcrumb_alone(): void
+    {
+        $event = Event::createEvent();
+        $event->setBreadcrumb([
+            new Breadcrumb(
+                Breadcrumb::LEVEL_INFO,
+                Breadcrumb::TYPE_DEFAULT,
+                'log.info',
+                'Status page rendered',
+                ['url' => 'https://status.example.com/incidents/7'],
+            ),
+        ]);
+
+        $metadata = SentryScrubber::beforeSend($event, null)->getBreadcrumbs()[0]->getMetadata();
+
+        $this->assertSame('https://status.example.com/incidents/7', $metadata['url']);
+    }
+
+    /**
+     * An unparseable HTTP url becomes the marker rather than passing through.
+     *
+     * This runs on a credential path, so the failure mode has to be losing
+     * information rather than leaking it.
+     */
+    public function test_it_masks_an_http_url_it_cannot_parse(): void
+    {
+        $event = Event::createEvent();
+        $event->setBreadcrumb([
+            new Breadcrumb(
+                Breadcrumb::LEVEL_ERROR,
+                Breadcrumb::TYPE_HTTP,
+                'http',
+                null,
+                ['url' => 'not-a-url-at-all'],
+            ),
+        ]);
+
+        $metadata = SentryScrubber::beforeSend($event, null)->getBreadcrumbs()[0]->getMetadata();
+
+        $this->assertSame(SentryScrubber::MARKER, $metadata['url']);
     }
 
     /**

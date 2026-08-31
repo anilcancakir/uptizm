@@ -41,6 +41,7 @@ class ScheduleTest extends TestCase
         'proxy:refresh-sources' => 'the exit pool is never refreshed',
         'proxy:alarm-dark-regions' => 'a dark region is never reported',
         'queue:prune-failed' => 'the failed-jobs table only ever grows',
+        'monitoring:prune-notification-deliveries' => 'the notification_deliveries audit trail grows without bound instead of ageing out at 90 days',
         'billing:reconcile' => 'a rail abandons a dropped webhook after hours (RevenueCat) or days (Stripe), so without this a lost EXPIRATION is a paid tier held for free forever and a lost purchase is a paying customer stuck on free with no self-serve recovery',
     ];
 

@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Actions\PlanGatedInviteTeamMember;
 use App\Actions\StoreSubscriptionGuardedDeleteTeam;
+use App\Listeners\RecordNotificationDelivery;
 use App\Models\Team;
 use App\Notifications\IncidentEscalated;
 use App\Notifications\IncidentOpened;
@@ -29,6 +30,8 @@ use App\Services\StatusPages\StatusPagePreviewRenderer;
 use FlutterSdk\MagicStarter\Contracts\DeletesTeams;
 use FlutterSdk\MagicStarter\Contracts\InvitesTeamMembers;
 use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
+use Illuminate\Notifications\Events\NotificationFailed;
+use Illuminate\Notifications\Events\NotificationSent;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Http;
@@ -149,6 +152,18 @@ class AppServiceProvider extends ServiceProvider
             $event->extendSocialite('microsoft', MicrosoftProvider::class);
             $event->extendSocialite('github', GitHubProvider::class);
         });
+
+        // Record every attempted delivery through a team-scoped
+        // NotificationChannel. BOTH events are registered because either alone
+        // under-records: NotificationSent fires only once the channel's send()
+        // has RETURNED, so a transport failure (which the channels rethrow
+        // rather than report, precisely so it lands here) reaches only
+        // NotificationFailed. The listener
+        // filters on the notifiable, so the user lanes never write a row.
+        Event::listen([
+            NotificationSent::class,
+            NotificationFailed::class,
+        ], RecordNotificationDelivery::class);
 
         // Register the incident notification types so preference-gating
         // (GateNotificationChannels) and the client preference matrix know

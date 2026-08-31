@@ -8,6 +8,7 @@ use App\Jobs\DispatchWeeklyDigests;
 use App\Jobs\IngestServiceFeeds;
 use App\Jobs\PruneContentArchive;
 use App\Jobs\PruneExpiredAiSuggestions;
+use App\Jobs\PruneNotificationDeliveries;
 use App\Jobs\RefreshProxySources;
 use App\Jobs\ScheduleMonitorChecks;
 use App\Jobs\ScheduleSslChecks;
@@ -228,6 +229,21 @@ Schedule::command('queue:prune-failed', ['--hours=336'])
     ->withoutOverlapping()
     ->onOneServer()
     ->name('queue:prune-failed');
+
+// Delete attempted-delivery rows outside the 90-day retention window.
+//
+// Daily at 04:55, five minutes after `queue:prune-failed` above, so the
+// nightly housekeeping band (03:00 SSL fan-out, 04:10 archive prune, 04:40 AI
+// suggestion prune, 04:50 failed-job prune) stays serialised rather than
+// contending for the database. `withoutOverlapping` matters here rather than
+// being boilerplate: a large backlog can outlive its own tick, and two
+// concurrent sweeps would only waste work re-selecting rows the other already
+// deleted.
+Schedule::job(new PruneNotificationDeliveries)
+    ->dailyAt('04:55')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->name('monitoring:prune-notification-deliveries');
 
 // Re-read each billing rail and correct any team entitlement that drifted.
 //

@@ -5,6 +5,8 @@ namespace App\Notifications\Channels;
 use App\Notifications\Channels\Concerns\RetriesRateLimitedDelivery;
 use App\Support\Monitoring\HostGuard;
 use App\Support\Monitoring\RelaySigner;
+use App\Support\Sentry\SentryScrubber;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Facades\Http;
@@ -37,6 +39,40 @@ use RuntimeException;
  * handler without being rethrown: the report keeps the synchronous test-send
  * honest (it reads a reported failure as `delivered:false`) while the
  * no-throw keeps a queued incident send from poisoning the queue.
+ *
+ * A TRANSPORT failure is the one case that does propagate, and it is replaced
+ * first: Guzzle appends the full request URI to a cURL error message, so the
+ * tenant URL would otherwise reach `failed_jobs.exception` and Sentry with its
+ * path and query intact.
+ *
+ * That rethrow closes ONE of the url's three routes to Sentry, and only one.
+ * Neither of the other two involves an exception at all, and neither can be
+ * reached from this class; both are closed in {@see SentryScrubber}:
+ *
+ * 1. This rethrow, for the exception message.
+ * 2. `sentry-laravel`'s HTTP-client BREADCRUMB, attached to every outbound
+ *    request on success as well as on failure, carrying the path in `url` and
+ *    the raw query in `http.query`. Reduced to an origin by `before_send`.
+ * 3. The `http.client` SPAN on a sampled TRANSACTION, carrying the same two
+ *    fields plus the uri again in its description. It travels a pipeline
+ *    `before_send` never sees (`Client::applyBeforeSendCallback` switches on
+ *    event type), so it needs `before_send_transaction`, which also runs the
+ *    breadcrumb pass that would otherwise be skipped on a transaction.
+ *
+ * All three are needed, and a claim that the credential is contained is only
+ * true while all three hold. Two rounds of review each found one more route, so
+ * treat the list as the current count rather than as a closed set: enumerate the
+ * sinks before trusting it.
+ *
+ * What propagation buys here is the `NotificationFailed` seam (which is what
+ * records the failed delivery row) and a visible `failed_jobs` entry. It does
+ * NOT buy a retry on this deployment: `config/horizon.php` runs supervisor-1
+ * with `tries: 1`, the production block overrides only `maxProcesses`, and none
+ * of the incident notifications declares its own `$tries`, so the job gets one
+ * attempt. Wanting a real retry is a separate decision, and not one to make by
+ * adding `$tries` to a notification: the mail and escalation lanes send to
+ * several notifiables per job, which is the sibling-resend hazard
+ * {@see RetriesRateLimitedDelivery} already names.
  */
 class WebhookChannel
 {
@@ -64,14 +100,23 @@ class WebhookChannel
      *
      * @param  object  $notifiable  The entity exposing `routeNotificationForWebhook()`.
      * @param  Notification  $notification  The notification exposing `toWebhook()`.
+     * @return ChannelDeliveryResult What the attempt amounted to, for the
+     *                               `NotificationSent` listener.
      *
      * @throws \JsonException When the webhook payload cannot be JSON-encoded.
+     * @throws RuntimeException When the target could not be reached at all; it
+     *                          names the host and nothing else, so the failure
+     *                          reaches `NotificationFailed` and `failed_jobs`
+     *                          without the URL riding along.
      */
-    public function send(object $notifiable, Notification $notification): void
+    public function send(object $notifiable, Notification $notification): ChannelDeliveryResult
     {
-        // 1. Skip when the notification cannot build a webhook payload.
+        // 1. Skip when the notification cannot build a webhook payload. Nothing
+        //    was attempted, and `failed` is the honest half of a two-value
+        //    outcome: a null status and a null exception class are what mark it
+        //    as a no-send rather than a refusal.
         if (! is_callable([$notification, 'toWebhook'])) {
-            return;
+            return ChannelDeliveryResult::failed();
         }
 
         // 2. Resolve the tenant target; a missing url + secret is a non-delivery,
@@ -83,7 +128,7 @@ class WebhookChannel
                 'Webhook delivery skipped: no url and secret configured for the target.',
             ));
 
-            return;
+            return ChannelDeliveryResult::failed();
         }
 
         [$url, $secret] = $route;
@@ -107,7 +152,7 @@ class WebhookChannel
                 (string) $host,
             )));
 
-            return;
+            return ChannelDeliveryResult::failed(exceptionClass: ValidationException::class);
         }
 
         // 4. Encode once: the same bytes are both signed and sent, so the
@@ -128,29 +173,51 @@ class WebhookChannel
         //    on the retry rather than reused.
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
 
-        $response = $this->sendWithRateLimitBackoff(
-            fn (): Response => Http::withHeaders([
-                self::SIGNATURE_HEADER => $signature,
-                self::TIMESTAMP_HEADER => (string) $timestamp,
-            ])
-                ->withOptions([
-                    'allow_redirects' => false,
-                    // CURLOPT_RESOLVE pins the connection to the validated IP(s),
-                    // so connect-time cannot drift from validation-time. It is a
-                    // cURL-handler option and assumes Guzzle uses the curl
-                    // handler (true under frankenphp/Octane, where ext-curl is
-                    // present); if Guzzle ever fell back to the PHP stream
-                    // handler the pin would be silently ignored and the
-                    // rebinding window would reopen.
-                    'curl' => [
-                        CURLOPT_RESOLVE => [$host.':443:'.implode(',', $pinnedIps)],
-                    ],
+        try {
+            $response = $this->sendWithRateLimitBackoff(
+                fn (): Response => Http::withHeaders([
+                    self::SIGNATURE_HEADER => $signature,
+                    self::TIMESTAMP_HEADER => (string) $timestamp,
                 ])
-                ->withBody($body, 'application/json')
-                ->post($url),
-        );
+                    ->withOptions([
+                        'allow_redirects' => false,
+                        // CURLOPT_RESOLVE pins the connection to the validated IP(s),
+                        // so connect-time cannot drift from validation-time. It is a
+                        // cURL-handler option and assumes Guzzle uses the curl
+                        // handler (true under frankenphp/Octane, where ext-curl is
+                        // present); if Guzzle ever fell back to the PHP stream
+                        // handler the pin would be silently ignored and the
+                        // rebinding window would reopen.
+                        'curl' => [
+                            CURLOPT_RESOLVE => [$host.':443:'.implode(',', $pinnedIps)],
+                        ],
+                    ])
+                    ->withBody($body, 'application/json')
+                    ->post($url),
+            );
+        } catch (ConnectionException) {
+            // 6. The target could not be reached. Guzzle appends the full
+            //    request URI to its cURL message and PSR-7 redacts only the
+            //    `user:pass@` component, so the tenant's path and query would
+            //    ride this exception into `failed_jobs.exception` and Sentry,
+            //    where SentryScrubber's key matching cannot reach a secret that
+            //    sits inside a URL. Name the host and nothing else, and do NOT
+            //    pass the original as `$previous`: every renderer walks the
+            //    chain, which would print the URL again one link down.
+            //
+            //    Rethrown rather than reported, unlike every other failure
+            //    here. Reporting would swallow it into a `delivered`-shaped
+            //    silence: only a throw reaches `NotificationFailed`, which is
+            //    what records the failed delivery row, and only a throw leaves
+            //    a `failed_jobs` entry an operator can find. It does not buy a
+            //    retry; see the class docblock for why.
+            throw new RuntimeException(sprintf(
+                'Webhook delivery to %s failed: the target could not be reached.',
+                $host,
+            ));
+        }
 
-        // 6. Anything that is not a 2xx is a non-delivery, including a 3xx
+        // 7. Anything that is not a 2xx is a non-delivery, including a 3xx
         //    redirect (which the pinned connection refuses to follow). Surface
         //    it honestly without poisoning the queue: report the host + status
         //    only, never the secret or the signed body.
@@ -158,7 +225,11 @@ class WebhookChannel
             report(new RuntimeException(
                 "Webhook delivery to {$host} failed with status {$response->status()}.",
             ));
+
+            return ChannelDeliveryResult::failed(statusCode: $response->status());
         }
+
+        return ChannelDeliveryResult::delivered(statusCode: $response->status());
     }
 
     /**
