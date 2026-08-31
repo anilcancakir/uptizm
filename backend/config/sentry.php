@@ -170,6 +170,27 @@ return [
     'before_send' => [SentryScrubber::class, 'beforeSend'],
 
     /*
+     * The same gate for TRANSACTION events, which are a THIRD pipeline and need
+     * their own hook.
+     *
+     * `Sentry\Client::applyBeforeSendCallback` switches on the event type and
+     * routes a transaction to `getBeforeSendTransactionCallback()`, never to
+     * `before_send` above. Leaving this unset runs the SDK's default passthrough,
+     * so on a transaction NOTHING in the scrubber runs: not the span reduction,
+     * and not the breadcrumb one either, because the whole event bypasses the
+     * error hook rather than only its span part.
+     *
+     * That is a live credential path rather than a theoretical one.
+     * `tracing.http_client_requests` below is on by default, so every outbound
+     * request opens an `http.client` span carrying `url` (scheme, host, port and
+     * PATH), a RAW `http.query`, and a description of `"{method} {partial uri}"`.
+     * Two of this product's outbound urls ARE the credential (an ntfy topic in
+     * the path, a Teams Workflows SAS in `?sig=`), and no failure is required: a
+     * SUCCESSFUL test-send on a sampled request is enough.
+     */
+    'before_send_transaction' => [SentryScrubber::class, 'beforeSendTransaction'],
+
+    /*
      * The same gate for the structured-log pipeline, which is a SEPARATE
      * transport with a separate hook.
      *

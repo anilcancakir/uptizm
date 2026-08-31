@@ -27,12 +27,14 @@ use Throwable;
  * inside a URL. For two of these four channels the URL IS the credential: an
  * ntfy topic lives in the path, a Teams Workflows SAS in the `?sig=` query.
  *
- * This file covers the EXCEPTION route only. The url reaches Sentry by a second,
- * independent route as well (`sentry-laravel`'s HTTP-client breadcrumb, which
- * fires on every request rather than only on a failure), and that one is closed
- * in {@see SentryScrubber} and asserted by
- * `SentryScrubberTest::test_it_reduces_an_http_breadcrumb_url_to_its_origin`.
- * Neither test alone means the credential is contained.
+ * This file covers the EXCEPTION route only, which is ONE of three. The url also
+ * reaches Sentry through `sentry-laravel`'s HTTP-client breadcrumb and through
+ * the `http.client` span on a sampled transaction, neither of which needs a
+ * failure to fire. Both are closed in {@see SentryScrubber} and asserted by
+ * `SentryScrubberTest::test_it_reduces_an_http_breadcrumb_url_to_its_origin` and
+ * `::test_it_reduces_an_http_client_span_url_to_its_origin`. No one of the three
+ * tests means the credential is contained; {@see WebhookChannel} enumerates the
+ * routes.
  *
  * Each case therefore asserts on the WHOLE exception chain, not on the top
  * message alone: chaining the original transport error as `$previous` would

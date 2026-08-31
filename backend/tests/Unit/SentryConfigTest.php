@@ -140,6 +140,39 @@ class SentryConfigTest extends TestCase
     }
 
     /**
+     * Transactions travel on their own pipeline with their own hook.
+     *
+     * `Sentry\Client::applyBeforeSendCallback` switches on the event TYPE, so a
+     * transaction reaches `getBeforeSendTransactionCallback()` and never
+     * `before_send`. Leaving that unset runs the SDK's default passthrough,
+     * which means NOTHING in the scrubber runs on a transaction: not the span
+     * reduction, not even the breadcrumb one.
+     *
+     * That matters because `tracing.http_client_requests` is on, so every
+     * outbound request opens an `http.client` span carrying the request path and
+     * the raw query, and two of this product's outbound urls are themselves the
+     * credential. A successful request on a sampled trace is enough; no failure
+     * is involved.
+     */
+    public function test_the_transaction_pipeline_has_its_own_scrubber(): void
+    {
+        $beforeSendTransaction = config('sentry.before_send_transaction');
+
+        $this->assertSame(
+            [SentryScrubber::class, 'beforeSendTransaction'],
+            $beforeSendTransaction,
+            'Without this hook a sampled trace ships the span url unscrubbed.',
+        );
+
+        $this->assertIsCallable($beforeSendTransaction);
+        $this->assertNotInstanceOf(
+            \Closure::class,
+            $beforeSendTransaction,
+            'A closure here passes locally and fails at deploy, under config:cache.',
+        );
+    }
+
+    /**
      * Structured logs travel on their own transport with their own hook, so
      * `before_send` does not cover them. Enabling logs without this wires a
      * second and wider path for the values the scrubber exists to stop.

@@ -48,10 +48,11 @@ use RuntimeException;
  * first: Guzzle appends the full request URI to a cURL error message, and here
  * that URI carries the SAS.
  *
- * That closes only one of the SAS's two routes to Sentry. The other is
- * `sentry-laravel`'s HTTP-client breadcrumb, which ships the raw query on every
- * request whether or not anything threw, and is closed in
- * {@see SentryScrubber} rather than here.
+ * That closes only one of the SAS's THREE routes to Sentry. The other two are
+ * `sentry-laravel`'s HTTP-client breadcrumb and its `http.client` span on a
+ * sampled transaction, both of which ship the raw query on every request whether
+ * or not anything threw, and both closed in {@see SentryScrubber} rather than
+ * here. {@see WebhookChannel} enumerates all three.
  *
  * What propagation buys is the `NotificationFailed` seam (which records the
  * failed delivery row) and a visible `failed_jobs` entry, NOT a retry:

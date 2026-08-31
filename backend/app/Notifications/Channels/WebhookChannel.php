@@ -45,13 +45,24 @@ use RuntimeException;
  * tenant URL would otherwise reach `failed_jobs.exception` and Sentry with its
  * path and query intact.
  *
- * That rethrow closes ONE of the two routes the url had, and only one. The
- * second is `sentry-laravel`'s HTTP-client breadcrumb, which attaches the url
- * and the raw query to every outbound request independently of any exception,
- * on success as well as on failure. Nothing in this class can reach it; it is
- * closed in {@see SentryScrubber}, which reduces an HTTP
- * breadcrumb to its origin. Both halves are needed, and a claim that the
- * credential is contained is only true while both hold.
+ * That rethrow closes ONE of the url's three routes to Sentry, and only one.
+ * Neither of the other two involves an exception at all, and neither can be
+ * reached from this class; both are closed in {@see SentryScrubber}:
+ *
+ * 1. This rethrow, for the exception message.
+ * 2. `sentry-laravel`'s HTTP-client BREADCRUMB, attached to every outbound
+ *    request on success as well as on failure, carrying the path in `url` and
+ *    the raw query in `http.query`. Reduced to an origin by `before_send`.
+ * 3. The `http.client` SPAN on a sampled TRANSACTION, carrying the same two
+ *    fields plus the uri again in its description. It travels a pipeline
+ *    `before_send` never sees (`Client::applyBeforeSendCallback` switches on
+ *    event type), so it needs `before_send_transaction`, which also runs the
+ *    breadcrumb pass that would otherwise be skipped on a transaction.
+ *
+ * All three are needed, and a claim that the credential is contained is only
+ * true while all three hold. Two rounds of review each found one more route, so
+ * treat the list as the current count rather than as a closed set: enumerate the
+ * sinks before trusting it.
  *
  * What propagation buys here is the `NotificationFailed` seam (which is what
  * records the failed delivery row) and a visible `failed_jobs` entry. It does

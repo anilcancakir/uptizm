@@ -9,6 +9,7 @@ use Sentry\Breadcrumb;
 use Sentry\Event;
 use Sentry\EventHint;
 use Sentry\Logs\Log;
+use Sentry\Tracing\Span;
 
 /**
  * The last gate between this application's secrets and Sentry.
@@ -45,10 +46,11 @@ use Sentry\Logs\Log;
  *
  * WHAT THIS CANNOT DO, stated rather than implied:
  *
- * - It matches KEYS, never values, with ONE exception: the URL-bearing metadata
- *   on an HTTP breadcrumb, where the key names are innocent and the values are
- *   the credential. {@see self::HTTP_URL_KEYS} carries that case and the reason
- *   it had to be special. Everywhere else a credential pasted into an exception
+ * - It matches KEYS, never values, with ONE exception: the URL-bearing fields on
+ *   an HTTP breadcrumb or an `http.client` span, where the key names are innocent
+ *   and the values are the credential. {@see self::HTTP_URL_KEYS} carries that
+ *   case and the reason it had to be special. Everywhere else a credential
+ *   pasted into an exception
  *   message, a URL with a token in its query string, or a stack trace argument
  *   is not reached. {@see CredentialRedactor} is the
  *   value-based counterpart, and it covers probe-controlled text only.
@@ -70,15 +72,7 @@ class SentryScrubber
     public const string MARKER = '[filtered]';
 
     /**
-     * Key fragments whose value never leaves this server.
-     *
-     * Lower-cased, matched as substrings. See the class docblock for why
-     * `auth_` and `authorization` are separate entries and `auth` is not one.
-     *
-     * @var list<string>
-     */
-    /**
-     * The URL-bearing metadata keys on an HTTP breadcrumb, as a set.
+     * The URL-bearing metadata keys on an HTTP breadcrumb or span, as a set.
      *
      * These are the one place key matching cannot work, because the key names
      * are innocent and the VALUES are the credential. `sentry-laravel`'s
@@ -95,7 +89,12 @@ class SentryScrubber
      * topic lives in the path, and a Teams Workflows url carries a SAS in
      * `?sig=`. A monitor's probe target is tenant-controlled too.
      *
-     * So an HTTP breadcrumb keeps its ORIGIN and loses everything after it. The
+     * The same three fields ride the `http.client` SPAN on a sampled transaction
+     * (`handleRequestSendingHandlerForTracing`), which puts the uri in the span
+     * description as well, so both places are reduced there.
+     *
+     * So an HTTP breadcrumb or span keeps its ORIGIN and loses everything after
+     * it. The
      * origin is what makes the breadcrumb worth having (which host did we fail
      * to reach) and the path is what makes it dangerous. Sentry's own author
      * named the method "partial" and drew the line one component later than a
@@ -107,6 +106,14 @@ class SentryScrubber
         'http.fragment' => true,
     ];
 
+    /**
+     * Key fragments whose value never leaves this server.
+     *
+     * Lower-cased, matched as substrings. See the class docblock for why
+     * `auth_` and `authorization` are separate entries and `auth` is not one.
+     *
+     * @var list<string>
+     */
     private const array SENSITIVE_NEEDLES = [
         'auth_',
         'authorization',
@@ -145,6 +152,56 @@ class SentryScrubber
             return null;
         }
 
+        return self::scrubEvent($event);
+    }
+
+    /**
+     * The same gate for TRANSACTION events, which travel a third pipeline.
+     *
+     * Wired as `before_send_transaction` in `config/sentry.php`, and it has to
+     * be wired separately: `Sentry\Client::applyBeforeSendCallback` switches on
+     * the event TYPE and routes a transaction to
+     * `getBeforeSendTransactionCallback()`, never to `before_send`. Leaving it
+     * unset means the SDK's default passthrough runs and nothing below happens,
+     * including the breadcrumb reduction, because the whole event bypasses the
+     * error hook rather than only the span part of it.
+     *
+     * The reason this matters here rather than being defensive tidiness:
+     * `tracing.http_client_requests` is on by default, so
+     * `HttpClientIntegration::handleRequestSendingHandlerForTracing` opens an
+     * `http.client` span per outbound request carrying `url` (scheme, host, port
+     * and PATH), a RAW `http.query`, and a description of
+     * `"{method} {partial uri}"`. On this product two of those urls ARE the
+     * credential (an ntfy topic in the path, a Teams SAS in `?sig=`), and no
+     * exception is needed: a SUCCESSFUL test-send on a sampled request ships it.
+     *
+     * The throttle is deliberately not applied here. It exists to bound repeated
+     * FAULT reports; dropping transactions would silently break the performance
+     * data the sampler is tuned for.
+     *
+     * @param  Event  $event  The transaction about to be transmitted.
+     * @param  EventHint|null  $hint  The SDK's hint, unused here but part of the contract.
+     * @return Event|null Always the event; nothing here discards a transaction.
+     */
+    public static function beforeSendTransaction(Event $event, ?EventHint $hint): ?Event
+    {
+        return self::scrubEvent($event, scrubSpans: true);
+    }
+
+    /**
+     * Every bag an event can carry a secret in, in one place.
+     *
+     * Shared by the error and transaction hooks because a transaction carries
+     * the same request bag, extra, contexts, tags and breadcrumbs an error does,
+     * and a fix applied to one hook and not the other is the shape of defect
+     * this class exists to prevent.
+     *
+     * @param  Event  $event  The event to scrub in place.
+     * @param  bool  $scrubSpans  Whether to reduce span urls, which only a
+     *                            transaction carries.
+     */
+    private static function scrubEvent(Event $event, bool $scrubSpans = false): Event
+    {
         // 1. The request bag: headers (Authorization, Cookie), body, query.
         $request = $event->getRequest();
 
@@ -188,7 +245,56 @@ class SentryScrubber
             $event->setBreadcrumb(array_map(self::scrubBreadcrumb(...), $breadcrumbs));
         }
 
+        // 6. Spans, on a transaction only. An `http.client` span puts the url in
+        //    TWO places (`data['url']` and the description), so both are reduced.
+        if ($scrubSpans) {
+            foreach ($event->getSpans() as $span) {
+                self::scrubSpan($span);
+            }
+        }
+
         return $event;
+    }
+
+    /**
+     * Reduce one span's url-bearing fields, in place.
+     *
+     * `Span` is mutable and `setData()` MERGES, so only the masked keys are
+     * written back. The description is rewritten rather than blanked: the method
+     * verb is worth keeping and only the uri half is dangerous.
+     */
+    private static function scrubSpan(Span $span): void
+    {
+        $data = $span->getData();
+        $masked = [];
+
+        foreach (array_keys(self::HTTP_URL_KEYS) as $key) {
+            if (! array_key_exists($key, $data)) {
+                continue;
+            }
+
+            $masked[$key] = $key === 'url' ? self::originOnly($data[$key]) : self::MARKER;
+        }
+
+        if ($masked !== []) {
+            $span->setData($masked);
+        }
+
+        // The description is `"{method} {partial uri}"`, built by
+        // `HttpClientIntegration::handleRequestSendingHandlerForTracing`, so the
+        // path rides here as well as in `data['url']`. Rebuild it from the verb
+        // plus the origin.
+        $description = $span->getDescription();
+
+        if ($description === null || $description === '') {
+            return;
+        }
+
+        $parts = explode(' ', $description, 2);
+
+        if (count($parts) === 2 && str_contains($parts[1], '://')) {
+            $span->setDescription($parts[0].' '.self::originOnly($parts[1]));
+        }
     }
 
     /**

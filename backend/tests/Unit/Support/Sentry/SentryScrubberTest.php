@@ -8,6 +8,7 @@ use Sentry\Breadcrumb;
 use Sentry\Event;
 use Sentry\Logs\Log;
 use Sentry\Logs\LogLevel;
+use Sentry\Tracing\Span;
 use Tests\TestCase;
 
 /**
@@ -237,6 +238,83 @@ class SentryScrubberTest extends TestCase
         $flat = json_encode($metadata);
         $this->assertStringNotContainsString('secret-topic', $flat);
         $this->assertStringNotContainsString('sig=abc', $flat);
+    }
+
+    /**
+     * A transaction's `http.client` span loses the path from both places.
+     *
+     * Transactions are a third pipeline: `Client::applyBeforeSendCallback`
+     * switches on the event type, so a transaction reaches
+     * `before_send_transaction` and never `before_send`. Nothing in this class
+     * ran on one before that hook was wired, so the span shipped the path and
+     * the raw query, and the breadcrumb reduction never ran either.
+     *
+     * The span shape below is copied from
+     * `HttpClientIntegration::handleRequestSendingHandlerForTracing`, which puts
+     * the uri in `data['url']` AND in the description, so both are asserted.
+     */
+    public function test_it_reduces_an_http_client_span_url_to_its_origin(): void
+    {
+        $span = (new Span)
+            ->setOp('http.client')
+            ->setDescription('POST https://ntfy.sh/secret-topic')
+            ->setData([
+                'url' => 'https://ntfy.sh/secret-topic',
+                'http.query' => 'sig=abc',
+                'http.fragment' => '',
+                'http.request.method' => 'POST',
+                'http.request.body.size' => 512,
+            ]);
+
+        $event = Event::createTransaction();
+        $event->setSpans([$span]);
+
+        $scrubbed = SentryScrubber::beforeSendTransaction($event, null)->getSpans()[0];
+        $data = $scrubbed->getData();
+
+        $this->assertSame('https://ntfy.sh', $data['url']);
+        $this->assertSame(SentryScrubber::MARKER, $data['http.query']);
+        $this->assertSame(
+            'POST https://ntfy.sh',
+            $scrubbed->getDescription(),
+            'The verb is worth keeping; the uri half is what carries the credential.',
+        );
+
+        // The rest of the span is what makes it worth sending at all.
+        $this->assertSame('POST', $data['http.request.method']);
+        $this->assertSame(512, $data['http.request.body.size']);
+
+        $flat = json_encode([$data, $scrubbed->getDescription()]);
+        $this->assertStringNotContainsString('secret-topic', $flat);
+        $this->assertStringNotContainsString('sig=abc', $flat);
+    }
+
+    /**
+     * A transaction's breadcrumbs are scrubbed too.
+     *
+     * The span fix alone would be half a fix: `Scope::applyToEvent` attaches
+     * breadcrumbs to a transaction as well, and they bypassed the scrubber for
+     * the same reason the spans did.
+     */
+    public function test_it_scrubs_breadcrumbs_on_a_transaction_as_well(): void
+    {
+        $event = Event::createTransaction();
+        $event->setBreadcrumb([
+            new Breadcrumb(
+                Breadcrumb::LEVEL_INFO,
+                Breadcrumb::TYPE_HTTP,
+                'http',
+                null,
+                ['url' => 'https://ntfy.sh/secret-topic', 'http.query' => 'sig=abc'],
+            ),
+        ]);
+
+        $metadata = SentryScrubber::beforeSendTransaction($event, null)
+            ->getBreadcrumbs()[0]
+            ->getMetadata();
+
+        $this->assertSame('https://ntfy.sh', $metadata['url']);
+        $this->assertSame(SentryScrubber::MARKER, $metadata['http.query']);
     }
 
     /**
