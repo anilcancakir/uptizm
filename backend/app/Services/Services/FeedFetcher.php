@@ -97,7 +97,8 @@ class FeedFetcher
     /**
      * Request timeout in seconds. A feed that cannot answer in ten seconds is
      * recorded as unreachable; the tick has other services to fetch and the
-     * worker's own timeout is 60 (`config/horizon.php` supervisor-1).
+     * worker's own timeout is 60 (`config/horizon.php`, the `background`
+     * supervisor, which is where `feeds` is drained).
      */
     protected const int TIMEOUT_SECONDS = 10;
 

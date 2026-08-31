@@ -60,7 +60,7 @@ use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
  * omission: `BroadcastManager` reads `broadcastQueue()`, `$broadcastQueue` and
  * `$queue` off the event at `:202-207`, and this class deliberately declares
  * none of the three. Nothing in this app pins one, so both existing events ride
- * `default`, which supervisor-1 drains (config/horizon.php:221). A NEW queue
+ * `default`, which supervisor-1 drains (config/horizon.php:241). A NEW queue
  * name would be drained by nobody, no tick would ever arrive, and the client's
  * poll would advance the UI anyway and hide it. Pinning them onto the `analyze`
  * queue instead would serialise every tick behind the 150-second job on
@@ -184,9 +184,9 @@ class AnalyzeProgressBroadcast implements ShouldBroadcast, ShouldDispatchAfterCo
      * receives every tick.
      *
      * `sequence` is not decoration, and both reasons are measured. Production
-     * Horizon runs `maxProcesses` 10 on the supervisor that drains the queue
+     * Horizon runs `maxProcesses` 7 on the supervisor that drains the queue
      * these broadcasts ride (`default` in supervisor-1's list at
-     * config/horizon.php:221, its production process count at `:349`), and
+     * config/horizon.php:241, its production process count at `:458`), and
      * Laravel guarantees
      * delivery order only for SQS FIFO, so a client trusting arrival order
      * would render step 2 after step 3. It also keeps consecutive payloads
