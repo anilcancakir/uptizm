@@ -49,11 +49,10 @@ use Sentry\Tracing\Span;
  * - It matches KEYS, never values, with ONE exception: the URL-bearing fields on
  *   an HTTP breadcrumb or an `http.client` span, where the key names are innocent
  *   and the values are the credential. {@see self::HTTP_URL_KEYS} carries that
- *   case and the reason it had to be special. Everywhere else a credential
- *   pasted into an exception
- *   message, a URL with a token in its query string, or a stack trace argument
- *   is not reached. {@see CredentialRedactor} is the
- *   value-based counterpart, and it covers probe-controlled text only.
+ *   case and the reason it had to be special. Everywhere else a credential pasted
+ *   into an exception message, a URL with a token in its query string, or a stack
+ *   trace argument is not reached. {@see CredentialRedactor} is the value-based
+ *   counterpart, and it covers probe-controlled text only.
  * - It cannot see inside an object. Anything the SDK has already serialised to
  *   a scalar before this runs is past the gate.
  * - It is not a reason to relax `send_default_pii`, which stays false.
@@ -94,10 +93,10 @@ class SentryScrubber
      * description as well, so both places are reduced there.
      *
      * So an HTTP breadcrumb or span keeps its ORIGIN and loses everything after
-     * it. The
-     * origin is what makes the breadcrumb worth having (which host did we fail
-     * to reach) and the path is what makes it dangerous. Sentry's own author
-     * named the method "partial" and drew the line one component later than a
+     * it. The origin is what makes the record worth having (which host did we
+     * fail to reach) and the path is what makes it dangerous. Sentry's own
+     * author named the method "partial" and drew the line one component later
+     * than a
      * monitoring product can afford.
      */
     private const array HTTP_URL_KEYS = [
@@ -282,19 +281,27 @@ class SentryScrubber
 
         // The description is `"{method} {partial uri}"`, built by
         // `HttpClientIntegration::handleRequestSendingHandlerForTracing`, so the
-        // path rides here as well as in `data['url']`. Rebuild it from the verb
-        // plus the origin.
+        // path rides here as well as in `data['url']`.
+        //
+        // Reduced by finding the uri wherever it sits rather than by assuming the
+        // verb-space-uri shape. A bare-uri description has no producer in this
+        // codebase today, but a shape assumption on a credential path is a hole
+        // waiting for the next SDK release to open, and the same reduction is
+        // correct either way.
         $description = $span->getDescription();
 
-        if ($description === null || $description === '') {
+        if ($description === null || ! str_contains($description, '://')) {
             return;
         }
 
-        $parts = explode(' ', $description, 2);
+        $offset = strpos($description, '://');
+        $schemeStart = strrpos(substr($description, 0, $offset), ' ');
 
-        if (count($parts) === 2 && str_contains($parts[1], '://')) {
-            $span->setDescription($parts[0].' '.self::originOnly($parts[1]));
-        }
+        // Everything before the uri (a verb, or nothing) is kept verbatim.
+        $prefix = $schemeStart === false ? '' : substr($description, 0, $schemeStart + 1);
+        $uri = substr($description, $schemeStart === false ? 0 : $schemeStart + 1);
+
+        $span->setDescription($prefix.self::originOnly($uri));
     }
 
     /**

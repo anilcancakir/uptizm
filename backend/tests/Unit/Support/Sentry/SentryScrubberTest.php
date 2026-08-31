@@ -290,6 +290,30 @@ class SentryScrubberTest extends TestCase
     }
 
     /**
+     * A span description that is a BARE uri, with no method verb, is reduced too.
+     *
+     * Nothing in this codebase produces that shape today; the reduction does not
+     * assume the verb-space-uri form because a shape assumption on a credential
+     * path is a hole waiting for the next SDK release to open, and a review that
+     * noticed the gap declined to raise it only because it could not find a
+     * producer.
+     */
+    public function test_it_reduces_a_span_description_that_is_a_bare_uri(): void
+    {
+        $span = (new Span)
+            ->setOp('http.client')
+            ->setDescription('https://ntfy.sh/secret-topic?sig=abc');
+
+        $event = Event::createTransaction();
+        $event->setSpans([$span]);
+
+        $this->assertSame(
+            'https://ntfy.sh',
+            SentryScrubber::beforeSendTransaction($event, null)->getSpans()[0]->getDescription(),
+        );
+    }
+
+    /**
      * A transaction's breadcrumbs are scrubbed too.
      *
      * The span fix alone would be half a fix: `Scope::applyToEvent` attaches
