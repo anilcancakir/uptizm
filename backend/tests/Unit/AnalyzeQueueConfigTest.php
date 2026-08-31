@@ -222,7 +222,7 @@ class AnalyzeQueueConfigTest extends TestCase
         $this->assertSame(
             self::SHARED_SUPERVISOR_MEMORY,
             $shared['memory'] ?? null,
-            'supervisor-1 memory moved. At ten production processes this ceiling is multiplied by ten; '
+            'supervisor-1 memory moved. At seven production processes this ceiling is multiplied by seven; '
             .'the analyze supervisor is where a full response body is allowed to sit.'
         );
     }

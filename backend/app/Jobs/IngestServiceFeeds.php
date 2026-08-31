@@ -27,9 +27,14 @@ use Illuminate\Queue\SerializesModels;
  *
  * Both this job and its children run on the `feeds` queue, which is registered
  * in TWO places on purpose: `composer.json`'s `scripts.dev` queue list (what
- * drains it locally) and `config/horizon.php` supervisor-1 (what drains it on
- * the server). Registered in only one of them, the schedule fires, jobs queue,
- * `schedule:list` looks right, and no feed is ever ingested in production.
+ * drains it locally) and `config/horizon.php`'s `background` supervisor (what
+ * drains it on the server). Registered in only one of them, the schedule fires,
+ * jobs queue, `schedule:list` looks right, and no feed is ever ingested in
+ * production.
+ *
+ * `background` rather than supervisor-1 since 2026-08-30: the three tolerant
+ * queues share a single pool there, and `feeds` is drained LAST of the three, so
+ * a third party's status feed cannot be picked up ahead of our own work.
  */
 class IngestServiceFeeds implements ShouldBeUnique, ShouldQueue
 {

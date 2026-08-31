@@ -18,25 +18,43 @@ use Tests\TestCase;
  * Measured on the production box on 2026-08-30, with all eight queues at zero depth:
  * scheduling 104 MB, checks 108, processing 54, default 118, ai 104, feeds 110,
  * aggregates 42, ssl 34. That is 674 MB resident to drain nothing, on a 8 GB host that
- * was paging continuously.
+ * was paging continuously. Three of those eight move here, so the floor drops by two
+ * workers rather than by all eight; the other five each have something waiting on
+ * them, which is what the split is actually deciding.
  *
- * The split this test pins draws the line at latency rather than at volume:
+ * The split this test pins draws the line at latency rather than at volume, and the
+ * line is "is anything downstream WAITING", not "is this job cheap":
  *
- * 1. The four customer-facing queues keep `balance: auto`, so each still gets a pool
+ * 1. The five customer-facing queues keep `balance: auto`, so each still gets a pool
  *    and a worker of its own. They are one pipeline (scheduling fans out to checks,
- *    checks dispatches to processing) plus `default`, and a queue behind another one
- *    here is late outage detection or a page that never went out.
- * 2. The four background queues move to a supervisor with `balance: off`, which builds
- *    a SINGLE pool for the whole list. Its floor is one worker total rather than four,
- *    and Laravel's worker drains the list left to right, so the priority order written
- *    there is finally load bearing instead of decorative.
+ *    checks dispatches to processing) plus `default` and `ai`, and a queue behind
+ *    another one here is late outage detection, a page that never went out, or a
+ *    status page showing untranslated text mid-incident.
+ * 2. The three background queues move to a supervisor with `balance: off`, which
+ *    builds a SINGLE pool for the whole list. Its floor is one worker total rather
+ *    than three, and Laravel's worker drains the list left to right, so the priority
+ *    order written there is finally load bearing instead of decorative.
  *
- * What this test CANNOT see, so it is worth stating plainly: `balance: off` gives up
- * per-queue isolation inside the background set. One worker on a 60-second feed ingest
- * is a worker not polling `ssl`, and the autoscaler only adds a second one once the
- * summed backlog across the four exceeds the running count. That is the trade the
- * split accepts, and it is only acceptable because none of these four is on a path a
- * customer is waiting on.
+ * `ai` sat on the background side for one revision of this change and does not
+ * belong there: it looks like pure model-call background work, and
+ * TranslateStatusPageText rides it. The general shape of that mistake is worth more
+ * than the case: a queue's name describes the KIND of work on it, never who is
+ * waiting for the result, and only the second one decides which side of this split
+ * it belongs on.
+ *
+ * Two things this test CANNOT see, both worth stating rather than leaving to be
+ * discovered:
+ *
+ * `balance: off` gives up per-queue isolation inside the background set. One worker
+ * on a 60-second feed ingest is a worker not polling `ssl`, and the autoscaler only
+ * adds a second once the summed backlog across the three exceeds the running count.
+ * That is the trade the split accepts, and it is only acceptable because none of
+ * these three has anything waiting on it.
+ *
+ * The queue set below comes from this file's own constants, so a queue that appears
+ * in NEITHER supervisor list and in neither constant is invisible here: a job with a
+ * new `onQueue()` name would dispatch, be consumed by nobody, and fail nothing. That
+ * check has to read `app/`, not `config/`, so it is a different test than this one.
  */
 class BackgroundQueueConfigTest extends TestCase
 {
@@ -60,19 +78,31 @@ class BackgroundQueueConfigTest extends TestCase
      * `balance: auto` that ordering did nothing, because every queue had its own
      * dedicated worker and there was no single worker to order anything for.
      */
-    private const BACKGROUND_QUEUES = ['ssl', 'aggregates', 'ai', 'feeds'];
+    private const BACKGROUND_QUEUES = ['ssl', 'aggregates', 'feeds'];
 
     /**
      * The queues that must keep a worker each.
      *
-     * `default` is on this list and it is the least obvious member, so: it carries
-     * DispatchEscalationStep (the on-call paging path), AnnounceIncident, and the
-     * IncidentOpened / IncidentResolved / IncidentEscalated notifications. None of
-     * them calls `onQueue()`, so they land on `default` by omission, and every one of
-     * them is the product telling a customer their service is down. Behind a 60-second
-     * feed ingest, that is a page that arrives a minute late.
+     * Membership is decided by whether anything downstream is WAITING, not by how
+     * heavy the job is, and the two non-obvious members are the ones that make the
+     * rule worth stating.
+     *
+     * `default` carries DispatchEscalationStep (the on-call paging path),
+     * AnnounceIncident, and the IncidentOpened / IncidentResolved /
+     * IncidentEscalated notifications. None of them calls `onQueue()`, so they land
+     * there by omission, and every one is the product telling a customer their
+     * service is down. Behind a 60-second feed ingest that is a page a minute late.
+     *
+     * `ai` looks like pure background (digests, triage, suggestion sweeps) and
+     * carries TranslateStatusPageText as well, fanned out from ThresholdEvaluator,
+     * PublishAiIncidentUpdate, PerformSslCheck and the maintenance and status-page
+     * controllers. What it translates is the incident titles, postmortem bodies and
+     * update messages on the PUBLIC status page, so behind a feed tick a
+     * non-source-locale reader sees untranslated text during the one event the page
+     * exists for. It degrades rather than breaks, which is why it needs a test
+     * rather than a comment.
      */
-    private const CUSTOMER_FACING_QUEUES = ['scheduling', 'checks', 'processing', 'default'];
+    private const CUSTOMER_FACING_QUEUES = ['scheduling', 'checks', 'processing', 'default', 'ai'];
 
     /** The connection both supervisors ride; the split must not have changed it. */
     private const CONNECTION = 'redis';
@@ -86,7 +116,7 @@ class BackgroundQueueConfigTest extends TestCase
     /**
      * Every queue that had a consumer before the split still has exactly one.
      *
-     * The split moved four queue names between two arrays, and the failure mode of
+     * The split moved three queue names between two arrays, and the failure mode of
      * getting that wrong is silent in both directions. A queue dropped from both lists
      * dispatches fine and is consumed by nobody, so the job sits in Redis forever with
      * nothing logged. A queue left in both lists is drained by two supervisors sized
@@ -114,10 +144,10 @@ class BackgroundQueueConfigTest extends TestCase
      * The customer-facing queues keep a pool, and therefore a worker, each.
      *
      * This is the assertion the whole split is worth doing carefully for. Moving any
-     * of these four onto the background supervisor would save one more resident worker
+     * of these five onto the background supervisor would save one more resident worker
      * and put outage detection or on-call paging behind a status-feed ingest. The
      * `balance` check is half of it: flipping supervisor-1 to `off` would collapse
-     * these four into one pool too, which reads as a harmless one-word edit and
+     * these five into one pool too, which reads as a harmless one-word edit and
      * serializes the entire monitoring pipeline behind whichever queue is busiest.
      */
     public function test_the_customer_facing_queues_each_keep_a_pool_of_their_own(): void
@@ -134,7 +164,7 @@ class BackgroundQueueConfigTest extends TestCase
         $this->assertSame(
             self::CUSTOMER_FACING_QUEUES,
             $shared['queue'] ?? null,
-            'supervisor-1 must drain exactly the four queues a customer waits on. Anything else added '
+            'supervisor-1 must drain exactly the five queues a customer waits on. Anything else added '
             .'here buys another permanently resident worker; anything removed loses its own pool.'
         );
     }
@@ -144,7 +174,7 @@ class BackgroundQueueConfigTest extends TestCase
      *
      * `off` is load bearing and is the only value that removes the floor: `auto` and
      * `simple` both route through `createProcessPoolPerQueue()`, so either one silently
-     * reinstates the four idle workers this split exists to remove. Setting
+     * reinstates the three per-queue pools this split exists to collapse. Setting
      * `minProcesses` to 0 is not the alternative; Horizon throws on it at boot.
      */
     public function test_the_background_supervisor_shares_a_single_pool(): void
@@ -180,7 +210,7 @@ class BackgroundQueueConfigTest extends TestCase
      *
      * Horizon sizes workers per environment, so a supervisor missing from a block is
      * sized by accident, and one provisioning zero processes is skipped outright by
-     * ProvisioningPlan: four queues consumed by nobody, with nothing logged anywhere.
+     * ProvisioningPlan: three queues consumed by nobody, with nothing logged anywhere.
      */
     public function test_the_background_supervisor_is_declared_in_every_horizon_environment(): void
     {
@@ -202,7 +232,7 @@ class BackgroundQueueConfigTest extends TestCase
                 1,
                 $maxProcesses,
                 "The [{$environment}] background supervisor provisions no process, so Horizon skips it "
-                .'and the four queues it owns are consumed by nobody.'
+                .'and the three queues it owns are consumed by nobody.'
             );
         }
     }

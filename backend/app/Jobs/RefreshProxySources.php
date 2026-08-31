@@ -42,8 +42,8 @@ use RuntimeException;
  * file-load time; the constructor only sets the queue and touches neither
  * the container nor the database. Runs on the `feeds` queue, which is
  * already registered in both places a queue needs registering:
- * `config/horizon.php` supervisor-1 (server) and composer's local
- * `queue:listen` list (dev), so this job needs no third registration.
+ * `config/horizon.php`'s `background` supervisor (server) and composer's
+ * local `queue:listen` list (dev), so this job needs no third registration.
  */
 class RefreshProxySources implements ShouldQueue
 {

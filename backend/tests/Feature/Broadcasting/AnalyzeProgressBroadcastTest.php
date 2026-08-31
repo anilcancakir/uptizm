@@ -64,7 +64,7 @@ class AnalyzeProgressBroadcastTest extends TestCase
         // and no tick ever arrives, while the `analyze` queue from the job's own
         // supervisor serialises every tick behind the 150-second job on
         // maxProcesses 2 and delivers all of them at the end. Unpinned means
-        // `default`, which supervisor-1 drains (config/horizon.php:228).
+        // `default`, which supervisor-1 drains (config/horizon.php:241).
         $this->assertFalse(method_exists($event, 'broadcastQueue'));
         $this->assertFalse(property_exists($event, 'broadcastQueue'));
         $this->assertFalse(property_exists($event, 'queue'));
@@ -177,7 +177,7 @@ class AnalyzeProgressBroadcastTest extends TestCase
         $second = $this->tick(runId: $runId, sequence: 2, step: 1)->broadcastWith();
 
         // Production Horizon runs maxProcesses 7 on the supervisor draining the
-        // queue these ride (config/horizon.php:228 and :410), and Laravel
+        // queue these ride (config/horizon.php:241 and :458), and Laravel
         // guarantees delivery order only for SQS
         // FIFO, so the client orders by this rather than by arrival. Presence is
         // asserted before the comparison so dropping the field fails here with
