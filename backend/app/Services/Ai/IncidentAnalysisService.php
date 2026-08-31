@@ -34,8 +34,10 @@ class IncidentAnalysisService
     /**
      * Maximum number of checks folded into the RCA evidence.
      *
-     * Split evenly across the two ends of the incident when more than this many
-     * sit inside the window; see {@see self::evidenceChecks()}.
+     * Split evenly across the two ends of the incident once this many or more
+     * sit inside the window; see {@see self::evidenceChecks()}. At exactly this
+     * many the two ends tile the window and the split is a no-op, which is why
+     * the branch there tests for fewer rather than for more.
      */
     private const MAX_CHECKS = 20;
 
@@ -213,10 +215,13 @@ class IncidentAnalysisService
      *
      * The two siblings already closed theirs, which is what makes this the
      * missed one rather than an open question:
-     * {@see self::triggeringMetric()} bounds its readings at `resolved_at`, and
-     * so does {@see IncidentDraftService::composePayload()}.
+     * {@see IncidentDraftService::composePayload()} bounds its checks at
+     * `resolved_at`, and {@see self::triggeringMetric()} bounds its readings an
+     * hour past it. This one takes the tighter of the two, because a check is
+     * the thing that resolves the incident and the grace period there is for a
+     * reading whose `recorded_at` can trail the check that produced it.
      *
-     * The selection takes BOTH ENDS when the window holds more than the cap.
+     * The selection takes BOTH ENDS once the window holds the cap or more.
      * {@see self::CHECK_LOOKBACK_CHECKS} exists to reach back past `started_at`
      * for the consecutive failures that tripped the threshold, and taking the
      * newest twenty threw that lookback away for every incident longer than the
@@ -224,9 +229,19 @@ class IncidentAnalysisService
      * says what broke and the tail says how it came back, so the evidence is
      * half of each rather than one end twice.
      *
-     * Order is preserved across the join, so the array stays descending in time
-     * and the fingerprint keeps reading a recovery differently from an onset
-     * ({@see IncidentAnalysisPayload::evidenceFingerprint()}).
+     * The array stays descending in `checked_at` across the join, so the
+     * fingerprint keeps reading a recovery differently from an onset
+     * ({@see IncidentAnalysisPayload::evidenceFingerprint()}). Getting the
+     * TOTAL order right takes a deliberately mirrored tiebreaker; see below.
+     *
+     * One consequence worth knowing, because it is new. The lower bound used to
+     * be inert on any incident with more than twenty checks, since the newest
+     * twenty never reached back that far. It now SELECTS the onset half, so
+     * {@see self::evidenceFrom()} feeds the fingerprint: editing a monitor's
+     * check interval, or a plan change moving
+     * {@see Monitor::effectiveCheckIntervalSec()}, shifts which rows the onset
+     * half returns and re-asks the model once for every resolved incident on
+     * that monitor.
      *
      * @param  list<string>  $monitorIds
      * @return Collection<int, MonitorCheck>
@@ -264,10 +279,26 @@ class IncidentAnalysisService
 
         $half = intdiv(self::MAX_CHECKS, 2);
 
+        // The tiebreakers run DESCENDING here, which looks backwards next to the
+        // ascending `checked_at` beside them and is the whole point: `reverse()`
+        // flips every key, not just the first, so this is the only ordering
+        // whose reverse is the tail's exact total order.
+        //
+        // A tie group is what makes that matter. `checked_at` has no sub-second
+        // component (a probe result round-trips through
+        // `DateTimeImmutable::ATOM`) and one row is written per REGION per tick,
+        // so a multi-region monitor ties exactly on every check; production
+        // carries `(monitor, checked_at)` groups of three. With both queries
+        // ordering regions the same way, a tie group straddling the split hands
+        // its first member to BOTH ends: that check reaches the model twice and
+        // its tick-mates are dropped to make room for it, which is one
+        // observation cited under two handles and two verdicts missing from the
+        // fingerprint. `IncidentAnalysisWindowTest` pins it at 7 ticks x 3
+        // regions, the smallest input that puts the split inside a tie group.
         $onset = $window->clone()
             ->orderBy('checked_at')
-            ->orderBy('region')
-            ->orderBy('id')
+            ->orderByDesc('region')
+            ->orderByDesc('id')
             ->limit($half)
             ->get();
 

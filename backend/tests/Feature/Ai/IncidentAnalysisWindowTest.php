@@ -137,6 +137,54 @@ class IncidentAnalysisWindowTest extends TestCase
     }
 
     /**
+     * The tick that straddles the split must not be counted twice.
+     *
+     * `checked_at` carries no sub-second component on this product (a probe
+     * result round-trips through `DateTimeImmutable::ATOM`), and one row is
+     * written per REGION per tick, so a multi-region monitor ties exactly every
+     * time it is checked. Production has `(monitor, checked_at)` groups of
+     * three, on the same monitor this test's fixture imitates.
+     *
+     * A tie group is therefore a block the two ends can both reach into, and
+     * they have to walk it in opposite directions or they both take its first
+     * member. `reverse()` on an ascending collection reverses EVERY key, so the
+     * onset query orders its tiebreakers descending to be the exact mirror of
+     * the tail's.
+     *
+     * Seven ticks across three regions is 21 rows, one more than the cap, which
+     * puts the split inside tick four rather than between two ticks.
+     */
+    public function test_a_tick_that_straddles_the_split_is_not_duplicated(): void
+    {
+        $spy = $this->bindCapturingGateway();
+        [$monitor, $user] = $this->makeMonitor();
+        $incident = $this->makeResolvedIncident($monitor, now()->subMinutes(20), now()->subMinutes(5));
+
+        for ($minute = 18; $minute >= 12; $minute--) {
+            foreach (['ap', 'eu-central', 'us-east'] as $region) {
+                $this->makeCheck($monitor, MonitorStatus::Down, 503, now()->subMinutes($minute), $region);
+            }
+        }
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson("/api/v1/incidents/{$incident->id}/analysis")
+            ->assertStatus(200);
+
+        $this->assertNotNull($spy->captured);
+
+        $identities = array_map(
+            fn (array $check): string => $check['region'].'@'.$check['checked_at'],
+            $spy->captured->checks,
+        );
+
+        $this->assertCount(
+            count($identities),
+            array_unique($identities),
+            'A check reached the model twice, so its tick-mates were dropped to make room for it.',
+        );
+    }
+
+    /**
      * Bind a gateway that counts how many times it was asked.
      *
      * Same shape as `AnalysisFeedbackTest::bindCountingGateway()`, and
@@ -241,12 +289,17 @@ class IncidentAnalysisWindowTest extends TestCase
         ]);
     }
 
-    protected function makeCheck(Monitor $monitor, MonitorStatus $status, int $code, Carbon $checkedAt): MonitorCheck
-    {
+    protected function makeCheck(
+        Monitor $monitor,
+        MonitorStatus $status,
+        int $code,
+        Carbon $checkedAt,
+        string $region = 'eu-central',
+    ): MonitorCheck {
         return MonitorCheck::query()->create([
             'team_id' => $monitor->team_id,
             'monitor_id' => $monitor->id,
-            'region' => 'eu-central',
+            'region' => $region,
             'status' => $status,
             'status_code' => $code,
             'response_ms' => 4100,
