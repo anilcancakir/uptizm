@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
+use Mockery;
 use RuntimeException;
 use Tests\TestCase;
 use Throwable;
@@ -131,7 +132,20 @@ class ArchiveContentTest extends TestCase
         );
     }
 
-    public function test_a_second_store_of_the_same_hash_writes_no_new_file(): void
+    /**
+     * A second store of one address leaves one file holding the right bytes.
+     *
+     * This used to assert the opposite half of the same property: that the
+     * second store SKIPPED the write and left whatever was there. The skip is
+     * gone, because the `fileExists` question that drove it was costing a
+     * rate-limited round trip through the mount on every archive to save an 8 ms
+     * write on 0.12% of them (the arithmetic is at {@see ContentArchive::store()}).
+     *
+     * What has to stay true is the address: one file, the correct bytes, no
+     * staging leftover. The marker proves the write happened rather than being
+     * skipped, and its disappearance is the behaviour change made visible.
+     */
+    public function test_a_second_store_of_the_same_hash_rewrites_one_address(): void
     {
         $body = $this->fixtureBody();
         $version = $this->claim($body);
@@ -141,17 +155,66 @@ class ArchiveContentTest extends TestCase
 
         $path = $this->archive()->blobPath($version->team_id, $version->content_hash);
 
-        // A marker rather than a timestamp: mtime resolution cannot tell a rewrite
-        // inside the same second from a skipped write, and the skip is the point.
-        $this->disk()->put($path, 'untouched by the second store');
+        $this->disk()->put($path, 'replaced by the second store');
 
         $this->archive()->store($version->monitor, $this->spool($body), $hashes);
 
-        $this->assertSame([$path], $this->disk()->allFiles());
         $this->assertSame(
-            'untouched by the second store',
-            $this->disk()->get($path),
-            'The second store rewrote a content-addressed blob that already existed.'
+            [$path],
+            $this->disk()->allFiles(),
+            'The second store left a staging file behind, or wrote to a second address.'
+        );
+        // Hashed rather than compared directly: these are gzipped bytes, and a
+        // failed assertion on them prints a screenful of binary that says
+        // nothing. The hash says the same thing in one line.
+        $this->assertSame(
+            md5(gzencode($body)),
+            md5((string) $this->disk()->get($path)),
+            'The second store did not land the body at its own address.'
+        );
+    }
+
+    /**
+     * The archive must not ask the mount whether a blob is already there.
+     *
+     * The direct pin for the defect: that question is a cache miss by
+     * construction (a new hash, fanned out across 256 directories), it measured
+     * 16.9 s cold against 0.2 ms warm on production while Google Drive was rate
+     * limiting the account, and it was the operation every archive timeout was
+     * spent inside.
+     *
+     * The sentinel probe is a different question and stays. It reads ONE fixed
+     * path, so rclone keeps it listed; the blob path is a new directory almost
+     * every time.
+     *
+     * The stub answers true to everything on purpose. Under the old code that
+     * made the guard skip the write, so the `put` expectation fails as well as
+     * the assertion below: two independent signals for one defect.
+     */
+    public function test_a_store_never_asks_the_mount_whether_the_blob_exists(): void
+    {
+        config(['content-archive.sentinel' => '.uptizm-mount-live']);
+
+        $body = $this->fixtureBody();
+        $version = $this->claim($body);
+        $asked = [];
+
+        $disk = Mockery::mock(Filesystem::class);
+        $disk->shouldReceive('fileExists')->andReturnUsing(function (string $path) use (&$asked): bool {
+            $asked[] = $path;
+
+            return true;
+        });
+        $disk->shouldReceive('put')->once()->andReturn(true);
+        $disk->shouldReceive('move')->once()->andReturn(true);
+        Storage::set((string) config('content-archive.disk'), $disk);
+
+        $this->archive()->store($version->monitor, $this->spool($body), $this->hashesFor($body));
+
+        $this->assertSame(
+            ['.uptizm-mount-live'],
+            $asked,
+            'The archive asked the mount something beyond the sentinel; the blob path is the expensive one.'
         );
     }
 

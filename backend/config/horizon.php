@@ -338,32 +338,48 @@ return [
         | Memory stays modest: the job carries a spool-file PATH, and only the
         | compressed bytes (a fraction of the 1 MB body ceiling) are ever held.
         |
-        | The 85s timeout is load bearing. It must stay ABOVE the archive job's own
-        | 80s timeout, so the job can run the failure hook that releases its
-        | claimed version row before the worker kills it, and BELOW the redis
-        | connection's retry_after (90), so a still-running write is never released
-        | to a second worker. See the invariant comment in config/queue.php;
-        | ContentQueueConfigTest pins the whole chain, including this supervisor's
-        | presence and its single process in every environment below.
+        | The 280s timeout is load bearing. It must stay ABOVE the archive job's
+        | own 270s timeout, so the job can run the failure hook that releases its
+        | claimed version row before the worker kills it, and BELOW the
+        | redis-content connection's retry_after (300), so a still-running write is
+        | never released to a second worker. See the invariant comment in
+        | config/queue.php; ContentQueueConfigTest pins the whole chain, including
+        | this supervisor's presence and its process count in every environment.
         |
-        | It was 60 over a 50s job until 2026-08-29, and that budget was losing
-        | writes: measured Drive latency through this mount is bimodal (p50 735 ms,
-        | p90 17.3 s, max 34.5 s over twelve cold writes), and the failure rate had
-        | climbed from 6% to 39% in five days. 85/80 absorbs the measured tail and
-        | is the most this connection allows. The reasoning lives on
-        | ArchiveContent::$timeout, next to the number it justifies.
+        | Two raises, and the second one only because the first was aimed wrong.
+        | It was 60 over a 50s job until 2026-08-29, when the failure rate had
+        | climbed from 6% to 39%; 85/80 took it to 2%. What that fix could not
+        | reach was the reason: the cost is not the write (about 8 ms into
+        | rclone's VFS cache) but a directory listing rclone has not cached, which
+        | measured 16.9 s cold against 0.2 ms warm while Drive was rate limiting
+        | the account. 85 seconds was never going to outlast a backoff.
+        |
+        | The listing that every archive spent is gone now (ContentArchive::store()
+        | no longer asks whether the blob is there), and this budget covers what is
+        | left: the sentinel probe and the staging rename, both still Drive
+        | operations. The reasoning lives on ArchiveContent::$timeout, next to the
+        | number it justifies.
+        |
+        | TWO processes, not one, and that is a consequence of the raise rather
+        | than a capacity decision. With a single process a stalled write parks the
+        | ONLY consumer for the whole budget, so a longer budget would simply
+        | convert a lost archive into a blocked lane. The second process is what
+        | keeps the lane moving through one stall. It stays at two because the
+        | mount, not the worker, is the bottleneck: measured throughput is roughly
+        | two file operations a second, and this supervisor now spends three of
+        | them per archive.
         */
         'content' => [
-            'connection' => 'redis',
+            'connection' => 'redis-content',
             'queue' => ['content'],
             'balance' => 'auto',
             'autoScalingStrategy' => 'time',
-            'maxProcesses' => 1,
+            'maxProcesses' => 2,
             'maxTime' => 0,
             'maxJobs' => 0,
             'memory' => 192,
             'tries' => 1,
-            'timeout' => 85,
+            'timeout' => 280,
             'nice' => 0,
         ],
 
@@ -516,16 +532,28 @@ return [
             ],
 
             /*
-            | ONE process, and the mount is the reason. rclone over Google Drive
-            | sustains roughly two file operations a second, and each archive write
-            | costs two (a staged write plus a rename), so a second worker buys no
-            | throughput and only lengthens the stall each one sits in. The write
-            | itself stays CORRECT under concurrency (content-addressed target,
-            | per-process staging name), so this is a throughput bound, not a
-            | correctness one: raise it only with the mount measured first.
+            | TWO processes, and the reason changed on 2026-09-01. It was one, on
+            | the argument that rclone over Google Drive sustains roughly two file
+            | operations a second so a second worker buys no throughput and only
+            | lengthens the stall each one sits in. That argument still holds for
+            | THROUGHPUT and is no longer the whole picture, because the job
+            | budget went from 80 seconds to 270 to outlast a rate-limited
+            | directory listing. At one process, a longer budget only converts a
+            | lost archive into a lane blocked for the length of it.
+            |
+            | So the second process is availability, not capacity: it is what
+            | keeps the queue moving through one stalled write. It stays at two
+            | because the mount is still the bottleneck. Measured 2026-09-01: an
+            | archive now spends three mount operations (the sentinel probe, a
+            | staged write, a rename), the write itself about 8 ms.
+            |
+            | The write stays CORRECT under concurrency either way
+            | (content-addressed target, per-process staging name), so this was
+            | never a correctness bound. Raise it further only with the mount
+            | measured again.
             */
             'content' => [
-                'maxProcesses' => 1,
+                'maxProcesses' => 2,
             ],
 
             /*
@@ -556,8 +584,10 @@ return [
                 'maxProcesses' => 1,
             ],
 
+            // Two, for the availability reason given in the block above: a 270s
+            // job budget behind a single consumer is a lane one stall can hold.
             'content' => [
-                'maxProcesses' => 1,
+                'maxProcesses' => 2,
             ],
 
             'analyze' => [
