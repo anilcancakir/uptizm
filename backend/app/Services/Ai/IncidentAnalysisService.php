@@ -32,7 +32,10 @@ use Laravel\Ai\Exceptions\AiException;
 class IncidentAnalysisService
 {
     /**
-     * Maximum number of recent checks folded into the RCA evidence.
+     * Maximum number of checks folded into the RCA evidence.
+     *
+     * Split evenly across the two ends of the incident when more than this many
+     * sit inside the window; see {@see self::evidenceChecks()}.
      */
     private const MAX_CHECKS = 20;
 
@@ -191,24 +194,84 @@ class IncidentAnalysisService
 
         $monitorIds = $this->affectedMonitorIds($incident);
 
-        $checks = MonitorCheck::query()
+        return $this->buildPayload($incident, $this->evidenceChecks($incident, $monitorIds), $monitorIds);
+    }
+
+    /**
+     * The checks that are evidence for this incident, newest first.
+     *
+     * Two rules, and each one was a defect measured on production.
+     *
+     * The window CLOSES when the incident does. It used to carry a lower bound
+     * only, which with `orderByDesc` and a cap of twenty means "the newest
+     * twenty this monitor has" for every read after the incident resolves. An
+     * incident that ran from 05:20 to 05:22 was analysed at 21:00 from twenty
+     * checks recorded between 20:39 and 20:59, all of them healthy, and not one
+     * of the twelve that span the outage. It also re-spent a budget unit on
+     * every reader, because the evidence fingerprint keys the store and evidence
+     * that moves every minute is a key that moves every minute.
+     *
+     * The two siblings already closed theirs, which is what makes this the
+     * missed one rather than an open question:
+     * {@see self::triggeringMetric()} bounds its readings at `resolved_at`, and
+     * so does {@see IncidentDraftService::composePayload()}.
+     *
+     * The selection takes BOTH ENDS when the window holds more than the cap.
+     * {@see self::CHECK_LOOKBACK_CHECKS} exists to reach back past `started_at`
+     * for the consecutive failures that tripped the threshold, and taking the
+     * newest twenty threw that lookback away for every incident longer than the
+     * cap: 26 of 142 on production, the longest carrying 2028 checks. The onset
+     * says what broke and the tail says how it came back, so the evidence is
+     * half of each rather than one end twice.
+     *
+     * Order is preserved across the join, so the array stays descending in time
+     * and the fingerprint keeps reading a recovery differently from an onset
+     * ({@see IncidentAnalysisPayload::evidenceFingerprint()}).
+     *
+     * @param  list<string>  $monitorIds
+     * @return Collection<int, MonitorCheck>
+     */
+    protected function evidenceChecks(Incident $incident, array $monitorIds): Collection
+    {
+        $window = MonitorCheck::query()
             ->whereIn('monitor_id', $monitorIds)
             ->where('checked_at', '>=', $this->evidenceFrom($incident))
-            // A tiebreaker, not decoration. `checked_at` alone is not a total
-            // order here: this product writes one row per REGION per tick, so a
-            // three-region monitor ties three ways every minute, and PostgreSQL
-            // answers a tie in whatever order the scan produced. The check
-            // SEQUENCE is evidence (an `up` above a `down` is a recovery, the
-            // reverse is the failure starting), so it cannot be sorted away in
-            // the fingerprint; it has to be deterministic at the read instead, or
-            // the same evidence hashes twice and re-spends a budget unit.
+            ->when(
+                $incident->resolved_at !== null,
+                fn ($query) => $query->where('checked_at', '<=', $incident->resolved_at),
+            );
+
+        // A tiebreaker, not decoration. `checked_at` alone is not a total order
+        // here: this product writes one row per REGION per tick, so a
+        // three-region monitor ties three ways every minute, and PostgreSQL
+        // answers a tie in whatever order the scan produced. The check SEQUENCE
+        // is evidence (an `up` above a `down` is a recovery, the reverse is the
+        // failure starting), so it cannot be sorted away in the fingerprint; it
+        // has to be deterministic at the read instead, or the same evidence
+        // hashes twice and re-spends a budget unit.
+        $tail = $window->clone()
             ->orderByDesc('checked_at')
             ->orderBy('region')
             ->orderBy('id')
             ->limit(self::MAX_CHECKS)
             ->get();
 
-        return $this->buildPayload($incident, $checks, $monitorIds);
+        // Everything in the window already fits, so there are no two ends to
+        // choose between. This is the common case: 116 of 142.
+        if ($tail->count() < self::MAX_CHECKS) {
+            return $tail;
+        }
+
+        $half = intdiv(self::MAX_CHECKS, 2);
+
+        $onset = $window->clone()
+            ->orderBy('checked_at')
+            ->orderBy('region')
+            ->orderBy('id')
+            ->limit($half)
+            ->get();
+
+        return $tail->take($half)->concat($onset->reverse())->values();
     }
 
     /**
