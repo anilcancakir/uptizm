@@ -266,8 +266,8 @@ class IncidentResolved extends Notification implements ShouldQueue
 
     /**
      * Build the OneSignal push payload. The channel forces `app_id` and applies
-     * the notifiable's `external_id` (`user_{id}`) alias, so this only carries
-     * the localized heading and body.
+     * the notifiable's `external_id` (`user_{id}`) alias, so this carries the
+     * localized heading and body plus the additional-data map a tap needs.
      *
      * @param  mixed  $notifiable  The entity receiving the notification.
      */
@@ -289,8 +289,36 @@ class IncidentResolved extends Notification implements ShouldQueue
             'en' => IncidentTitle::render($this->incident, 'en'),
             'tr' => IncidentTitle::render($this->incident, 'tr'),
         ]));
+        $payload->setData($this->pushData($notifiable));
 
         return $payload;
+    }
+
+    /**
+     * The additional-data map delivered with the push. Mirrors
+     * {@see IncidentOpened::pushData()}: the same `toArray()` key vocabulary
+     * (`type`/`incident_id`/`monitor_id`/`monitor_name`/`severity`/`kind`) plus
+     * `deep_link` (read by `magic_deeplink`'s `OneSignalDeeplinkHandler`) and
+     * `subject`, the per-recipient `user_{id}` alias a later client-side guard
+     * compares against the device's signed-in identity.
+     *
+     * @param  mixed  $notifiable  The entity receiving the notification.
+     * @return array<string, mixed>
+     */
+    private function pushData(mixed $notifiable): array
+    {
+        $monitorName = $this->monitorName();
+
+        return [
+            'type' => 'incident_resolved',
+            'incident_id' => $this->incident->id,
+            'monitor_id' => $this->incident->primary_monitor_id,
+            'monitor_name' => $monitorName,
+            'severity' => $this->incident->severity->value,
+            'kind' => 'resolved',
+            'deep_link' => '/incidents/'.$this->incident->id,
+            'subject' => 'user_'.$notifiable->getKey(),
+        ];
     }
 
     /**
