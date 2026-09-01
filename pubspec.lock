@@ -702,7 +702,7 @@ packages:
       path: "../magic"
       relative: true
     source: path
-    version: "0.0.8"
+    version: "0.0.9"
   magic_deeplink:
     dependency: "direct main"
     description:
@@ -730,7 +730,7 @@ packages:
       path: "../magic_payments"
       relative: true
     source: path
-    version: "0.0.1"
+    version: "0.0.2"
   magic_social_auth:
     dependency: "direct main"
     description:
@@ -744,7 +744,7 @@ packages:
       path: "../magic_starter"
       relative: true
     source: path
-    version: "0.0.1-alpha.21"
+    version: "0.0.1-alpha.24"
   matcher:
     dependency: transitive
     description:
@@ -805,10 +805,10 @@ packages:
     dependency: transitive
     description:
       name: onesignal_flutter
-      sha256: b0910a2585ca70f2ffa370c0878625781807fd301e89005868fbedb1e933dbbd
+      sha256: "712e241ee08c6ef41ea8743e4983179b28c46f5f4010c047b360b3d3aa687e8b"
       url: "https://pub.dev"
     source: hosted
-    version: "5.6.3"
+    version: "5.6.8"
   package_config:
     dependency: transitive
     description:

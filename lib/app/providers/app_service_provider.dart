@@ -95,6 +95,77 @@ class AppServiceProvider extends ServiceProvider {
     );
   }
 
+  /// Declares WHO this device should receive push notifications as, tracking
+  /// [Auth]'s current state.
+  ///
+  /// Attached to `Auth.stateNotifier` like the four syncs around it, so a login,
+  /// a sign-out, a boot-time session restore and a team switch all reach it
+  /// without any of those call sites knowing a push rail exists. Nothing in this
+  /// app called it before: `magic_starter` never wired push either.
+  ///
+  /// ## The `user_` prefix is this caller's job
+  ///
+  /// `Notify.initializePush` records its argument as the intent and forwards it
+  /// to the SDK unchanged, and the backend addresses `external_id = user_<uuid>`
+  /// (`magic-starter-laravel/src/Traits/HasNotifications.php:155`, which uptizm's
+  /// `User` inherits). A bare uuid subscribes the device as an id the server
+  /// never addresses, so every push simply reaches nobody, on a device that
+  /// reports itself correctly subscribed and with nothing anywhere raising.
+  ///
+  /// ## An empty id declares NOTHING, and never `user_`
+  ///
+  /// `User.current.id` answers `''` for a session whose user has not resolved
+  /// yet (it is `getAttribute('id')?.toString() ?? ''`), and `'user_$userId'`
+  /// would turn that into `'user_'`: a well-formed external id addressing
+  /// nobody, which the SDK accepts and the reconciler then reports as CONVERGED,
+  /// so nothing ever corrects it. Declaring no intent instead leaves whatever
+  /// the reconciler already held, and the next `Auth.stateNotifier` bump arrives
+  /// with the identity. This is the same branch [_syncNotificationDeliveryWithAuthState]
+  /// carries, for the same reason.
+  ///
+  /// ## Sign-out is released HERE, not by magic_starter
+  ///
+  /// `MagicStarterAuthController.logout()` is the ecosystem's only caller of
+  /// `Notify.logoutPush()`, and it never runs in this app: the starter's profile
+  /// dropdown returns early when a custom `onLogout` is set, which [boot] sets.
+  /// Releasing the device in this same sync means the release does not depend on
+  /// which sign-out path fired, so the next person to sign in on a shared device
+  /// cannot be paged for the previous one's outage.
+  ///
+  /// A team switch bumps this same notifier and issues no SDK call at all: the
+  /// person is unchanged, so the intent is unchanged, and the manager reads the
+  /// device back before touching the SDK.
+  ///
+  /// Public only so a test can call it; see `test/app/providers/push_identity_test.dart`.
+  /// `Auth.fake(user: ...)` sets its user without bumping the notifier, so a
+  /// test cannot reach this through the listener.
+  @visibleForTesting
+  static void syncPushIdentity() {
+    // Wrapped the way [_syncRealtime] is: the notifier's listeners are
+    // synchronous and neither call below is. Both guards log at error level
+    // rather than swallowing, because nothing retries: until the next bump the
+    // device carries the previous person's id, and the manager's
+    // `isPushIdentityConverged` is the only other place that says so.
+    if (!Auth.check()) {
+      unawaited(
+        Notify.logoutPush().catchError((Object error) {
+          Log.error('[AppServiceProvider] push identity release failed: $error');
+        }),
+      );
+
+      return;
+    }
+
+    final String userId = User.current.id;
+    if (userId.isEmpty) return;
+
+    unawaited(
+      Notify.initializePush('user_$userId').catchError((Object error) {
+        Log.error('[AppServiceProvider] push identity sync failed: $error');
+      }),
+    );
+  }
+
   /// Re-syncs the realtime channel subscription to track [Auth]'s current
   /// state.
   ///
@@ -501,6 +572,15 @@ class AppServiceProvider extends ServiceProvider {
     // `Auth.stateNotifier`.
     _syncNotificationDeliveryWithAuthState();
     Auth.stateNotifier.addListener(_syncNotificationDeliveryWithAuthState);
+
+    // Push identity: subscribe this device as the person a restored session
+    // boots with, then follow every login and sign-out. The delivery sync above
+    // covers the bell inside the app; this one covers the notification that
+    // arrives while the app is closed, which is the one an on-call responder is
+    // actually paged by. See [syncPushIdentity] for why the `user_` prefix, the
+    // empty-id branch and the sign-out release all belong on this side.
+    syncPushIdentity();
+    Auth.stateNotifier.addListener(syncPushIdentity);
 
     // Realtime: subscribe to the team's private channel immediately if a
     // session was restored on boot, then keep the subscription in lockstep
