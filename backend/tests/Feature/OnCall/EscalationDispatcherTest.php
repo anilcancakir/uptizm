@@ -463,6 +463,39 @@ class EscalationDispatcherTest extends TestCase
     }
 
     /**
+     * The same rule at an ABSOLUTE age, which is the only form of it that says
+     * anything about the horizon.
+     *
+     * The case above spells its age as `FRESH_FOR_HOURS + 1`, so it passes
+     * whatever that constant holds. This one fixes a day and a bit, because
+     * that is where the two errors sit either side of each other: a window that
+     * expires while a responder is asleep costs one log line and no operational
+     * change (the ladder walks on, and mail and the in-app row are untouched),
+     * while a window that outlives a wiped, reinstalled or silenced phone costs
+     * the whole feature, since every rung paging it is recorded as having
+     * reached somebody.
+     */
+    public function test_a_device_silent_since_yesterday_is_not_evidence_it_still_rings(): void
+    {
+        $this->provisionPushChannel();
+        Notification::fake();
+        $this->captureLogsUnderProductionLevels();
+
+        [$team, $responder] = $this->teamWithOnCall();
+        $this->leaveOnlyPushEnabled($responder);
+        $this->reportDevice($responder, 'on', reportedAt: now()->subHours(30));
+        $policy = $this->policyWithOnCallStep($team);
+        $incident = $this->openIncident($team, $policy);
+
+        $this->dispatcher()->pageStep($incident->id, $policy->steps->first()->id);
+
+        $this->assertStringContainsString(
+            'Escalation step reached nobody',
+            $this->evidenceLogContents(),
+        );
+    }
+
+    /**
      * A responder who has never reported anything is in exactly the same
      * position as one whose report went stale: the server has no evidence the
      * phone can be paged, so it must not act as though it has.

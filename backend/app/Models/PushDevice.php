@@ -57,20 +57,31 @@ class PushDevice extends Model
     /**
      * How long a device's report speaks for it, in hours.
      *
-     * Seven days, and the number is an on-call rotation rather than a round
-     * one. A responder who has not had this app open once in a full rotation
-     * period is somebody whose phone the server cannot vouch for: it may have
-     * been wiped, reinstalled, or had its notification permission revoked, and
-     * every one of those is silent from here. Treating a month-old `on` as
-     * evidence is how a page goes nowhere and the ladder never moves.
+     * One day, and the number is chosen by which of the two errors is the cheap
+     * one rather than by what an on-call rotation happens to be.
      *
-     * It is not shorter because it does not have to be: the client reports on
-     * every launch, every sign-in and every permission or subscription change,
-     * so a device in normal use refreshes far inside this window, and a window
-     * that expired during an ordinary weekend would report a gap that is not
-     * there.
+     * The FALSE POSITIVE, a window that expires while a device is genuinely
+     * fine, costs one log line and no operational change: the delivery is
+     * recorded but sent regardless, the ladder walks on to somebody it can
+     * prove, and mail and the in-app row are untouched. An engineer whose
+     * laptop was shut over a long weekend reports a gap that was not really
+     * there, and nothing about that reaches a customer.
+     *
+     * The FALSE NEGATIVE costs the whole feature. A phone wiped, reinstalled,
+     * or with its notification permission revoked while the app was closed
+     * reports nothing at all and goes on vouching `on` for the length of this
+     * window, and every rung that pages it is recorded as having reached
+     * somebody. That is a page nobody hears on a product whose entire promise
+     * is that somebody hears it, and it is invisible from here: no delivery
+     * failure comes back, because OneSignal accepts a push for an unreachable
+     * subscription without complaint.
+     *
+     * A day is comfortably long for a client that reports on every launch,
+     * every sign-in, and every permission or subscription change, so a device
+     * in daily use refreshes far inside it. This was seven days once, defended
+     * by the weekend gap above, which is the cheap error tuned against.
      */
-    public const int FRESH_FOR_HOURS = 168;
+    public const int FRESH_FOR_HOURS = 24;
 
     /**
      * @var array<int, string>

@@ -48,25 +48,39 @@ Map<String, dynamic> get notificationsConfig => {
       // The permission posture. Insistent, because this app pages people.
       // ----------------------------------------------------------------------
 
-      // Ask on login, but only where the ask is a real dialog.
+      // Ask on login, but only where the ask is a dialog somebody expects.
       //
       // The package raises the OS request once per launch when an identity is
       // declared, and on mobile that is honest: a person signing into a paging
-      // tool expects to be asked, and the platform actually renders the dialog.
+      // tool expects to be asked, and the platform renders the dialog directly
+      // behind the sign-in that explains what it is for.
       //
-      // On the web it is not. Browsers want a user gesture for a permission
-      // request and a login is not one, so the call can resolve without showing
-      // anybody anything, and the OS prompt is a ONE-SHOT: no code can raise it
-      // again afterwards. Uptizm ships web as its primary platform, and the
-      // failure mode there is the worst one available to this app: an engineer
-      // whose browser silently spent the ask has no in-app route back at all
-      // (no web API opens the site settings panel from a page), so they would
-      // sit in front of a product that quietly cannot page them.
+      // On the web the same call either does nothing or does harm. MDN's
+      // "Using the Notifications API" guide: "going forward browsers will
+      // explicitly disallow notification permission requests not triggered in
+      // response to a user gesture. Firefox is already doing this from version
+      // 72, for example, and Safari has done it for some time." A DISALLOWED
+      // request is not a spent one: the permission is left at `default`, which
+      // means "the user has not been asked yet", so on those two an automatic
+      // request at login accomplishes precisely nothing. Chrome never required
+      // a gesture, and there it accomplishes the wrong thing: a system prompt
+      // in front of an operator who did not ask for one, which is the pattern
+      // Chrome's own abuse mitigation punishes, and a dismissal escalates that
+      // origin toward being blocked outright. `denied` is the state no code can
+      // recover, and the web has no in-app route back to it at all (no API
+      // opens the site settings panel from a page), so an engineer who gets
+      // there sits in front of a product that quietly cannot page them.
+      //
+      // The reason this note is as long as it is: an earlier version defended
+      // this same value by claiming a gesture-less web request silently SPENDS
+      // the one-shot ask. It does not, and a comment that defends a correct
+      // decision with a wrong fact is how the decision gets reversed by the
+      // next reader who checks the fact.
       //
       // So web leans on the reminder below instead, whose button is a real tap
-      // and therefore a real gesture. That costs a little: a web operator is
-      // not asked until the reminder is on screen. It buys the ask staying
-      // spendable, which is the thing that cannot be recovered once lost.
+      // and therefore a real gesture, raised at a moment the operator chose.
+      // That costs a little: a web operator is not asked until the reminder is
+      // on screen.
       'auto_request_on_login': !kIsWeb,
 
       // Come back roughly daily to a device that turned the reminder down.

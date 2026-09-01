@@ -192,6 +192,49 @@ class PushDeviceStateTest extends TestCase
     }
 
     /**
+     * The freshness horizon, named in absolute hours rather than derived from
+     * the constant.
+     *
+     * A test that spells its age as `FRESH_FOR_HOURS + 1` passes at any horizon
+     * at all and says nothing about which one is right. This pair is what holds
+     * the constant to the error it is sized against: a phone wiped,
+     * reinstalled, or with its notification permission revoked while the app
+     * was closed reports nothing at all and goes on vouching `on` for exactly
+     * as long as this window, and every rung paging it is recorded as having
+     * reached somebody. The client reports on every launch, sign-in, permission
+     * change and subscription change, so a device in daily use refreshes far
+     * inside a day.
+     */
+    public function test_a_device_silent_since_yesterday_vouches_for_nothing(): void
+    {
+        $user = $this->actingAsUser();
+
+        $this->report($user, 'sub-phone', 'on')->assertNoContent();
+        $this->assertTrue(PushDevice::canReachByPush($user->fresh()));
+
+        PushDevice::query()->update(['reported_at' => now()->subHours(36)]);
+
+        $this->assertFalse(PushDevice::canReachByPush($user->fresh()));
+    }
+
+    /**
+     * The other axis, and the reason the horizon is not shorter still: a device
+     * that reported this morning is a device the server may page. Without this,
+     * the case above passes on a horizon of zero, which would strand every
+     * responder whose app has been closed since breakfast.
+     */
+    public function test_a_device_heard_from_this_morning_is_still_reachable(): void
+    {
+        $user = $this->actingAsUser();
+
+        $this->report($user, 'sub-phone', 'on')->assertNoContent();
+
+        PushDevice::query()->update(['reported_at' => now()->subHours(12)]);
+
+        $this->assertTrue(PushDevice::canReachByPush($user->fresh()));
+    }
+
+    /**
      * Post one device report as [$user].
      */
     protected function report(User $user, string $subscriptionId, string $reachability): TestResponse

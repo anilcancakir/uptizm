@@ -931,6 +931,65 @@ void main() {
       expect(DateTime.tryParse(body['captured_at'] as String), isNotNull);
     });
 
+    test('a launch whose driver arrives late is not left reporting unavailable',
+        () async {
+      // The app's own boot order, reproduced. `lib/config/app.dart` boots this
+      // provider (45), then `AuthServiceProvider` (46), then
+      // `NotificationServiceProvider` (48), and 48 is the only place a push
+      // driver is ever resolved. Provider 46's boot awaits `Auth.restore()`,
+      // which bumps `Auth.stateNotifier`, so on every cold boot that restores a
+      // stored session (the ordinary launch for a signed-in operator) the
+      // identity is declared, and the report chained behind it made, before any
+      // driver exists. That is the provider order, not a race, and no fixture
+      // in either repository could express it: every one of them installed a
+      // driver first.
+      final FakeNetworkDriver network = Http.fake();
+      AppServiceProvider.syncPushIdentityWhenDriverArrives();
+      addTearDown(AppServiceProvider.resetPushDeliveryReporting);
+      addTearDown(Notify.forgetDrivers);
+
+      await declareIdentity();
+
+      // What the device can honestly say with nothing to ask. It is posted
+      // rather than withheld because the alternative leaves whatever the server
+      // already held standing, and on a device that has since lost its driver
+      // that is a stale `on` promising a page nobody receives.
+      expect(reports(network).single['reachability'], 'unavailable');
+
+      // ... and now the notifications provider boots and resolves a driver.
+      final _ReportingPushDriver driver = _ReportingPushDriver();
+      addTearDown(driver.dispose);
+      Notify.manager.setPushDriver(driver);
+      await pumpEventQueue();
+
+      // Uncorrected, the server holds `unavailable` for this responder for the
+      // whole session: the only re-entries are `syncPushIdentity` and two
+      // driver streams nothing ever attached. Every escalation rung that
+      // reaches only them is then recorded as having reached nobody, while
+      // their phone would in fact have rung.
+      expect(reports(network), hasLength(2));
+      expect(reports(network).last['reachability'], 'on');
+      // The identity half of the same correction: the report describes the
+      // device AS THIS PERSON, and on that launch nothing had logged it in yet,
+      // so a report that only re-read the device would post a subscription
+      // subscribed as nobody, which the server refuses just as flatly.
+      expect(reports(network).last['external_id'], 'user_u1');
+      expect(reports(network).last['subscription_id'], 'sub-phone');
+    });
+
+    test('boot arms the late-driver report', () {
+      // The seam above is correct code that does nothing unless [boot] reaches
+      // it, and a widget test cannot boot this provider: its boot wires Sentry,
+      // the starter bootstrap and six auth listeners. A source read is what is
+      // left, and it earns its line, because this repo has already shipped a
+      // write path whose only defect was that nothing called it.
+      final String source = File(
+        'lib/app/providers/app_service_provider.dart',
+      ).readAsStringSync();
+
+      expect(source, contains('syncPushIdentityWhenDriverArrives();'));
+    });
+
     test('a device whose state has not moved does not post again', () async {
       // `Auth.stateNotifier` bumps on every restore, every token refresh and
       // every team switch, and none of those change what the device can

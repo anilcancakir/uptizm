@@ -204,6 +204,10 @@ class AppServiceProvider extends ServiceProvider {
   static StreamSubscription<PushIdentityChange>? _pushIdentityChangeSubscription;
   static StreamSubscription<PushPermissionState>? _pushPermissionSubscription;
 
+  /// The subscription that carries the declaration and the report a launch
+  /// could not make yet. See [syncPushIdentityWhenDriverArrives].
+  static StreamSubscription<PushDriver>? _pushDriverArrivalSubscription;
+
   /// Tells the backend whether a push sent to this device would arrive.
   ///
   /// The server cannot see any of this. The permission, the opt-in flag and the
@@ -290,6 +294,70 @@ class AppServiceProvider extends ServiceProvider {
     }
   }
 
+  /// Declares the identity and reports the device again, the moment a push
+  /// driver exists at all.
+  ///
+  /// This is not a safety net, it repairs an ordering the app is GUARANTEED to
+  /// take. `lib/config/app.dart` boots this provider (45), then
+  /// `AuthServiceProvider` (46), then `NotificationServiceProvider` (48), and 48
+  /// is the only place a push driver is ever resolved. Provider 46's boot awaits
+  /// `Auth.restore()`, which calls `setUser` and bumps `Auth.stateNotifier`, so
+  /// on every cold boot that restores a stored session, which is the ordinary
+  /// launch for a signed-in operator, [syncPushIdentity] and the report chained
+  /// behind it both run while `pushDriverOrNull` is still null. Nothing about
+  /// that is a race; the provider order decides it.
+  ///
+  /// What it costs without this: [reportPushDeliveryState] finds no driver, so
+  /// it attaches to no change streams, reads `pushDeliverySnapshot()`'s
+  /// no-driver value (`reachability: unavailable`), posts THAT, and memoises it.
+  /// The only re-entries are [syncPushIdentity] and the two streams nothing
+  /// attached, so a session with no further auth bump leaves the server
+  /// vouching that this responder cannot be paged for its whole life, and every
+  /// escalation rung that reaches only them is recorded as having reached
+  /// nobody while their phone would in fact have rung.
+  ///
+  /// The `unavailable` reading is still posted rather than withheld, and the
+  /// correction follows it a few hundred milliseconds later. Of the two orders
+  /// available that is the safe one: holding "may not be reachable" for the rest
+  /// of a boot escalates to a human who is, while withholding leaves whatever
+  /// the server already had standing, and on a device that has since lost its
+  /// driver entirely that is a stale `on` promising a page nobody receives. The
+  /// memo is what keeps the pair from being two writes of one fact: the
+  /// correction posts only because the state genuinely changed, and where the
+  /// first report was already right (a signed-out boot reports nothing at all,
+  /// and an interactive login later in the session happens long after the
+  /// driver was resolved) the second one writes nothing.
+  ///
+  /// It re-runs the whole of [syncPushIdentity] rather than the report alone,
+  /// and for that method's own reason: the report describes the device AS THIS
+  /// PERSON, and on this launch nothing has logged the device in yet, so a bare
+  /// re-read would post a subscription subscribed as nobody, which the server
+  /// refuses just as flatly as `unavailable`. Both halves are idempotent
+  /// (`want` returns early on an unchanged intent, the manager reads the device
+  /// back before touching the SDK, and the memo stops a duplicate write).
+  ///
+  /// `Notify.manager.onPushDriverAttached` is a package signal added in the
+  /// same round, for want of anything else that could say this. A driver's own
+  /// streams are unreachable until a driver exists, `Auth.stateNotifier` does
+  /// not bump again on this path, and the first frame is the only other moment
+  /// this app can prove the boot is over, which is not a dependency a delivery
+  /// report should carry (it would also throw in every plain unit test, where
+  /// no binding exists).
+  ///
+  /// Idempotent: a widget test boots this provider repeatedly, and a second
+  /// subscription would mean one attachment declaring and reporting twice.
+  @visibleForTesting
+  static void syncPushIdentityWhenDriverArrives() {
+    final StreamSubscription<PushDriver>? attached =
+        _pushDriverArrivalSubscription;
+    _pushDriverArrivalSubscription = null;
+    if (attached != null) unawaited(attached.cancel());
+
+    _pushDriverArrivalSubscription = Notify.manager.onPushDriverAttached.listen(
+      (PushDriver _) => syncPushIdentity(),
+    );
+  }
+
   /// Watches the device's own change streams, if it is not already watching
   /// this driver.
   ///
@@ -332,14 +400,26 @@ class AppServiceProvider extends ServiceProvider {
   /// Leaves push-delivery reporting exactly as a fresh process would find it:
   /// nothing watched, nothing remembered.
   ///
-  /// Test-only, and it exists because both pieces of state are static: the
+  /// Test-only, and it exists because every piece of state here is static: the
   /// subscriptions would fire inside the next test, and the memo would make its
   /// first report look like a repeat. The app itself never stops reporting,
   /// because a device that cannot be paged is worth knowing about for as long
   /// as the process is alive.
+  ///
+  /// The driver-arrival watch goes with them, and it is the one whose leak
+  /// would be loudest: `NotificationManager` is a `static final` singleton that
+  /// outlives a container reset, so a subscription left on its stream turns the
+  /// next test's `setPushDriver` into a full identity declaration nothing there
+  /// asked for.
   @visibleForTesting
   static void resetPushDeliveryReporting() {
     _cancelPushDeliverySubscriptions();
+
+    final StreamSubscription<PushDriver>? arrival =
+        _pushDriverArrivalSubscription;
+    _pushDriverArrivalSubscription = null;
+    if (arrival != null) unawaited(arrival.cancel());
+
     _watchedPushDriver = null;
     _lastReportedPushDeliveryState = null;
   }
@@ -945,6 +1025,13 @@ class AppServiceProvider extends ServiceProvider {
     // arrives while the app is closed, which is the one an on-call responder is
     // actually paged by. See [syncPushIdentity] for why the `user_` prefix, the
     // empty-id branch and the sign-out release all belong on this side.
+    //
+    // The arrival watch is armed FIRST, and the order is load-bearing rather
+    // than tidy: `NotificationServiceProvider` boots after this provider, so
+    // every declaration below happens with no driver to declare through, and
+    // this is what comes back for them. See
+    // [syncPushIdentityWhenDriverArrives].
+    syncPushIdentityWhenDriverArrives();
     syncPushIdentity();
     Auth.stateNotifier.addListener(syncPushIdentity);
 
