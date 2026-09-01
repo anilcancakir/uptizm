@@ -774,6 +774,35 @@ void main() {
       );
     });
 
+    testWidgets('a tap arriving while the local team is unresolved navigates '
+        'without attempting a switch', (WidgetTester tester) async {
+      // The local mirror of the absent-payload-team case above: a restored
+      // session whose `currentTeam` has not resolved yet must not read as a
+      // mismatch just because the empty-string fallback never equals a real
+      // owner id.
+      final FakeNetworkDriver network = Http.fake();
+      Auth.fake(
+        user: User.fromMap(<String, dynamic>{'id': 'u1', 'name': 'Ada'}),
+      );
+      await mountRouter(tester);
+      final _TappablePushDriver driver = listen();
+
+      driver.tap(<String, dynamic>{
+        'type': 'incident_opened',
+        'incident_id': 'inc-6',
+        'kind': 'incident',
+        'team_id': 't9',
+        'deep_link': '/incidents/inc-6',
+      });
+      await settleTap(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(MagicRouter.instance.currentPath, '/incidents/inc-6');
+      network.assertNotSent(
+        (MagicRequest request) => request.url.contains('user/current-team'),
+      );
+    });
+
     testWidgets('a tap for another team switches to it, then lands on the '
         'incident', (WidgetTester tester) async {
       // The 404 case. The rota that paged this responder is team-scoped and

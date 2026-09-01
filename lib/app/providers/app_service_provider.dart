@@ -248,9 +248,16 @@ class AppServiceProvider extends ServiceProvider {
     // 2. Whose incident it is. An ABSENT team is not evidence of a mismatch,
     //    the way an absent `subject` is not evidence of misaddressing in
     //    `NotificationManager._addressedToIntent`: a server older than this key
-    //    must not leave a paged responder on whatever screen they were on.
+    //    must not leave a paged responder on whatever screen they were on. An
+    //    UNRESOLVED local team reads the same way: a restored session whose
+    //    user has not resolved yet (the same state `User.current.id` documents
+    //    above) has no team to compare against, so falling back to an empty
+    //    string would make every such tap collapse to owner == '', which is
+    //    never true for a real owner id and would read as a mismatch instead
+    //    of the absence it is.
     final String owner = event.data[_pushTeamKey]?.toString().trim() ?? '';
-    if (owner.isEmpty || owner == (User.current.currentTeam?.id ?? '')) {
+    final Team? localTeam = User.current.currentTeam;
+    if (owner.isEmpty || localTeam == null || owner == localTeam.id) {
       MagicRoute.to(deepLink);
 
       return;

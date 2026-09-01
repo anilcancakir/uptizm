@@ -146,6 +146,20 @@ class _ThrowingRequestPushDriver extends _RecordingPushDriver {
   }
 }
 
+/// A [_RecordingPushDriver] whose [permissionState] always throws.
+///
+/// Reproduces a platform-channel failure on the very FIRST read, before any
+/// tap: `reachability()` (the base class method `_read` calls) reaches
+/// [permissionState] unconditionally, so a throw here reproduces the boot-time
+/// defect rather than the enable-button one [_ThrowingRequestPushDriver]
+/// covers.
+class _ThrowingReachabilityPushDriver extends _RecordingPushDriver {
+  @override
+  Future<PushPermissionState> permissionState() async {
+    throw StateError('permission state read failed');
+  }
+}
+
 /// A [MagicVaultService] whose [put] throws, reproducing secure storage being
 /// unavailable (a browser with no storage backend, a locked keychain).
 class _ThrowingPutVaultService extends MagicVaultService {
@@ -327,6 +341,28 @@ void main() {
         // not the resolved compact enable row.
         expect(find.text(trans('uptizm.push_prompt.not_now')), findsOneWidget);
         expect(find.text(trans('uptizm.push_prompt.ask_title')), findsOneWidget);
+      },
+    );
+  });
+
+  group('an initial reachability read that throws', () {
+    testWidgets(
+      'is handled, not an unhandled async error, and the row does not stay '
+      'blank',
+      (tester) async {
+        usePushDriver(_ThrowingReachabilityPushDriver());
+
+        await tester.pumpWidget(wrap(const PushPromptHost()));
+        await tester.pumpAndSettle();
+
+        // The throwing permissionState() must not escape as an unhandled
+        // async error.
+        expect(tester.takeException(), isNull);
+
+        // A blank row is the bug this reproduces: the operator must see SOME
+        // state, not the empty SizedBox the initial null reachability leaves
+        // on screen when the read that would resolve it never completes.
+        expect(find.byType(PushPrompt), findsOneWidget);
       },
     );
   });

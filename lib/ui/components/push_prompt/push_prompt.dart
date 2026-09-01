@@ -269,7 +269,7 @@ class _PushPromptHostState extends State<PushPromptHost> {
     final PushDriver? driver = Notify.manager.pushDriverOrNull;
     final PushReachability reachability = driver == null
         ? PushReachability.unavailable
-        : await driver.reachability();
+        : await _readReachability(driver);
     final bool declined = await _readDeclined();
 
     if (!mounted) return;
@@ -278,6 +278,27 @@ class _PushPromptHostState extends State<PushPromptHost> {
       _reachability = reachability;
       _declined = declined;
     });
+  }
+
+  /// Reads [driver]'s reachability, answering [PushReachability.unavailable]
+  /// when the platform channel throws.
+  ///
+  /// `reachability()` reaches `permissionState()`, a platform-channel call
+  /// that can throw, and this was the one read in [_read] left unguarded
+  /// while [_readDeclined] next to it already guards its own read. Left
+  /// unhandled, the throw escapes as an unhandled async error and
+  /// [_reachability] is stuck on its initial `null`, which renders nothing at
+  /// all rather than a state the operator can act on.
+  Future<PushReachability> _readReachability(PushDriver driver) async {
+    try {
+      return await driver.reachability();
+    } catch (error) {
+      if (Magic.bound('log')) {
+        Log.warning('[PushPromptHost] reachability read failed: $error');
+      }
+
+      return PushReachability.unavailable;
+    }
   }
 
   /// Reads the persisted decline flag, answering false when the vault is
