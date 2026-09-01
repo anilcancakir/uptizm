@@ -415,8 +415,12 @@ files publicly, delete them after the upload and before the sync.
 **The release name must match on both sides or the maps are ignored.** The same
 `$RELEASE` goes into the bundle and into the upload, which is the entire contract.
 A mismatch produces no error anywhere: the events arrive, the maps sit in Sentry,
-and nothing connects them. `sentry-cli releases files "$RELEASE" list` is how you
-check that a release actually has artifacts.
+and nothing connects them. `sentry-cli releases info "$RELEASE"` is how you check the release exists.
+Note that `sentry-cli releases files` does NOT exist in the installed CLI (the
+`releases` subcommands are archive, delete, finalize, info, list, new,
+propose-version, restore and set-commits), and modern `sourcemaps upload`
+attaches maps by DEBUG ID rather than as release-scoped artifacts, so there is
+no per-release file list to read in the first place.
 
 ## Deploying the backend
 
@@ -439,11 +443,28 @@ Then, from your own machine, tell Sentry the release exists and which commits ar
 in it:
 
 ```bash
-RELEASE="$(git rev-parse --short HEAD)"
+# Read the release the BOX wrote, do not recompute it. See below.
+RELEASE="$(ssh personal 'sudo -u uptizm -H bash -c "cd ~/htdocs/uptizm.com/backend && sed -n \"s/^SENTRY_RELEASE=//p\" .env"')"
 sentry-cli releases new --project uptizm-api "$RELEASE"
 sentry-cli releases set-commits --auto --ignore-missing "$RELEASE"
 sentry-cli releases finalize "$RELEASE"
 ```
+
+**Read the release off the box rather than recomputing it, because
+`git rev-parse --short` does not answer the same thing on two machines.** Git
+picks the abbreviation length per repository, from its object count, so the box
+and your laptop can disagree about the same commit. They did on 2026-09-02:
+the box wrote `SENTRY_RELEASE=0e97a7fd` and the laptop's `--short HEAD` was
+`0e97a7f`. Following this block literally therefore creates a release nothing is
+ever tagged with, every API event is filed against `0e97a7fd`, and the release
+you just finalized sits empty. It fails exactly the way the Flutter mismatch
+does, which is to say silently and on both ends.
+
+The Flutter client has no such problem and needs no change: its bundle and its
+sourcemap upload both take the value from the same shell, so they agree with
+each other whatever length that shell produced. The two projects therefore end
+up on different release strings for one commit, which is correct and is what
+`releases info` will show.
 
 **Append when the key is absent, do not just `sed`.** A bare substitution is a
 no-op on a file that has no `SENTRY_RELEASE=` line, and it exits 0 while doing
