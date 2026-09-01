@@ -1128,6 +1128,8 @@
       "detail_postmortem_save_toast_description": "Stored on the incident. It stays internal until you publish it.",
       "detail_postmortem_publish_toast_title": "Postmortem published",
       "detail_postmortem_publish_toast_description": "It is now readable on the public status page.",
+      "push_team_switch_toast_title": "Switched team",
+      "push_team_switch_toast_description": "You are now on the team that owns this incident.",
       "ai_analysis_gated": "AI incident analysis pinpoints the likely cause with evidence, confidence, and next steps.",
       "analysis_degraded_heading": "AI analysis",
       "analysis_pending_heading": "AI analysis",

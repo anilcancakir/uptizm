@@ -168,6 +168,129 @@ class AppServiceProvider extends ServiceProvider {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Push taps: the other half of a page
+  // ---------------------------------------------------------------------------
+
+  /// The push payload key carrying the in-app path a tap should open.
+  static const String _pushDeepLinkKey = 'deep_link';
+
+  /// The push payload key naming the team that OWNS what the tap opens.
+  static const String _pushTeamKey = 'team_id';
+
+  /// The tap subscription, held statically rather than per instance so a second
+  /// boot replaces it instead of stacking a second listener on the same stream.
+  static StreamSubscription<PushNotificationEvent>? _pushTapSubscription;
+
+  /// Opens what a tapped push points at.
+  ///
+  /// `magic_notifications` republishes every tap that passed its own subject
+  /// guard on `Notify.manager.onPushClicked`, and nothing in this app was
+  /// listening: the backend has always put the incident's path in `deep_link`
+  /// (`IncidentOpened::pushData()`), and a tap opened the app wherever it
+  /// happened to be. For a product whose push wakes an on-call responder, the
+  /// tap IS the page; the notification is only its ring.
+  ///
+  /// Subscribed here rather than through `magic_deeplink`, whose
+  /// `OneSignalDeeplinkHandler` the payload's docblock used to name: that
+  /// package's provider boots BEFORE the notifications one, so the driver it
+  /// tries to read is not resolvable yet, and the read it attempts is a cast
+  /// that throws into an empty catch. Depending on it would have been depending
+  /// on a handler that cannot run.
+  ///
+  /// Idempotent, and that is the whole reason it is a method rather than two
+  /// lines in [boot]: a widget test boots this provider repeatedly, and a
+  /// subscription per boot means one tap opening one incident N times.
+  static void listenForPushTaps() {
+    stopListeningForPushTaps();
+
+    _pushTapSubscription = Notify.manager.onPushClicked.listen(
+      (PushNotificationEvent event) => unawaited(openTappedPush(event)),
+    );
+  }
+
+  /// Drops the tap subscription, if there is one.
+  ///
+  /// The disposal half of [listenForPushTaps], which calls it before
+  /// subscribing again. Public so a test can leave the manager's stream as it
+  /// found it; the app itself never stops listening, because a tap is
+  /// meaningful for as long as the process is alive.
+  @visibleForTesting
+  static void stopListeningForPushTaps() {
+    final StreamSubscription<PushNotificationEvent>? attached =
+        _pushTapSubscription;
+    _pushTapSubscription = null;
+
+    if (attached != null) unawaited(attached.cancel());
+  }
+
+  /// Navigates to what [event] points at.
+  ///
+  /// Public only so a test can drive the handler directly; the app reaches it
+  /// through [listenForPushTaps].
+  @visibleForTesting
+  static Future<void> openTappedPush(PushNotificationEvent event) async {
+    // 1. Where the push says to go. Required to be an in-app PATH: the payload
+    //    is server-authored, but a push can also be composed by hand in the
+    //    OneSignal dashboard, and handing an arbitrary string to the router is
+    //    not a navigation this app should perform.
+    final Object? destination = event.data[_pushDeepLinkKey];
+    final String deepLink = destination is String ? destination.trim() : '';
+    if (!deepLink.startsWith('/')) {
+      Log.warning(
+        '[AppServiceProvider] push tap names no in-app destination: '
+        '"${destination ?? ''}"',
+      );
+
+      return;
+    }
+
+    // 2. Whose incident it is. An ABSENT team is not evidence of a mismatch,
+    //    the way an absent `subject` is not evidence of misaddressing in
+    //    `NotificationManager._addressedToIntent`: a server older than this key
+    //    must not leave a paged responder on whatever screen they were on.
+    final String owner = event.data[_pushTeamKey]?.toString().trim() ?? '';
+    if (owner.isEmpty || owner == (User.current.currentTeam?.id ?? '')) {
+      MagicRoute.to(deepLink);
+
+      return;
+    }
+
+    // 3. The page came from a TEAM-scoped rota and the responder is sitting on
+    //    another team, so the incident would 404: `IncidentController::
+    //    authorizeTeam` resolves it against `users.current_team_id`, and that
+    //    404 is a deliberate non-disclosure choice rather than something to
+    //    weaken. Switch rather than ask: during an outage the responder wants
+    //    the incident, not a dialog, and refusing to move would leave the tap
+    //    doing nothing at all. Through [switchTeamAndIdentifyStore] rather than
+    //    the controller directly, because the team is also the paying subject
+    //    and the store rail has to follow it.
+    final bool switched = await switchTeamAndIdentifyStore(owner);
+    if (!switched) {
+      // NOT navigating is the point: the backend still resolves the incident
+      // against a team the session is not on, so going anyway lands on the same
+      // 404 with an extra step. Logged as well as surfaced because nothing
+      // retries, and a responder who cannot reach a live incident is an
+      // operational failure rather than a UI hiccup.
+      Log.error(
+        '[AppServiceProvider] push tap could not switch to team $owner; '
+        'staying put rather than opening $deepLink on a 404',
+      );
+      Magic.error(trans('common.error_occurred'), trans('teams.switch_failed'));
+
+      return;
+    }
+
+    // 4. Say so. The switch is silent otherwise, and a responder who resolves
+    //    the incident and carries on would be reading another team's dashboard
+    //    believing they are still on their own.
+    Magic.success(
+      trans('uptizm.incidents.push_team_switch_toast_title'),
+      trans('uptizm.incidents.push_team_switch_toast_description'),
+    );
+    MagicRoute.to(deepLink);
+  }
+
   /// Re-syncs the realtime channel subscription to track [Auth]'s current
   /// state.
   ///
@@ -217,17 +340,25 @@ class AppServiceProvider extends ServiceProvider {
   /// `users.current_team_id` now holds and therefore what `GET /billing` and the
   /// rail's webhook will both resolve.
   ///
+  /// Answers whether the switch took, which is what [openTappedPush] turns on:
+  /// a tap that navigates after a refused switch lands on the same 404 it was
+  /// switching to avoid. `MagicStarter.bootstrap`'s `onSwitch` declares a
+  /// `Future<void>`, and a `Future<bool>` satisfies it, so the team switcher is
+  /// unaffected by the answer being there.
+  ///
   /// Public only so a test can call the real handler; see the test group in
   /// `test/app/providers/store_identity_test.dart`, which asserts the id at the
   /// point the identify happens rather than on a flag set before it.
   @visibleForTesting
-  static Future<void> switchTeamAndIdentifyStore(dynamic teamId) async {
+  static Future<bool> switchTeamAndIdentifyStore(dynamic teamId) async {
     final bool switched = await MagicStarterTeamController.instance.switchTeam(
       teamId,
     );
-    if (!switched) return;
+    if (!switched) return false;
 
     await _identifyStoreCustomer(teamId?.toString() ?? '');
+
+    return true;
   }
 
   /// Re-points the STORE rail at the team the current session is on.
@@ -633,6 +764,12 @@ class AppServiceProvider extends ServiceProvider {
     // empty-id branch and the sign-out release all belong on this side.
     syncPushIdentity();
     Auth.stateNotifier.addListener(syncPushIdentity);
+
+    // Push taps: the other half of that page. The identity sync above decides
+    // WHO gets woken up; this decides where they land when they act on it. See
+    // [listenForPushTaps] for why the subscription lives here rather than in
+    // `magic_deeplink`, and why it is idempotent.
+    listenForPushTaps();
 
     // Realtime: subscribe to the team's private channel immediately if a
     // session was restored on boot, then keep the subscription in lockstep

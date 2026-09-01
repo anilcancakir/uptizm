@@ -298,9 +298,13 @@ class IncidentResolved extends Notification implements ShouldQueue
      * The additional-data map delivered with the push. Mirrors
      * {@see IncidentOpened::pushData()}: the same `toArray()` key vocabulary
      * (`type`/`incident_id`/`monitor_id`/`monitor_name`/`severity`/`kind`) plus
-     * `deep_link` (read by `magic_deeplink`'s `OneSignalDeeplinkHandler`) and
+     * `deep_link` (read by the Flutter client's
+     * `AppServiceProvider.openTappedPush`), `team_id` (the owning team that tap
+     * has to be on before the incident resolves rather than 404s) and
      * `subject`, the per-recipient `user_{id}` alias a later client-side guard
-     * compares against the device's signed-in identity.
+     * compares against the device's signed-in identity. The key set is
+     * identical to the opened one on purpose: the tap handler reads one
+     * contract, not one per notification.
      *
      * @param  mixed  $notifiable  The entity receiving the notification.
      * @return array<string, mixed>
@@ -316,6 +320,7 @@ class IncidentResolved extends Notification implements ShouldQueue
             'monitor_name' => $monitorName,
             'severity' => $this->incident->severity->value,
             'kind' => 'resolved',
+            'team_id' => $this->incident->team_id,
             'deep_link' => '/incidents/'.$this->incident->id,
             'subject' => 'user_'.$notifiable->getKey(),
         ];

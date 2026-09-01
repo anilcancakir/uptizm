@@ -120,6 +120,51 @@ class _RecordingPushDriver extends PushDriver {
       const Stream<PushIdentityChange>.empty();
 }
 
+/// A [_RecordingPushDriver] whose [requestPermission] throws.
+///
+/// Reproduces a platform SDK failure (a denied browser permission API, a
+/// missing native module) so the row's boundary handling can be exercised
+/// without a real device.
+class _ThrowingRequestPushDriver extends _RecordingPushDriver {
+  /// How many times [permissionState] was read, which only ever grows
+  /// through [PushDriver.reachability]; used to prove the row re-read the
+  /// platform after the throw instead of getting stuck.
+  int permissionStateReads = 0;
+
+  @override
+  Future<PushPermissionState> permissionState() async {
+    permissionStateReads++;
+
+    return super.permissionState();
+  }
+
+  @override
+  Future<bool> requestPermission() async {
+    permissionRequests++;
+
+    throw StateError('push permission request failed');
+  }
+}
+
+/// A [MagicVaultService] whose [put] throws, reproducing secure storage being
+/// unavailable (a browser with no storage backend, a locked keychain).
+class _ThrowingPutVaultService extends MagicVaultService {
+  _ThrowingPutVaultService() : super.forTesting();
+
+  /// How many times [put] was attempted.
+  int putAttempts = 0;
+
+  @override
+  Future<void> put(String key, String value) async {
+    putAttempts++;
+
+    throw MagicVaultException('vault write failed', 'disk full');
+  }
+
+  @override
+  Future<String?> get(String key) async => null;
+}
+
 void main() {
   setUp(() async {
     MagicApp.reset();
@@ -249,6 +294,92 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(driver.permissionRequests, 1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Two dropped futures on a boundary (QA defect 1)
+  // ---------------------------------------------------------------------------
+
+  group('a failing vault write on decline', () {
+    testWidgets(
+      'is handled, not an unhandled async error, and the decline is not '
+      'reported as having worked',
+      (tester) async {
+        usePushDriver(_RecordingPushDriver());
+        final _ThrowingPutVaultService throwingVault =
+            _ThrowingPutVaultService();
+        Magic.app.setInstance('vault', throwingVault);
+        addTearDown(() => Magic.app.removeInstance('vault'));
+
+        await tester.pumpWidget(wrap(const PushPromptHost()));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text(trans('uptizm.push_prompt.not_now')));
+        await tester.pumpAndSettle();
+
+        // The throwing put() must not escape as an unhandled async error.
+        expect(tester.takeException(), isNull);
+        expect(throwingVault.putAttempts, 1);
+
+        // The decline never landed, so the row must not claim it did: the
+        // soft prompt (with its decline control) is still what is on screen,
+        // not the resolved compact enable row.
+        expect(find.text(trans('uptizm.push_prompt.not_now')), findsOneWidget);
+        expect(find.text(trans('uptizm.push_prompt.ask_title')), findsOneWidget);
+      },
+    );
+  });
+
+  group('a failing requestPushPermission on enable', () {
+    testWidgets('is handled and the row still refreshes', (tester) async {
+      final _ThrowingRequestPushDriver driver = _ThrowingRequestPushDriver();
+      usePushDriver(driver);
+
+      await tester.pumpWidget(wrap(const PushPromptHost()));
+      await tester.pumpAndSettle();
+
+      final int readsBeforeTap = driver.permissionStateReads;
+
+      await tester.tap(find.text(trans('uptizm.push_prompt.enable')));
+      await tester.pumpAndSettle();
+
+      // The throw must not escape as an unhandled async error.
+      expect(tester.takeException(), isNull);
+      expect(driver.permissionRequests, 1);
+
+      // The row must have re-read the platform after the throw (the `finally`
+      // alone does not reach `_read()`; only falling all the way through the
+      // catch does), proving it did not get stuck on the spinner.
+      expect(driver.permissionStateReads, greaterThan(readsBeforeTap));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // A config key that gates the whole prompt (QA defect 2)
+  // ---------------------------------------------------------------------------
+
+  group('notifications.soft_prompt.enabled', () {
+    testWidgets('false renders no prompt at all', (tester) async {
+      Config.set('notifications.soft_prompt.enabled', false);
+      usePushDriver(_RecordingPushDriver());
+
+      await tester.pumpWidget(wrap(const PushPromptHost()));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PushPrompt), findsNothing);
+    });
+
+    testWidgets('true (the default) still renders the prompt', (
+      tester,
+    ) async {
+      Config.set('notifications.soft_prompt.enabled', true);
+      usePushDriver(_RecordingPushDriver());
+
+      await tester.pumpWidget(wrap(const PushPromptHost()));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PushPrompt), findsOneWidget);
     });
   });
 

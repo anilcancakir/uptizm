@@ -200,7 +200,7 @@ class PushPrompt extends StatelessWidget {
       onTap: busy ? null : onEnable,
       isLoading: busy,
       loadingSize: 14,
-      className: 'text-sm font-medium text-primary',
+      className: pushPromptEnableButtonClassName,
       child: WText(trans('uptizm.push_prompt.enable')),
     );
   }
@@ -211,7 +211,7 @@ class PushPrompt extends StatelessWidget {
     return WButton(
       key: const ValueKey<String>('push-prompt-decline'),
       onTap: busy ? null : onDecline,
-      className: 'text-sm font-medium text-fg-muted',
+      className: pushPromptDeclineButtonClassName,
       child: WText(trans('uptizm.push_prompt.not_now')),
     );
   }
@@ -298,13 +298,32 @@ class _PushPromptHostState extends State<PushPromptHost> {
   }
 
   /// Records the decline: in memory at once, then on this device.
+  ///
+  /// A vault failure must not be reported as a success: the flag will not
+  /// survive the next launch, so the in-memory flip is rolled back and the
+  /// soft prompt (with its decline control) is left on screen rather than
+  /// the resolved compact row a working decline would leave. Guarded the
+  /// same way [_readDeclined] guards its read.
   Future<void> _decline() async {
     setState(() => _declined = true);
 
-    await Vault.put(PushPromptHost.declinedVaultKey, '1');
+    try {
+      await Vault.put(PushPromptHost.declinedVaultKey, '1');
+    } catch (error) {
+      if (Magic.bound('log')) {
+        Log.warning('[PushPromptHost] vault write failed: $error');
+      }
+
+      if (mounted) setState(() => _declined = false);
+    }
   }
 
   /// Raises the platform prompt, then re-reads what the platform now says.
+  ///
+  /// The request is guarded the same way [_readDeclined] guards its read: a
+  /// throw is logged rather than left to escape as an unhandled async error,
+  /// and control still falls through to [_read] afterward so the row never
+  /// gets stuck on the spinner with stale reachability.
   Future<void> _enable() async {
     if (_busy) return;
     if (Notify.manager.pushDriverOrNull == null) return;
@@ -316,6 +335,10 @@ class _PushPromptHostState extends State<PushPromptHost> {
 
     try {
       await Notify.requestPushPermission();
+    } catch (error) {
+      if (Magic.bound('log')) {
+        Log.warning('[PushPromptHost] push permission request failed: $error');
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -323,8 +346,18 @@ class _PushPromptHostState extends State<PushPromptHost> {
     await _read();
   }
 
+  /// Whether the host app has left the soft prompt turned on.
+  ///
+  /// `notifications.soft_prompt.enabled` is `magic_notifications`' own
+  /// config key; a consumer that sets it to `false` gets no prompt at all,
+  /// not a half-read row.
+  bool get _softPromptEnabled =>
+      Config.get<bool>('notifications.soft_prompt.enabled', true) ?? true;
+
   @override
   Widget build(BuildContext context) {
+    if (!_softPromptEnabled) return const SizedBox.shrink();
+
     final PushReachability? reachability = _reachability;
 
     // Nothing is known yet. One frame, and only ever the first: every other

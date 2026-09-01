@@ -18,11 +18,19 @@
 // shell swaps widget trees at `lg` (1024px), and a widget test drives one
 // surface size at a time with no real navigator, no real rail and no scroll
 // physics. That belongs to the dusk walk.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart' hide Card;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
+import 'package:magic_notifications/magic_notifications.dart'
+    show
+        Notify,
+        PushDriver,
+        PushIdentityChange,
+        PushNotificationEvent,
+        PushPermissionState;
 import 'package:magic_payments/magic_payments.dart'
     show
         BillingCheckoutSession,
@@ -209,6 +217,83 @@ const List<Map<String, dynamic>> _planWireRows = <Map<String, dynamic>>[
     'recommended': false,
   },
 ];
+
+/// A push driver whose tap stream this file drives by hand.
+///
+/// Registered through `Notify.manager.setPushDriver`, so a tap travels the real
+/// path an SDK tap does: the driver's stream, the manager's own subject guard,
+/// then the `onPushClicked` stream the app subscribes to. A test that pushed an
+/// event straight into the app's handler would pass on a build that never
+/// subscribed to anything, which is the exact defect this group covers.
+class _TappablePushDriver extends PushDriver {
+  /// The tap stream, broadcast because the manager attaches to it eagerly.
+  final StreamController<PushNotificationEvent> _clicked =
+      StreamController<PushNotificationEvent>.broadcast();
+
+  /// Reports a tap on a push carrying [data].
+  void tap(Map<String, dynamic> data) {
+    _clicked.add(PushNotificationEvent(data));
+  }
+
+  @override
+  String get name => 'onesignal';
+
+  @override
+  bool get isSupported => true;
+
+  @override
+  bool get isOptedIn => true;
+
+  @override
+  Future<PushPermissionState> permissionState() async {
+    return PushPermissionState.authorized;
+  }
+
+  @override
+  Future<void> initialize(Map<String, dynamic> config) async {}
+
+  @override
+  Future<void> login(String externalId) async {}
+
+  @override
+  Future<void> logout() async {}
+
+  @override
+  Future<String?> currentExternalId() async => null;
+
+  @override
+  Future<String?> currentSubscriptionId() async => 'subscription-1';
+
+  @override
+  Future<bool> requestPermission() async => true;
+
+  @override
+  Future<void> optIn() async {}
+
+  @override
+  Future<void> optOut() async {}
+
+  @override
+  Future<void> setTags(Map<String, String> tags) async {}
+
+  @override
+  Future<void> removeTag(String key) async {}
+
+  @override
+  Stream<PushNotificationEvent> get onNotificationReceived =>
+      const Stream<PushNotificationEvent>.empty();
+
+  @override
+  Stream<PushNotificationEvent> get onNotificationClicked => _clicked.stream;
+
+  @override
+  Stream<PushPermissionState> get onPermissionChanged =>
+      const Stream<PushPermissionState>.empty();
+
+  @override
+  Stream<PushIdentityChange> get onIdentityChanged =>
+      const Stream<PushIdentityChange>.empty();
+}
 
 /// The AI line the `pro` row carries, as one string.
 const String _proAiLine =
@@ -571,6 +656,210 @@ void main() {
       expect(
         find.text(trans('magic_starter.billing.plan_button_upgrade')),
         findsNothing,
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // The tap half of a page
+  // ---------------------------------------------------------------------------
+  //
+  // A push that wakes an on-call responder is only half a page: the other half
+  // is what the tap does. The backend puts the incident's path in `deep_link`
+  // and the incident's owner in `team_id`, and nothing in this app read either
+  // one, so a tap opened the app wherever it happened to be. The team half is
+  // the sharper defect: `IncidentController::authorizeTeam` answers 404 for an
+  // incident outside the caller's `current_team_id`, and the on-call rota is
+  // team-scoped with no relation to that column, so a responder paged for team
+  // A while sitting on team B would have landed on an error during an outage.
+  group('a tapped push opens the incident it names', () {
+    /// The route table the tap navigates inside: a landing page plus the
+    /// incident detail route the deep link resolves to.
+    void registerRoutes() {
+      MagicRouter.reset();
+      MagicRoute.page('/', () => const SizedBox());
+      MagicRoute.page('/incidents/:id', () => const SizedBox());
+    }
+
+    /// Mounts the router so `MagicRoute.to` has somewhere to go, under a
+    /// [WindTheme] because the cross-team toast renders into the navigator's
+    /// own overlay and its W-widgets resolve their tokens from an ancestor.
+    Future<void> mountRouter(WidgetTester tester) async {
+      await tester.pumpWidget(
+        WindTheme(
+          data: WindThemeData(aliases: uptizmStatusAliases),
+          child: MaterialApp.router(
+            routerConfig: MagicRouter.instance.routerConfig,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    /// Registers the driver a tap arrives on, and subscribes the app's real tap
+    /// handler to it.
+    ///
+    /// Both happen inside the test BODY rather than in `setUp`, because the
+    /// manager attaches to the driver's stream at registration and a
+    /// subscription created outside the tester's fake-async zone delivers its
+    /// events on the real event loop, where no amount of pumping reaches them.
+    /// The teardown leaves the manager as it was found, so one test's
+    /// subscription cannot fire inside the next one's.
+    _TappablePushDriver listen() {
+      final _TappablePushDriver driver = _TappablePushDriver();
+      Notify.manager.setPushDriver(driver);
+      AppServiceProvider.listenForPushTaps();
+      addTearDown(AppServiceProvider.stopListeningForPushTaps);
+
+      return driver;
+    }
+
+    /// Lets the tap travel the stream, the switch and the navigation, then
+    /// drains the toast's auto-dismiss timer so it does not outlive the test.
+    Future<void> settleTap(WidgetTester tester) async {
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 5));
+    }
+
+    setUp(registerRoutes);
+
+    tearDown(() {
+      Notify.forgetDrivers();
+      MagicRouter.reset();
+    });
+
+    testWidgets('a tap on this team incident lands on the incident', (
+      WidgetTester tester,
+    ) async {
+      signIn(<String, dynamic>{'id': 't1', 'name': 'Alpha'});
+      await mountRouter(tester);
+      final _TappablePushDriver driver = listen();
+
+      driver.tap(<String, dynamic>{
+        'type': 'incident_opened',
+        'incident_id': 'inc-1',
+        'kind': 'incident',
+        'team_id': 't1',
+        'deep_link': '/incidents/inc-1',
+      });
+      await settleTap(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(MagicRouter.instance.currentPath, '/incidents/inc-1');
+    });
+
+    testWidgets('a payload naming no team navigates rather than refusing', (
+      WidgetTester tester,
+    ) async {
+      // The same principle the manager applies to `subject`: an absent field is
+      // not evidence of misaddressing, so a server older than the `team_id` key
+      // must not leave the responder on whatever screen the app was showing.
+      final FakeNetworkDriver network = Http.fake();
+      signIn(<String, dynamic>{'id': 't1', 'name': 'Alpha'});
+      await mountRouter(tester);
+      final _TappablePushDriver driver = listen();
+
+      driver.tap(<String, dynamic>{
+        'type': 'incident_opened',
+        'incident_id': 'inc-2',
+        'kind': 'incident',
+        'deep_link': '/incidents/inc-2',
+      });
+      await settleTap(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(MagicRouter.instance.currentPath, '/incidents/inc-2');
+      network.assertNotSent(
+        (MagicRequest request) => request.url.contains('user/current-team'),
+      );
+    });
+
+    testWidgets('a tap for another team switches to it, then lands on the '
+        'incident', (WidgetTester tester) async {
+      // The 404 case. The rota that paged this responder is team-scoped and
+      // says nothing about the team they are currently on, so without the
+      // switch the tap reaches `authorizeTeam`'s deliberate 404 for the
+      // incident they were just woken up for.
+      final FakeNetworkDriver network = Http.fake();
+      signIn(<String, dynamic>{'id': 't1', 'name': 'Alpha'});
+      await mountRouter(tester);
+      final _TappablePushDriver driver = listen();
+
+      driver.tap(<String, dynamic>{
+        'type': 'incident_opened',
+        'incident_id': 'inc-3',
+        'kind': 'incident',
+        'team_id': 't9',
+        'deep_link': '/incidents/inc-3',
+      });
+      await settleTap(tester);
+
+      expect(tester.takeException(), isNull);
+      network.assertSent(
+        (MagicRequest request) =>
+            request.url.contains('user/current-team') &&
+            (request.data as Map<String, dynamic>?)?['team_id'] == 't9',
+      );
+      expect(MagicRouter.instance.currentPath, '/incidents/inc-3');
+    });
+
+    testWidgets('a refused switch keeps the responder where they were, not on '
+        'a 404', (WidgetTester tester) async {
+      // Navigating anyway would be the defect with an extra step: the backend
+      // still resolves the incident against `current_team_id`, so a switch that
+      // did not take lands on the same 404.
+      Http.fake(<String, MagicResponse>{
+        'user/current-team': Http.response(<String, dynamic>{
+          'message': 'That team is not yours.',
+        }, 403),
+      });
+      signIn(<String, dynamic>{'id': 't1', 'name': 'Alpha'});
+      await mountRouter(tester);
+      final _TappablePushDriver driver = listen();
+
+      driver.tap(<String, dynamic>{
+        'type': 'incident_opened',
+        'incident_id': 'inc-4',
+        'kind': 'incident',
+        'team_id': 't9',
+        'deep_link': '/incidents/inc-4',
+      });
+      await settleTap(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(MagicRouter.instance.currentPath, '/');
+    });
+
+    testWidgets('a second boot replaces the subscription instead of stacking a '
+        'second one', (WidgetTester tester) async {
+      // Counted on the refusal branch because it is the one arm that produces
+      // exactly one observable per handler run. Every other arm coalesces: two
+      // concurrent switches are one request (`_isSubmitting`), and two `go()`
+      // calls to one location are one navigation, so a leaked subscription
+      // would hide behind either of them.
+      final FakeLogManager log = Log.fake();
+      signIn(<String, dynamic>{'id': 't1', 'name': 'Alpha'});
+      await mountRouter(tester);
+
+      final _TappablePushDriver driver = listen();
+      AppServiceProvider.listenForPushTaps();
+
+      driver.tap(<String, dynamic>{
+        'type': 'incident_opened',
+        'incident_id': 'inc-5',
+        'kind': 'incident',
+      });
+      await settleTap(tester);
+
+      expect(
+        log.entries
+            .where(
+              (FakeLogEntry entry) =>
+                  entry.message.contains('[AppServiceProvider] push tap'),
+            )
+            .length,
+        1,
+        reason: 'one tap reaches the handler once, however often the app boots',
       );
     });
   });

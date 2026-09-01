@@ -362,8 +362,25 @@ class IncidentOpened extends Notification implements ShouldQueue
      * routing data, and adding it would burn into the 2,048-byte
      * `additionalData` limit for nothing.
      *
-     * `deep_link` is read by `magic_deeplink`'s `OneSignalDeeplinkHandler` so a
-     * tap opens the incident instead of wherever the app happened to be.
+     * `deep_link` is read by the Flutter client's
+     * `AppServiceProvider.openTappedPush`, which subscribes `Notify.onPushClicked`
+     * and navigates to the path, so a tap opens the incident instead of wherever
+     * the app happened to be. It is deliberately NOT `magic_deeplink`'s
+     * `OneSignalDeeplinkHandler`, which this docblock used to name: that
+     * package's provider boots before the notifications one, so the push driver
+     * it reads is not resolvable yet, and the read it attempts is a cast that
+     * throws into an empty catch. The handler cannot run, so nothing consumed
+     * this key at all until the client grew its own subscriber.
+     *
+     * `team_id` is what keeps that tap off a 404.
+     * `App\Http\Controllers\Api\V1\IncidentController::authorizeTeam()`
+     * resolves an incident against the caller's `current_team_id` and aborts 404
+     * otherwise, while `App\Services\OnCall\EscalationDispatcher` pages whoever
+     * is on call for a
+     * TEAM-SCOPED rota, which says nothing about the team that person happens to
+     * be on. Naming the owner here is what lets the client switch first and open
+     * the incident second; without it the client could not even offer to,
+     * because nothing in the payload said which team.
      *
      * `subject` is not one of `toArray()`'s keys: it names WHO the push was
      * addressed to, the same `user_{id}` alias {@see routeNotificationForOneSignal()}
@@ -386,6 +403,7 @@ class IncidentOpened extends Notification implements ShouldQueue
             'monitor_name' => $monitorName,
             'severity' => $this->incident->severity->value,
             'kind' => 'incident',
+            'team_id' => $this->incident->team_id,
             'deep_link' => '/incidents/'.$this->incident->id,
             'subject' => 'user_'.$notifiable->getKey(),
         ];

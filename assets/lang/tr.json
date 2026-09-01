@@ -1128,6 +1128,8 @@
       "detail_postmortem_save_toast_description": "Olay kaydına eklendi. Yayınlayana kadar dahili kalır.",
       "detail_postmortem_publish_toast_title": "Olay sonrası inceleme yayınlandı",
       "detail_postmortem_publish_toast_description": "Artık herkese açık durum sayfasından okunabilir.",
+      "push_team_switch_toast_title": "Takım değiştirildi",
+      "push_team_switch_toast_description": "Artık bu olayın sahibi olan takımdasınız.",
       "ai_analysis_gated": "Yapay zeka olay analizi, kanıt, güven ve sonraki adımlarla birlikte olası nedeni belirler.",
       "analysis_degraded_heading": "Yapay zeka analizi",
       "analysis_pending_heading": "AI analizi",

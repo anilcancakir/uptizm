@@ -44,6 +44,58 @@ class IncidentPushPayloadTest extends TestCase
         $this->assertSame('incident', $data['kind']);
     }
 
+    /**
+     * The key that decides whether the deep link above resolves to the incident
+     * or to a 404.
+     *
+     * `IncidentController::authorizeTeam()` aborts 404 for an incident outside
+     * the caller's `current_team_id`, and `EscalationDispatcher` pages the
+     * responder on-call for a TEAM-scoped rota, which has no relation to the
+     * column that check reads. Without the owning team in the payload the client
+     * cannot even offer to switch: nothing in the push says which team.
+     */
+    public function test_incident_opened_push_data_names_the_owning_team(): void
+    {
+        $incident = $this->makeIncident();
+        $user = User::factory()->create();
+
+        $data = (new IncidentOpened($incident))->toOneSignal($user)->getData();
+
+        $this->assertSame($incident->team_id, $data['team_id']);
+    }
+
+    /**
+     * The resolve carries the same key set as the open, so the tap handler has
+     * one contract rather than two. A resolve tapped from the wrong team lands
+     * on the same 404.
+     */
+    public function test_incident_resolved_push_data_names_the_owning_team(): void
+    {
+        $incident = $this->makeIncident([
+            'lifecycle' => 'resolved',
+        ]);
+        $user = User::factory()->create();
+
+        $data = (new IncidentResolved($incident))->toOneSignal($user)->getData();
+
+        $this->assertSame($incident->team_id, $data['team_id']);
+    }
+
+    /**
+     * `IncidentEscalated` inherits the opened builder, and an escalation is the
+     * push most likely to reach somebody who is not on that team: it is sent
+     * one rung further up a rota that spans people who work across teams.
+     */
+    public function test_incident_escalated_push_data_names_the_owning_team(): void
+    {
+        $incident = $this->makeIncident();
+        $user = User::factory()->create();
+
+        $data = (new IncidentEscalated($incident))->toOneSignal($user)->getData();
+
+        $this->assertSame($incident->team_id, $data['team_id']);
+    }
+
     public function test_incident_resolved_push_data_carries_the_incident_identity_and_deep_link(): void
     {
         $incident = $this->makeIncident([

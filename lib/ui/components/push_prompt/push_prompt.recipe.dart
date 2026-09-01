@@ -93,3 +93,26 @@ const WindRecipe pushPromptIconRecipe = WindRecipe(
   },
   defaultVariants: {kPushPromptStateAxis: kPushPromptStateAsk},
 );
+
+/// The "enable push" button's className.
+///
+/// QA finding: colour and weight alone read as static copy on desktop web,
+/// where there is no touch affordance to fall back on. The `border-transparent`
+/// base reserves the same box `focus:border-primary` fills, so the focus
+/// state adds no layout shift; `hover:`/`focus:` share the tinted brand
+/// surface [pushPromptTileRecipe] already uses for the `ask` tile.
+const String pushPromptEnableButtonClassName =
+    'rounded-md border border-transparent px-2 py-1 text-sm font-medium '
+    'text-primary transition-colors hover:bg-primary-container '
+    'focus:border-primary focus:bg-primary-container';
+
+/// The decline ("not now") button's className.
+///
+/// Same fix as [pushPromptEnableButtonClassName] and the more pressing of the
+/// two per the QA finding: with no feedback at all the decline read as easy
+/// to miss as a control, not merely static.
+const String pushPromptDeclineButtonClassName =
+    'rounded-md border border-transparent px-2 py-1 text-sm font-medium '
+    'text-fg-muted transition-colors hover:bg-surface-container '
+    'hover:text-fg focus:border-color-border focus:bg-surface-container '
+    'focus:text-fg';
