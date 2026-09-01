@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\V1\MonitorController;
 use App\Http\Controllers\Api\V1\MonitorMetricController;
 use App\Http\Controllers\Api\V1\NotificationChannelController;
 use App\Http\Controllers\Api\V1\OnCallController;
+use App\Http\Controllers\Api\V1\PushDeviceController;
 use App\Http\Controllers\Api\V1\ScheduledMaintenanceController;
 use App\Http\Controllers\Api\V1\StatusPageController;
 use App\Http\Controllers\Api\V1\StatusPageLogoController;
@@ -455,6 +456,18 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.notification-channels.destroy');
     Route::post('notification-channels/{channel}/test', [NotificationChannelController::class, 'test'])
         ->name('api.v1.notification-channels.test');
+
+    // What the caller's own device knows about whether a push can reach it.
+    // Posted by the client on a lifecycle event (launch, sign-in, a permission
+    // or subscription change), never on a timer, and read by
+    // `App\Services\OnCall\EscalationDispatcher` when it decides whether a rung
+    // whose only outward channel is push reached anybody at all.
+    //
+    // No `{user}` segment, and that is the authorisation: the row is written
+    // under the session's user, so there is no address in this URL for a caller
+    // to point at somebody else's device.
+    Route::post('devices/push-state', [PushDeviceController::class, 'store'])
+        ->name('api.v1.devices.push-state');
 
     Route::get('billing', [BillingController::class, 'show'])
         ->name('api.v1.billing.show');

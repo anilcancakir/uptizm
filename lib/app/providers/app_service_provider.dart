@@ -149,6 +149,13 @@ class AppServiceProvider extends ServiceProvider {
     // device carries the previous person's id, and the manager's
     // `isPushIdentityConverged` is the only other place that says so.
     if (!Auth.check()) {
+      // The memo goes with the session, not with the device. Two people share
+      // one handset, and the second one's device state can be identical to the
+      // first's; a memo that survived the sign-out would recognise it as
+      // "already reported" and the server would keep vouching for a reachable
+      // device under the name of the person who left.
+      _lastReportedPushDeliveryState = null;
+
       unawaited(
         Notify.logoutPush().catchError((Object error) {
           Log.error('[AppServiceProvider] push identity release failed: $error');
@@ -162,10 +169,179 @@ class AppServiceProvider extends ServiceProvider {
     if (userId.isEmpty) return;
 
     unawaited(
-      Notify.initializePush('user_$userId').catchError((Object error) {
-        Log.error('[AppServiceProvider] push identity sync failed: $error');
-      }),
+      Notify.initializePush('user_$userId')
+          // Chained rather than fired beside it: the report describes the
+          // device AS THIS PERSON, and `initializePush` is what makes that
+          // true. Reporting first would post the previous subject, or none.
+          .then((_) => reportPushDeliveryState())
+          .catchError((Object error) {
+            Log.error('[AppServiceProvider] push identity sync failed: $error');
+          }),
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Push reachability: the half of a page only the device can see
+  // ---------------------------------------------------------------------------
+
+  /// The endpoint that records what this device can receive, relative to
+  /// `API_URL` (which already ends in `/api/v1`).
+  static const String _pushStatePath = '/devices/push-state';
+
+  /// The last state successfully reported, or `null` for a process that has
+  /// reported nothing yet.
+  ///
+  /// The device's own facts only: the reachability, the identity it carries and
+  /// the address it holds. `captured_at` is deliberately NOT part of it, since
+  /// it moves on every read and would turn this memo into a permanent miss.
+  static String? _lastReportedPushDeliveryState;
+
+  /// The driver whose change streams are currently watched, so a second call
+  /// recognises the attachment it already holds instead of replacing it.
+  static PushDriver? _watchedPushDriver;
+
+  /// The two subscriptions that make this event-driven rather than polled.
+  static StreamSubscription<PushIdentityChange>? _pushIdentityChangeSubscription;
+  static StreamSubscription<PushPermissionState>? _pushPermissionSubscription;
+
+  /// Tells the backend whether a push sent to this device would arrive.
+  ///
+  /// The server cannot see any of this. The permission, the opt-in flag and the
+  /// subscription id all live on the device, and OneSignal accepts a push for
+  /// an unreachable subscription without complaint, so this report is the only
+  /// evidence `EscalationDispatcher` will ever have that the responder it is
+  /// about to page can actually be woken.
+  ///
+  /// ## The payload is the package's, not this app's
+  ///
+  /// `PushDeliverySnapshot.toMap()` verbatim. `magic_notifications` ships the
+  /// SHAPE and deliberately no transport, precisely so that two consumers
+  /// reporting the same fact cannot describe it two ways; composing a second
+  /// spelling here would be the drift it exists to prevent.
+  ///
+  /// ## Reported on change, never on a timer
+  ///
+  /// This fact changes a handful of times in a device's life: a permission
+  /// granted or revoked, a subscription minted or swapped, a person signing in.
+  /// Every one of those is an EVENT the platform already reports, so a poll
+  /// would buy nothing and cost one write per device per interval on a backend
+  /// that is already carrying the monitoring load. The memo above is what makes
+  /// the auth-state path safe to fire on: `Auth.stateNotifier` bumps on every
+  /// restore, token refresh and team switch, and none of those move the device.
+  ///
+  /// The memo advances only on a report the server ACCEPTED. A refused post
+  /// left nothing behind, so remembering it would let one failed request
+  /// silence this device until its state changed again, which for a device that
+  /// is off is never.
+  ///
+  /// Public only so a test can drive it; the app reaches it through
+  /// [syncPushIdentity] and the two change streams.
+  @visibleForTesting
+  static Future<void> reportPushDeliveryState() async {
+    // 1. A signed-out session has nothing to attribute the report to, and the
+    //    endpoint sits behind `auth:sanctum`, so this would be a guaranteed 401
+    //    on every sign-out.
+    if (!Auth.check()) return;
+
+    // 2. Attach to the device's own change streams, here rather than in [boot].
+    //    `NotificationServiceProvider` registers the push driver in its OWN
+    //    boot, and it boots AFTER this provider (`lib/config/app.dart`), so a
+    //    subscription taken at boot would attach to nothing at all. This runs
+    //    behind an awaited `initializePush`, by which point a driver exists if
+    //    this build has one, and it is idempotent by driver identity so the
+    //    calls arriving FROM those streams re-attach nothing.
+    _watchPushDeliveryChanges();
+
+    try {
+      final PushDeliverySnapshot snapshot =
+          await Notify.manager.pushDeliverySnapshot();
+      final Map<String, dynamic> payload = snapshot.toMap();
+      final String state =
+          '${snapshot.reachability.name}|${snapshot.externalId ?? ''}'
+          '|${snapshot.subscriptionId ?? ''}';
+
+      if (state == _lastReportedPushDeliveryState) return;
+
+      final MagicResponse response = await Http.post(
+        _pushStatePath,
+        data: payload,
+      );
+
+      if (!response.successful) {
+        // Logged at error level rather than swallowed, and deliberately not
+        // surfaced: nothing the person can do about it, and the consequence is
+        // the server's, not theirs. It matters because until a report lands,
+        // an escalation rung that reaches only this device is recorded as
+        // having reached nobody.
+        Log.error(
+          '[AppServiceProvider] push delivery report refused '
+          'with ${response.statusCode}',
+        );
+
+        return;
+      }
+
+      _lastReportedPushDeliveryState = state;
+    } catch (error) {
+      // Same posture as the failure branch above, for the throwing half: a
+      // transport error leaves the memo untouched, so the next lifecycle event
+      // reports again rather than this device going quiet forever.
+      Log.error('[AppServiceProvider] push delivery report failed: $error');
+    }
+  }
+
+  /// Watches the device's own change streams, if it is not already watching
+  /// this driver.
+  ///
+  /// The permission stream covers a responder revoking notifications in system
+  /// settings with the app open; the identity stream covers the SDK swapping
+  /// the subscription underneath. Both are the platform telling us the answer
+  /// moved, which is the whole reason this needs no timer.
+  ///
+  /// Keyed on driver IDENTITY rather than on a boolean: a consumer (or a test)
+  /// can replace the driver, and a boolean would leave the app watching a
+  /// stream nobody feeds while the live one goes unheard.
+  static void _watchPushDeliveryChanges() {
+    final PushDriver? driver = Notify.manager.pushDriverOrNull;
+    if (driver == null || identical(driver, _watchedPushDriver)) return;
+
+    _cancelPushDeliverySubscriptions();
+    _watchedPushDriver = driver;
+
+    _pushIdentityChangeSubscription = driver.onIdentityChanged.listen(
+      (PushIdentityChange _) => unawaited(reportPushDeliveryState()),
+    );
+    _pushPermissionSubscription = driver.onPermissionChanged.listen(
+      (PushPermissionState _) => unawaited(reportPushDeliveryState()),
+    );
+  }
+
+  /// Drops both change subscriptions, keeping the watched driver as it is.
+  static void _cancelPushDeliverySubscriptions() {
+    final StreamSubscription<PushIdentityChange>? identity =
+        _pushIdentityChangeSubscription;
+    final StreamSubscription<PushPermissionState>? permission =
+        _pushPermissionSubscription;
+    _pushIdentityChangeSubscription = null;
+    _pushPermissionSubscription = null;
+
+    if (identity != null) unawaited(identity.cancel());
+    if (permission != null) unawaited(permission.cancel());
+  }
+
+  /// Leaves push-delivery reporting exactly as a fresh process would find it:
+  /// nothing watched, nothing remembered.
+  ///
+  /// Test-only, and it exists because both pieces of state are static: the
+  /// subscriptions would fire inside the next test, and the memo would make its
+  /// first report look like a repeat. The app itself never stops reporting,
+  /// because a device that cannot be paged is worth knowing about for as long
+  /// as the process is alive.
+  @visibleForTesting
+  static void resetPushDeliveryReporting() {
+    _cancelPushDeliverySubscriptions();
+    _watchedPushDriver = null;
+    _lastReportedPushDeliveryState = null;
   }
 
   // ---------------------------------------------------------------------------

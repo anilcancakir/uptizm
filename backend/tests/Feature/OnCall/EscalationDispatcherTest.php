@@ -15,6 +15,7 @@ use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\OnCallRotation;
 use App\Models\OnCallSchedule;
+use App\Models\PushDevice;
 use App\Models\ScheduledMaintenance;
 use App\Models\StatusPage;
 use App\Models\Team;
@@ -22,6 +23,7 @@ use App\Models\User;
 use App\Notifications\IncidentOpened;
 use App\Services\OnCall\EscalationDispatcher;
 use App\Services\OnCall\RotationResolver;
+use Carbon\CarbonInterface;
 use FlutterSdk\MagicStarter\Features;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
@@ -323,6 +325,286 @@ class EscalationDispatcherTest extends TestCase
 
         Notification::assertSentTo($responder, IncidentOpened::class);
         $this->assertStringNotContainsString(
+            'Escalation step reached nobody',
+            $this->evidenceLogContents(),
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Push reachability: a rung that reached nobody because nothing could leave
+    // the app
+    // -------------------------------------------------------------------------
+
+    /**
+     * The QA scenario, end to end: a responder whose only outward channel is
+     * push, on a device that has told the server it cannot receive one.
+     *
+     * Nothing about this is visible from the server without the device's own
+     * report: the permission, the opt-in flag and the subscription id all live
+     * on the phone. Without it, the ladder queued a push into OneSignal, the
+     * push was accepted, nobody was woken, and the incident sat in `Detected`
+     * with a perfectly clean log.
+     *
+     * The ladder MOVING ON is asserted beside the log line, because a rung that
+     * reached nobody is only half the story: the value of knowing is the next
+     * responder getting their turn.
+     */
+    public function test_a_push_only_responder_on_an_unreachable_device_records_that_it_reached_nobody(): void
+    {
+        $this->provisionPushChannel();
+        Notification::fake();
+        Queue::fake();
+        $this->captureLogsUnderProductionLevels();
+
+        [$team, $responder] = $this->teamWithOnCall();
+        $this->leaveOnlyPushEnabled($responder);
+        $this->reportDevice($responder, 'off');
+
+        $policy = $this->makePolicy($team);
+        $first = $this->makeStep($policy, 0, 0);
+        $second = $this->makeStep($policy, 1, 5);
+        $incident = $this->openIncident($team, $policy->fresh('steps'));
+
+        $this->dispatcher()->escalate($incident);
+        $this->dispatcher()->pageStep($incident->id, $first->id);
+
+        $this->assertStringContainsString(
+            'Escalation step reached nobody',
+            $this->evidenceLogContents(),
+        );
+        Queue::assertPushed(
+            DispatchEscalationStep::class,
+            fn (DispatchEscalationStep $job): bool => $job->stepId === $second->id,
+        );
+    }
+
+    /**
+     * The second QA scenario, and the trap the naive rule falls into: the same
+     * responder, the same unreachable phone, with email left on.
+     *
+     * "No push" is NOT "unreachable". Mail is in the default set and needs no
+     * device to arrive, so this rung reached somebody and skipping ahead would
+     * page the next person for an incident the first one was told about.
+     */
+    public function test_a_responder_with_email_still_on_is_never_unreachable_whatever_their_push_state(): void
+    {
+        $this->provisionPushChannel();
+        Notification::fake();
+        $this->captureLogsUnderProductionLevels();
+
+        [$team, $responder] = $this->teamWithOnCall();
+        $this->reportDevice($responder, 'blocked');
+        $policy = $this->policyWithOnCallStep($team);
+        $incident = $this->openIncident($team, $policy);
+
+        $this->dispatcher()->pageStep($incident->id, $policy->steps->first()->id);
+
+        Notification::assertSentTo($responder, IncidentOpened::class);
+        $this->assertStringNotContainsString(
+            'Escalation step reached nobody',
+            $this->evidenceLogContents(),
+        );
+    }
+
+    /**
+     * The positive of the push-only case: a device that reported it CAN be
+     * reached is a rung that reached somebody, even with every other channel
+     * switched off. Without this the feature would read as "push-only is always
+     * unreachable", which is a different (and equally wrong) rule.
+     */
+    public function test_a_push_only_responder_on_a_reachable_device_is_not_unreachable(): void
+    {
+        $this->provisionPushChannel();
+        Notification::fake();
+        $this->captureLogsUnderProductionLevels();
+
+        [$team, $responder] = $this->teamWithOnCall();
+        $this->leaveOnlyPushEnabled($responder);
+        $this->reportDevice($responder, 'on');
+        $policy = $this->policyWithOnCallStep($team);
+        $incident = $this->openIncident($team, $policy);
+
+        $this->dispatcher()->pageStep($incident->id, $policy->steps->first()->id);
+
+        Notification::assertSentTo($responder, IncidentOpened::class);
+        $this->assertStringNotContainsString(
+            'Escalation step reached nobody',
+            $this->evidenceLogContents(),
+        );
+    }
+
+    /**
+     * A month-old `on` is not evidence that a phone still rings. The device may
+     * have been wiped, reinstalled, or had its permission revoked, and every
+     * one of those is silent from here.
+     */
+    public function test_a_stale_report_does_not_count_as_a_working_device(): void
+    {
+        $this->provisionPushChannel();
+        Notification::fake();
+        $this->captureLogsUnderProductionLevels();
+
+        [$team, $responder] = $this->teamWithOnCall();
+        $this->leaveOnlyPushEnabled($responder);
+        $this->reportDevice(
+            $responder,
+            'on',
+            reportedAt: now()->subHours(PushDevice::FRESH_FOR_HOURS + 1),
+        );
+        $policy = $this->policyWithOnCallStep($team);
+        $incident = $this->openIncident($team, $policy);
+
+        $this->dispatcher()->pageStep($incident->id, $policy->steps->first()->id);
+
+        $this->assertStringContainsString(
+            'Escalation step reached nobody',
+            $this->evidenceLogContents(),
+        );
+    }
+
+    /**
+     * A responder who has never reported anything is in exactly the same
+     * position as one whose report went stale: the server has no evidence the
+     * phone can be paged, so it must not act as though it has.
+     */
+    public function test_a_responder_who_never_reported_a_device_is_unreachable_on_push_alone(): void
+    {
+        $this->provisionPushChannel();
+        Notification::fake();
+        $this->captureLogsUnderProductionLevels();
+
+        [$team, $responder] = $this->teamWithOnCall();
+        $this->leaveOnlyPushEnabled($responder);
+        $policy = $this->policyWithOnCallStep($team);
+        $incident = $this->openIncident($team, $policy);
+
+        $this->dispatcher()->pageStep($incident->id, $policy->steps->first()->id);
+
+        $this->assertStringContainsString(
+            'Escalation step reached nobody',
+            $this->evidenceLogContents(),
+        );
+    }
+
+    /**
+     * One person, three devices, one of which rings. A responder carrying a
+     * phone and two dead browser tabs is reachable, and an ANY rule is the only
+     * one that says so; an "every device" rule would skip a responder whose
+     * phone is in their hand.
+     */
+    public function test_one_reachable_device_among_several_is_enough(): void
+    {
+        $this->provisionPushChannel();
+        Notification::fake();
+        $this->captureLogsUnderProductionLevels();
+
+        [$team, $responder] = $this->teamWithOnCall();
+        $this->leaveOnlyPushEnabled($responder);
+        $this->reportDevice($responder, 'blocked', subscriptionId: 'sub-laptop');
+        $this->reportDevice($responder, 'off', subscriptionId: 'sub-tablet');
+        $this->reportDevice($responder, 'on', subscriptionId: 'sub-phone');
+        $policy = $this->policyWithOnCallStep($team);
+        $incident = $this->openIncident($team, $policy);
+
+        $this->dispatcher()->pageStep($incident->id, $policy->steps->first()->id);
+
+        Notification::assertSentTo($responder, IncidentOpened::class);
+        $this->assertStringNotContainsString(
+            'Escalation step reached nobody',
+            $this->evidenceLogContents(),
+        );
+    }
+
+    /**
+     * A device subscribed as somebody else is not this responder's device, and
+     * a push addressed to `user_<them>` never arrives on it. Storing the alias
+     * the device reported is what lets the read say so; without it, one phone
+     * handed to a colleague would vouch for both of them.
+     */
+    public function test_a_device_subscribed_as_somebody_else_does_not_vouch_for_this_responder(): void
+    {
+        $this->provisionPushChannel();
+        Notification::fake();
+        $this->captureLogsUnderProductionLevels();
+
+        [$team, $responder] = $this->teamWithOnCall();
+        $this->leaveOnlyPushEnabled($responder);
+        $this->reportDevice($responder, 'on', externalId: 'user_'.Str::uuid());
+        $policy = $this->policyWithOnCallStep($team);
+        $incident = $this->openIncident($team, $policy);
+
+        $this->dispatcher()->pageStep($incident->id, $policy->steps->first()->id);
+
+        $this->assertStringContainsString(
+            'Escalation step reached nobody',
+            $this->evidenceLogContents(),
+        );
+    }
+
+    /**
+     * The same rule on the other target type. A step pinned to a named person
+     * reaches them through exactly the same channel set, so a push-only pinned
+     * responder on a dead device is the same gap and must read the same way.
+     */
+    public function test_a_pinned_user_target_is_measured_by_the_same_rule(): void
+    {
+        $this->provisionPushChannel();
+        Notification::fake();
+        $this->captureLogsUnderProductionLevels();
+
+        [$team] = $this->teamWithOnCall();
+        $target = User::query()->create([
+            'name' => 'Pinned Target',
+            'email' => Str::uuid().'@example.com',
+            'password' => 'irrelevant',
+        ]);
+        $this->leaveOnlyPushEnabled($target);
+        $this->reportDevice($target, 'off');
+
+        $policy = $this->makePolicy($team);
+        $step = EscalationStep::query()->create([
+            'escalation_policy_id' => $policy->id,
+            'position' => 0,
+            'delay_minutes' => 0,
+            'target_type' => EscalationTargetType::User,
+            'target_id' => $target->id,
+        ]);
+        $incident = $this->openIncident($team, $policy);
+
+        $this->dispatcher()->pageStep($incident->id, $step->id);
+
+        $this->assertStringContainsString(
+            'Escalation step reached nobody',
+            $this->evidenceLogContents(),
+        );
+    }
+
+    /**
+     * Recording the gap must not create a second one. The responder still has
+     * their in-app row and whatever else survived their preferences, so the
+     * send happens either way: this feature reports that a page did not land,
+     * it does not withhold one.
+     */
+    public function test_an_unreachable_rung_still_delivers_what_it_can(): void
+    {
+        $this->provisionPushChannel();
+        Notification::fake();
+        $this->captureLogsUnderProductionLevels();
+
+        [$team, $responder] = $this->teamWithOnCall();
+        $responder->notificationSettings()->create([
+            'type' => 'incident_opened',
+            'channel' => 'mail',
+            'is_enabled' => false,
+        ]);
+        $this->reportDevice($responder, 'off');
+        $policy = $this->policyWithOnCallStep($team);
+        $incident = $this->openIncident($team, $policy);
+
+        $this->dispatcher()->pageStep($incident->id, $policy->steps->first()->id);
+
+        Notification::assertSentTo($responder, IncidentOpened::class);
+        $this->assertStringContainsString(
             'Escalation step reached nobody',
             $this->evidenceLogContents(),
         );
@@ -648,6 +930,70 @@ class EscalationDispatcherTest extends TestCase
     protected function dispatcher(): EscalationDispatcher
     {
         return $this->app->make(EscalationDispatcher::class);
+    }
+
+    /**
+     * Put the OneSignal driver into {@see IncidentOpened::via()}'s default set.
+     *
+     * The feature flag alone is not enough: `defaultChannels()` also requires a
+     * provisioned `app_id`, because the channel throws on an empty one. Without
+     * this the push channel is silently absent from every `via()` in the suite
+     * and every assertion about it is vacuous.
+     */
+    protected function provisionPushChannel(): void
+    {
+        config([
+            'magic-starter.features' => array_values(array_unique([
+                ...config('magic-starter.features', []),
+                Features::onesignal(),
+            ])),
+            'magic-starter.onesignal.app_id' => 'test-onesignal-app',
+        ]);
+    }
+
+    /**
+     * Switch off every channel that leaves the app except push, for
+     * `incident_opened`.
+     *
+     * `database` goes too, and it has to: an in-app row is delivered to
+     * somebody who is already looking at the app, which is the one thing an
+     * escalation ladder cannot assume. Leaving it enabled would make this the
+     * "push plus in-app" case rather than the push-only one.
+     */
+    protected function leaveOnlyPushEnabled(User $user): void
+    {
+        foreach (['mail', 'database'] as $channel) {
+            $user->notificationSettings()->create([
+                'type' => 'incident_opened',
+                'channel' => $channel,
+                'is_enabled' => false,
+            ]);
+        }
+    }
+
+    /**
+     * Record what one of [$user]'s devices last told the server about its push
+     * delivery state, as {@see PushDeviceController} would have written it.
+     *
+     * `reported_at` is the server's own clock and is what freshness reads, so
+     * the staleness case sets it directly rather than moving `captured_at`,
+     * which is the device's claim and is deliberately not trusted for age.
+     */
+    protected function reportDevice(
+        User $user,
+        string $reachability,
+        ?string $subscriptionId = 'sub-primary',
+        ?string $externalId = null,
+        ?CarbonInterface $reportedAt = null,
+    ): PushDevice {
+        return PushDevice::query()->create([
+            'user_id' => $user->getKey(),
+            'external_id' => $externalId ?? 'user_'.$user->getKey(),
+            'subscription_id' => $subscriptionId,
+            'reachability' => $reachability,
+            'captured_at' => $reportedAt ?? now(),
+            'reported_at' => $reportedAt ?? now(),
+        ]);
     }
 
     /**

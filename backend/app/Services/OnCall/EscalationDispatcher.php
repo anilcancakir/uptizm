@@ -9,11 +9,13 @@ use App\Models\EscalationPolicy;
 use App\Models\EscalationStep;
 use App\Models\Incident;
 use App\Models\OnCallSchedule;
+use App\Models\PushDevice;
 use App\Models\ScheduledMaintenance;
 use App\Models\User;
 use App\Notifications\IncidentOpened;
 use App\Services\Monitoring\IncidentDispatcher;
 use App\Support\Logging\EvidenceLog;
+use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Notification;
 
@@ -43,6 +45,12 @@ class EscalationDispatcher
      * up; at 30 minutes it is six hours.
      */
     public const int MAX_REPEATS = 12;
+
+    /**
+     * The driver name of the push channel, the one outward channel whose
+     * deliverability cannot be answered from the channel list alone.
+     */
+    protected const string PUSH_CHANNEL = 'onesignal';
 
     public function __construct(
         protected RotationResolver $rotationResolver,
@@ -342,7 +350,9 @@ class EscalationDispatcher
             return;
         }
 
-        Notification::send($responder, new IncidentOpened($incident));
+        $this->pageResponder($incident, $step, $responder, [
+            'on_call_schedule_id' => $schedule->getKey(),
+        ]);
     }
 
     /**
@@ -368,7 +378,116 @@ class EscalationDispatcher
             return;
         }
 
-        Notification::send($user, new IncidentOpened($incident));
+        $this->pageResponder($incident, $step, $user, ['target_user_id' => $step->target_id]);
+    }
+
+    /**
+     * Page a resolved human, and record it when nothing in the send could
+     * actually leave the app.
+     *
+     * ## The rule, and why it is narrower than "no push"
+     *
+     * The tempting rule is "a responder with no push is unreachable, skip to
+     * the next rung", and it would page the wrong person minutes early: mail is
+     * in the default channel set, needs no device, and a responder who has it
+     * on WAS reached even though their phone stayed dark.
+     *
+     * So the question is asked of the channel set rather than of the phone.
+     * {@see IncidentOpened::via()} already resolves that set for this exact
+     * notifiable, honouring their per-type preference matrix, and it is the
+     * only place that resolution exists. A rung reached nobody when, after that
+     * filtering, nothing outward survives: no mail, no sms, and either no push
+     * or a push whose every known device says it cannot receive one.
+     *
+     * `database` and `broadcast` are deliberately not outward. They are the
+     * in-app bell, delivered to somebody who is already looking at the app,
+     * which is the one thing an escalation ladder exists because it cannot
+     * assume.
+     *
+     * ## It records, it does not withhold
+     *
+     * The send happens either way. Whatever survived the responder's
+     * preferences is still owed to them (the in-app row most of all, since it
+     * is what they find when they do open the app), and this feature reports
+     * that a page did not land rather than deciding not to send one. What the
+     * evidence line buys is the operator afterwards, and the rung after this
+     * one getting its turn: the ladder is queued in full at open time, so the
+     * next responder is already on their way and the record is what explains
+     * why they were needed.
+     *
+     * @param  array<string, string|null>  $context  Extra ids naming how this
+     *                                               responder was resolved.
+     */
+    protected function pageResponder(
+        Incident $incident,
+        EscalationStep $step,
+        User $responder,
+        array $context = [],
+    ): void {
+        $notification = new IncidentOpened($incident);
+        $channels = $notification->via($responder);
+
+        if (! $this->reaches($responder, $channels)) {
+            $this->logUnreachable(
+                $incident,
+                $step,
+                'the responder has no channel that leaves the app',
+                [
+                    ...$context,
+                    'responder_id' => (string) $responder->getKey(),
+                    'channels' => implode(',', $channels),
+                ],
+            );
+        }
+
+        Notification::send($responder, $notification);
+    }
+
+    /**
+     * Whether [$channels] carries anything that actually reaches [$responder]
+     * away from the app.
+     *
+     * Push is the one channel whose answer is not in the channel list: it is
+     * enabled here and unreachable at the device, and only the device can say
+     * so. {@see PushDevice::canReachByPush()} carries the four conditions a
+     * stored report has to satisfy, the staleness horizon among them.
+     *
+     * @param  array<int, string>  $channels  The result of {@see IncidentOpened::via()}.
+     */
+    protected function reaches(User $responder, array $channels): bool
+    {
+        $outward = array_intersect($channels, $this->outwardChannels());
+
+        if ($outward === []) {
+            return false;
+        }
+
+        // Anything outward that is NOT push settles it without asking the
+        // device: mail and sms leave this server under their own steam.
+        if (array_diff($outward, [self::PUSH_CHANNEL]) !== []) {
+            return true;
+        }
+
+        return PushDevice::canReachByPush($responder);
+    }
+
+    /**
+     * The driver channels that reach a person away from the app.
+     *
+     * Resolved rather than listed for sms, because the logical `sms`
+     * preference maps to a driver name the starter package registers
+     * (`onesignal-sms`); hardcoding it here would leave this check silently
+     * treating a texted responder as unreachable the day that mapping changes.
+     *
+     * @return array<int, string>
+     */
+    protected function outwardChannels(): array
+    {
+        return [
+            'mail',
+            self::PUSH_CHANNEL,
+            NotificationPreferenceRegistry::resolveDriverChannel('sms'),
+        ];
     }
 
     /**

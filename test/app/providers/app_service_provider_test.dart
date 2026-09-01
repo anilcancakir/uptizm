@@ -297,6 +297,119 @@ class _TappablePushDriver extends PushDriver {
       const Stream<PushIdentityChange>.empty();
 }
 
+/// A push driver whose reachability inputs and change streams this file drives
+/// by hand.
+///
+/// It overrides no `reachability()`: the base class derives that from
+/// `isSupported`, `permissionState()`, `isOptedIn` and `currentSubscriptionId()`
+/// exactly as a real SDK driver does, so the four states these tests report are
+/// the package's own derivation rather than a value a fake handed over.
+class _ReportingPushDriver extends PushDriver {
+  /// The two streams the app watches for a change worth reporting. Broadcast
+  /// because the manager attaches to them at registration and the app attaches
+  /// beside it.
+  final StreamController<PushPermissionState> _permissionChanges =
+      StreamController<PushPermissionState>.broadcast();
+  final StreamController<PushIdentityChange> _identityChanges =
+      StreamController<PushIdentityChange>.broadcast();
+
+  /// The platform permission this device currently holds.
+  PushPermissionState permission = PushPermissionState.authorized;
+
+  /// Whether this device is opted in to push.
+  bool optedIn = true;
+
+  /// The subscription id the platform holds, or null for a device with no
+  /// address at all.
+  String? subscriptionId = 'sub-phone';
+
+  /// The external id this fake device carries, held and read back the way a
+  /// real SDK does so the manager's reconcile is not fooled.
+  String? _externalId;
+
+  /// Reports a permission change the way the OS does when a user revokes it in
+  /// system settings, with the app already running.
+  void changePermission(PushPermissionState next) {
+    permission = next;
+    _permissionChanges.add(next);
+  }
+
+  /// Reports the SDK swapping this device's push subscription, which is what a
+  /// re-registration or a restored backup looks like from here.
+  void changeSubscription(String? next) {
+    subscriptionId = next;
+    _identityChanges.add(PushIdentityChange(subscriptionId: next));
+  }
+
+  /// Closes both controllers, so a stream does not outlive the test that made
+  /// it.
+  Future<void> dispose() async {
+    await _permissionChanges.close();
+    await _identityChanges.close();
+  }
+
+  @override
+  String get name => 'onesignal';
+
+  @override
+  bool get isSupported => true;
+
+  @override
+  bool get isOptedIn => optedIn;
+
+  @override
+  Future<PushPermissionState> permissionState() async => permission;
+
+  @override
+  Future<void> initialize(Map<String, dynamic> config) async {}
+
+  @override
+  Future<void> login(String externalId) async {
+    _externalId = externalId;
+  }
+
+  @override
+  Future<void> logout() async {
+    _externalId = null;
+  }
+
+  @override
+  Future<String?> currentExternalId() async => _externalId;
+
+  @override
+  Future<String?> currentSubscriptionId() async => subscriptionId;
+
+  @override
+  Future<bool> requestPermission() async => true;
+
+  @override
+  Future<void> optIn() async {}
+
+  @override
+  Future<void> optOut() async {}
+
+  @override
+  Future<void> setTags(Map<String, String> tags) async {}
+
+  @override
+  Future<void> removeTag(String key) async {}
+
+  @override
+  Stream<PushNotificationEvent> get onNotificationReceived =>
+      const Stream<PushNotificationEvent>.empty();
+
+  @override
+  Stream<PushNotificationEvent> get onNotificationClicked =>
+      const Stream<PushNotificationEvent>.empty();
+
+  @override
+  Stream<PushPermissionState> get onPermissionChanged =>
+      _permissionChanges.stream;
+
+  @override
+  Stream<PushIdentityChange> get onIdentityChanged => _identityChanges.stream;
+}
+
 /// The AI line the `pro` row carries, as one string.
 const String _proAiLine =
     'Full AI incident analysis: evidence, confidence, citations, '
@@ -749,6 +862,206 @@ void main() {
   // incident outside the caller's `current_team_id`, and the on-call rota is
   // team-scoped with no relation to that column, so a responder paged for team
   // A while sitting on team B would have landed on an error during an outage.
+  // ---------------------------------------------------------------------------
+  // The device tells the server whether it can be paged
+  // ---------------------------------------------------------------------------
+
+  group('the device reports whether a push can reach it', () {
+    /// The endpoint the report is posted to, relative to `API_URL`, which
+    /// already ends in `/api/v1`.
+    const String path = 'devices/push-state';
+
+    /// Registers a driver and leaves the manager and the app's own reporting
+    /// state as they were found.
+    ///
+    /// Registered inside the test BODY rather than in `setUp` for the reason
+    /// the tap group gives: the app subscribes to the driver's streams, and a
+    /// subscription created outside the test's own zone delivers its events
+    /// where no amount of pumping reaches them.
+    _ReportingPushDriver useDriver() {
+      final _ReportingPushDriver driver = _ReportingPushDriver();
+      Notify.manager.setPushDriver(driver);
+      addTearDown(AppServiceProvider.resetPushDeliveryReporting);
+      addTearDown(Notify.forgetDrivers);
+      addTearDown(driver.dispose);
+
+      return driver;
+    }
+
+    /// Every report this device has posted, in order.
+    List<Map<String, dynamic>> reports(FakeNetworkDriver network) {
+      return network.recorded
+          .where((entry) => entry.$1.url.contains(path))
+          .map((entry) => entry.$1.data as Map<String, dynamic>)
+          .toList();
+    }
+
+    /// Signs a user in and lets the identity sync settle, which is the moment
+    /// the app has both an identity to report as and a device to read.
+    Future<void> declareIdentity() async {
+      Auth.fake(
+        user: User.fromMap(<String, dynamic>{'id': 'u1', 'name': 'Ada'}),
+      );
+      AppServiceProvider.syncPushIdentity();
+      await pumpEventQueue();
+    }
+
+    tearDown(Notify.forgetDrivers);
+
+    test('a signed-in device posts the package shape, not a second one', () async {
+      // The payload is `PushDeliverySnapshot.toMap()` verbatim. Inventing a
+      // second spelling of the same fact is how the two halves of a contract
+      // start to drift, and the package owns this one precisely so they cannot.
+      final FakeNetworkDriver network = Http.fake();
+      useDriver();
+
+      await declareIdentity();
+
+      expect(reports(network), hasLength(1));
+      final Map<String, dynamic> body = reports(network).single;
+      expect(body.keys.toSet(), <String>{
+        'external_id',
+        'subscription_id',
+        'reachability',
+        'captured_at',
+      });
+      expect(body['reachability'], 'on');
+      expect(body['external_id'], 'user_u1');
+      expect(body['subscription_id'], 'sub-phone');
+      expect(DateTime.tryParse(body['captured_at'] as String), isNotNull);
+    });
+
+    test('a device whose state has not moved does not post again', () async {
+      // `Auth.stateNotifier` bumps on every restore, every token refresh and
+      // every team switch, and none of those change what the device can
+      // receive. Posting on each of them would be a timer with extra steps.
+      final FakeNetworkDriver network = Http.fake();
+      useDriver();
+
+      await declareIdentity();
+      AppServiceProvider.syncPushIdentity();
+      await pumpEventQueue();
+
+      expect(reports(network), hasLength(1));
+    });
+
+    test('a revoked permission reports itself with nobody asking', () async {
+      // The case the whole feature exists for: the responder turns
+      // notifications off in system settings while the app is open, and the
+      // server has to learn it BEFORE the next outage rather than by sending a
+      // page into the dark.
+      final FakeNetworkDriver network = Http.fake();
+      final _ReportingPushDriver driver = useDriver();
+      await declareIdentity();
+
+      driver.changePermission(PushPermissionState.denied);
+      await pumpEventQueue();
+
+      expect(reports(network), hasLength(2));
+      expect(reports(network).last['reachability'], 'blocked');
+    });
+
+    test('a swapped subscription reports itself', () async {
+      // A re-registration mints a new subscription id, and the old one stops
+      // being deliverable. Without this the server keeps a row vouching for an
+      // address that no longer exists.
+      final FakeNetworkDriver network = Http.fake();
+      final _ReportingPushDriver driver = useDriver();
+      await declareIdentity();
+
+      driver.changeSubscription('sub-reinstalled');
+      await pumpEventQueue();
+
+      expect(reports(network), hasLength(2));
+      expect(reports(network).last['subscription_id'], 'sub-reinstalled');
+    });
+
+    test('the reporter creates no periodic timer', () {
+      // The explicit non-requirement. A poll would put one write per device per
+      // interval on a monitoring backend for a fact that changes a handful of
+      // times a year, and the server's staleness horizon is sized for a client
+      // that reports on lifecycle events instead.
+      //
+      // This is a STRUCTURAL assertion, and deliberately so. Proving the
+      // absence of a timer by simulating time does not work here: advancing a
+      // clock needs `testWidgets`, whose fake-async zone never drains the real
+      // event queue that `pumpEventQueue()` (and therefore every helper in this
+      // group) waits on, so the behavioural version of this test hangs until
+      // the ten minute timeout rather than failing or passing. What it would
+      // have measured is covered anyway: every test above declares one
+      // lifecycle event and asserts exactly one report, so a second report
+      // arriving from anywhere else would already be visible there.
+      //
+      // What is left for this test is the thing a future edit would actually
+      // write, and that is worth catching cheaply.
+      // Only `Timer.periodic` is asserted against. `startPolling` appears in
+      // this file's prose and is not a violation: that is the notification
+      // FEED poller, which polls a backend for rows a human reads, and it is
+      // lifecycle-bound on purpose. The thing forbidden here is polling the
+      // DEVICE for a state that changes when the OS says so.
+      final String source = File(
+        'lib/app/providers/app_service_provider.dart',
+      ).readAsStringSync();
+
+      expect(source, isNot(contains('Timer.periodic')));
+    });
+
+    test('a signed-out device reports nothing', () async {
+      // There is no session to attribute the report to, and the endpoint is
+      // behind `auth:sanctum`, so posting here would be a guaranteed 401 on
+      // every sign-out.
+      final FakeNetworkDriver network = Http.fake();
+      useDriver();
+      await declareIdentity();
+
+      await Auth.logout();
+      AppServiceProvider.syncPushIdentity();
+      await pumpEventQueue();
+
+      expect(reports(network), hasLength(1));
+    });
+
+    test('a report the server refused is made again, not remembered', () async {
+      // The memo exists to stop repeat posts of a state the server ALREADY
+      // HAS. A refused post left nothing on the server, so remembering it would
+      // mean one failed request silences this device until the state changes
+      // again, which on a device that is off is never.
+      final FakeNetworkDriver network = Http.fake(<String, MagicResponse>{
+        path: Http.response(<String, dynamic>{'message': 'nope'}, 500),
+      });
+      useDriver();
+
+      await declareIdentity();
+      AppServiceProvider.syncPushIdentity();
+      await pumpEventQueue();
+
+      expect(reports(network), hasLength(2));
+    });
+
+    test('the next person on a shared device reports for themselves', () async {
+      // The memo is per process, and a sign-out clears it. Without that, a
+      // second person signing in on the same handset whose device state happens
+      // to match would never be reported at all, and the server would hold a
+      // reachable device attributed to the person who left.
+      final FakeNetworkDriver network = Http.fake();
+      useDriver();
+      await declareIdentity();
+
+      await Auth.logout();
+      AppServiceProvider.syncPushIdentity();
+      await pumpEventQueue();
+
+      Auth.fake(
+        user: User.fromMap(<String, dynamic>{'id': 'u2', 'name': 'Grace'}),
+      );
+      AppServiceProvider.syncPushIdentity();
+      await pumpEventQueue();
+
+      expect(reports(network), hasLength(2));
+      expect(reports(network).last['external_id'], 'user_u2');
+    });
+  });
+
   group('a tapped push opens the incident it names', () {
     /// The route table the tap navigates inside: a landing page plus the
     /// incident detail route the deep link resolves to.

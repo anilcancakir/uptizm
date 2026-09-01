@@ -479,6 +479,18 @@ Components backed by a Wind W-widget with no recipe layer.
 
 ---
 
+### PushPrompt / PushPromptHost / PushOffNotice
+
+- **File**: `lib/ui/components/push_prompt/`
+- **Purpose**: The permission surface for push. `PushPrompt` is presentational and renders one of four states; `PushPromptHost` is the wired half that asks `magic_notifications` for advice and owns the decline timestamp; `PushOffNotice` is the shell marker in the sidebar and the mobile top bar that says push is off on this device, so an on-call engineer sees it without opening settings.
+- **Token bindings**: `degraded` for the notice, deliberately not `down`. `down` is the colour of an outage, and a device without push is not one.
+- **Anti-patterns**:
+  - Do not derive the prompt's state locally. `Notify.manager.pushPromptAdvice(declinedAt:)` answers both whether to show a reminder and what its button can achieve on this platform; re-deriving it is how the web and mobile branches drift apart.
+  - Do not offer a control in the `blocked` state on web. Nothing can open browser site settings from a page, so the honest surface there is the instruction. On mobile the same state IS a control, because the driver's `fallbackToSettings` opens the app's settings page.
+  - Do not store the decline as a boolean. It has to be a timestamp or the reminder interval cannot exist, and the legacy boolean is migrated rather than read as "never declined".
+
+---
+
 ### UserProfileDropdown
 
 - **File**: Composite consuming `DropdownMenu`
