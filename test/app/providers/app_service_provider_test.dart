@@ -21,6 +21,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart' hide Card;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
@@ -48,6 +49,7 @@ import 'package:uptizm/app/providers/app_service_provider.dart';
 import 'package:uptizm/app/support/formatters.dart' show formatCount;
 import 'package:uptizm/app/support/team_types.dart' show withUsageCopy;
 import 'package:uptizm/config/magic_starter.dart' show magicStarterConfig;
+import 'package:uptizm/config/notifications.dart' show notificationsConfig;
 import 'package:uptizm/config/uptizm_status_tokens.dart'
     show uptizmStatusAliases;
 
@@ -409,6 +411,81 @@ void main() {
     await tester.pump();
     await tester.pump();
   }
+
+  // ---------------------------------------------------------------------------
+  // The push permission posture, and where the app admits push is off
+  // ---------------------------------------------------------------------------
+
+  group('the shipped push permission posture', () {
+    /// The `notifications.push` block as `Magic.init` composes it.
+    Map<String, dynamic> pushConfig() {
+      final Map<String, dynamic> block =
+          notificationsConfig['notifications'] as Map<String, dynamic>;
+
+      return block['push'] as Map<String, dynamic>;
+    }
+
+    test('a declined device is asked again, roughly daily', () {
+      // `0`, absent, and a negative value all mean NEVER in
+      // `NotificationManager._remindersDue`, so an omitted key is not a neutral
+      // default: it is the posture of an app that asks once and gives up. On a
+      // product that pages people, a device nobody can reach has to keep saying
+      // so.
+      final Object? hours = pushConfig()['reprompt_after_hours'];
+
+      expect(hours, isA<int>());
+      expect(hours as int, greaterThanOrEqualTo(12));
+      expect(hours, lessThanOrEqualTo(36));
+    });
+
+    test('a blocked mobile device keeps a route back', () {
+      // `fallback_to_settings` doubles as the driver's
+      // `canOpenPlatformSettings`, so turning it off would turn the blocked
+      // row from a control into a sentence on the one platform that has a way
+      // back at all.
+      expect(pushConfig()['fallback_to_settings'], isTrue);
+    });
+
+    test('the automatic request is raised only where the ask is a real dialog', () {
+      // Web browsers want a user gesture, and a login is not one, so the
+      // package's automatic request can spend the single ask without rendering
+      // anything. This app leans on the reminder there, whose button IS a tap.
+      // `flutter test` runs on the VM, so only the non-web half of the pair is
+      // measurable here; the reasoning for both lives in
+      // `lib/config/notifications.dart`.
+      expect(
+        pushConfig()['auto_request_on_login'],
+        kIsWeb ? isFalse : isTrue,
+        reason: 'the OS dialog is honest on mobile and a coin flip on the web',
+      );
+    });
+  });
+
+  group('the shell admits push is off', () {
+    /// Both shells the app swaps between at `lg`, as source.
+    ///
+    /// A source read rather than a mount: the two are separate widget trees by
+    /// design, and this repo has already shipped a fix applied to one of them
+    /// and not the other (`teamMenuDestinations` exists because the mobile menu
+    /// was three rows short). What renders is covered by the widget tests in
+    /// `test/ui/components/push_prompt/`; what this pins is that BOTH shells
+    /// mount it at all.
+    const List<String> shells = <String>[
+      'lib/ui/layouts/sidebar.dart',
+      'lib/ui/layouts/mobile_top_bar.dart',
+    ];
+
+    for (final String shell in shells) {
+      test('$shell mounts the push-off notice', () {
+        expect(
+          File(shell).readAsStringSync(),
+          contains('PushOffNotice'),
+          reason: 'an engineer whose device cannot be paged has to see it '
+              'without opening notification settings',
+        );
+      });
+    }
+  });
 
   group('the route points at the package view', () {
     test('the /teams/billing body resolves the registry key', () {

@@ -10,6 +10,7 @@ import '../../app/models/team.dart';
 import '../../app/models/user.dart';
 import 'shell_account.dart';
 import '../components/notification_center/index.dart';
+import '../components/push_prompt/index.dart';
 import 'shell_control_semantics.dart';
 
 /// Computes uppercase avatar initials from a display [name].
@@ -116,7 +117,15 @@ class Sidebar extends StatelessWidget {
             children: [for (final item in _navItems) _buildNavItem(item)],
           ),
         ),
-        // 4. Account menu pinned to the bottom, above the home edge.
+        // 4. The admission that this device cannot be paged, directly above
+        //    the account menu. Here rather than beside the bell: the bell is
+        //    about notifications that ARRIVED, and this is about the ones that
+        //    will not, so it belongs with the account's own quiet controls
+        //    rather than decorating the unread badge. It renders nothing at all
+        //    when push is reachable, and owns its own margins, so the column
+        //    below closes up rather than keeping an empty slot.
+        const PushOffNotice(),
+        // 5. Account menu pinned to the bottom, above the home edge.
         const _AccountMenu(),
       ],
     );

@@ -12,6 +12,7 @@ import '../../app/models/team.dart';
 import '../../app/models/user.dart';
 import 'shell_account.dart';
 import '../components/notification_center/index.dart';
+import '../components/push_prompt/index.dart';
 import 'shell_control_semantics.dart';
 
 /// Computes uppercase avatar initials from a display [name].
@@ -57,9 +58,21 @@ class MobileTopBar extends StatelessWidget {
                 // The switcher flexes so its truncating label can shrink,
                 // leaving the right-hand controls their full footprint.
                 const Flexible(child: _MobileTeamSwitcher()),
+                // The push-off marker leads the right-hand group, in front of
+                // the bell rather than on it: the bell's badge already means
+                // "unread", and a second mark on the same control would read as
+                // a count. It renders nothing when push is reachable, so the
+                // bar keeps its usual two controls on a healthy device. The
+                // twin of the sidebar's own row; the two shells are separate
+                // widget trees, and a marker added to one of them alone is
+                // invisible on the other side of the `lg` breakpoint.
                 WDiv(
                   className: 'flex flex-row items-center gap-1 shrink-0',
-                  children: const [_MobileBell(), _MobileAccountMenu()],
+                  children: const [
+                    PushOffNotice(compact: true),
+                    _MobileBell(),
+                    _MobileAccountMenu(),
+                  ],
                 ),
               ],
             ),

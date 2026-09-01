@@ -485,7 +485,8 @@
       "remove_row": "Satırı kaldır",
       "remove_value": ":value değerini kaldır",
       "select_brand_color": "Marka rengini seç: :color",
-      "open_full_preview": "Tam önizlemeyi aç"
+      "open_full_preview": "Tam önizlemeyi aç",
+      "push_off": "Bu cihazda anlık bildirimler kapalı. Bildirim ayarlarını aç"
     },
     "account": {
       "sign_out": "Çıkış yap"
@@ -1380,8 +1381,11 @@
       "blocked_body_web": "Tarayıcınız Uptizm için bildirimleri engelliyor. Adres çubuğunun yanındaki site ayarlarından izin verin, ardından bu sayfayı yenileyin.",
       "blocked_body_ios": "Uptizm için bildirimler kapalı. Ayarlar'ı açın, Uptizm'i bulun ve bildirimlere izin verin.",
       "blocked_body_android": "Uptizm için bildirimler kapalı. Ayarlar'ı açın, Uygulamalar altından Uptizm'i bulun ve bildirimlere izin verin.",
+      "blocked_body_settings": "Bu cihazda Uptizm için bildirimler kapalı. Ayarlar sayfasını açıp izin verdiğinizde bu cihaz sizi yeniden çağırabilir.",
+      "open_settings": "Ayarları aç",
       "on_body": "Bu cihazda anlık bildirimler açık.",
-      "unavailable_body": "Bu cihaz anlık bildirim alamıyor."
+      "unavailable_body": "Bu cihaz anlık bildirim alamıyor.",
+      "shell_notice": "Bu cihazda anlık bildirim kapalı"
     },
     "welcome": {
       "skip": "Atla",

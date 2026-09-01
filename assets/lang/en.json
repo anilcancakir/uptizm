@@ -485,7 +485,8 @@
       "remove_row": "Remove row",
       "remove_value": "Remove :value",
       "select_brand_color": "Select brand colour: :color",
-      "open_full_preview": "Open full preview"
+      "open_full_preview": "Open full preview",
+      "push_off": "Push notifications are off on this device. Open notification settings"
     },
     "account": {
       "sign_out": "Sign out"
@@ -1380,8 +1381,11 @@
       "blocked_body_web": "Your browser is blocking notifications for Uptizm. Allow them in the site settings next to the address bar, then reload this page.",
       "blocked_body_ios": "Notifications are turned off for Uptizm. Open Settings, find Uptizm, and allow notifications.",
       "blocked_body_android": "Notifications are turned off for Uptizm. Open Settings, find Uptizm under Apps, and allow notifications.",
+      "blocked_body_settings": "Notifications are turned off for Uptizm on this device. Open the settings page and allow them, and this device can page you again.",
+      "open_settings": "Open settings",
       "on_body": "Push notifications are on for this device.",
-      "unavailable_body": "This device cannot receive push notifications."
+      "unavailable_body": "This device cannot receive push notifications.",
+      "shell_notice": "Push is off on this device"
     },
     "welcome": {
       "skip": "Skip",

@@ -106,6 +106,55 @@ const String pushPromptEnableButtonClassName =
     'text-primary transition-colors hover:bg-primary-container '
     'focus:border-primary focus:bg-primary-container';
 
+/// The density axis key for the shell notice.
+///
+/// Its two values are the two shells this app swaps between at `lg`, not two
+/// sizes of one thing: the sidebar has a column to put a sentence in, the
+/// mobile bar has a 56px-tall row already carrying three controls.
+const String kPushOffNoticeDensityAxis = 'density';
+
+/// The sidebar form: a glyph and a line, sized like a nav row.
+const String kPushOffNoticeDensityFull = 'full';
+
+/// The mobile top-bar form: the glyph alone, sized like the account avatar.
+const String kPushOffNoticeDensityCompact = 'compact';
+
+/// Builds the shell notice's [WindRecipe].
+///
+/// Emission order: `base ++ density-variant ++ caller`.
+///
+/// The base carries no colour of its own; the warning lives entirely in the
+/// glyph ([pushOffNoticeIconClassName]) so the marker reads as one of the
+/// shell's secondary controls rather than as an alert. Both variants reuse the
+/// `hover:bg-surface-container` affordance every other shell control carries,
+/// and both own their outer spacing, so a hidden notice costs no layout at all.
+///
+/// Density -> token mapping:
+/// - full:    a full-width row inset to match the sidebar's `px-3` nav column
+/// - compact: a 36px round tap target, the mobile account avatar's footprint
+const WindRecipe pushOffNoticeRecipe = WindRecipe(
+  base: 'flex flex-row items-center rounded-md hover:bg-surface-container',
+  variants: {
+    kPushOffNoticeDensityAxis: {
+      kPushOffNoticeDensityFull: 'w-full gap-2 mx-3 mb-2 px-2 py-2',
+      kPushOffNoticeDensityCompact:
+          'w-9 h-9 shrink-0 justify-center rounded-full',
+    },
+  },
+  defaultVariants: {kPushOffNoticeDensityAxis: kPushOffNoticeDensityFull},
+);
+
+/// The shell notice's glyph className.
+///
+/// `text-degraded` rather than `text-down`: the device is not fully
+/// operational, and `down` is the token an actual outage owns (DESIGN.md makes
+/// it equal to `destructive`). Spending the outage colour on a permission would
+/// leave a red glyph sitting in the shell next to real red.
+const String pushOffNoticeIconClassName = 'text-[16px] text-degraded';
+
+/// The shell notice's label className, matching the sidebar's secondary rows.
+const String pushOffNoticeLabelClassName = 'truncate text-xs text-fg-muted';
+
 /// The decline ("not now") button's className.
 ///
 /// Same fix as [pushPromptEnableButtonClassName] and the more pressing of the

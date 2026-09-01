@@ -8,7 +8,9 @@ import 'package:magic_notifications/magic_notifications.dart'
         PushIdentityChange,
         PushNotificationEvent,
         PushPermissionState,
+        PushPromptAction,
         PushReachability;
+import 'package:magic_starter/magic_starter.dart' show MagicStarterConfig;
 import 'package:uptizm/ui/components/push_prompt/index.dart';
 import 'package:uptizm/ui/components/push_prompt/push_prompt.preview.dart';
 
@@ -43,6 +45,7 @@ class _RecordingPushDriver extends PushDriver {
     this.permission = PushPermissionState.notDetermined,
     this.optedIn = false,
     this.subscriptionId,
+    this.opensPlatformSettings = false,
   });
 
   /// The permission the platform reports.
@@ -54,8 +57,16 @@ class _RecordingPushDriver extends PushDriver {
   /// The subscription id the platform holds, or null for none.
   final String? subscriptionId;
 
+  /// Whether a request on a DENIED device routes the user to the platform
+  /// setting, which is the mobile `fallback_to_settings` capability. False is
+  /// the browser, where no API opens the site settings panel from a page.
+  final bool opensPlatformSettings;
+
   /// How many times [requestPermission] was called.
   int permissionRequests = 0;
+
+  @override
+  bool get canOpenPlatformSettings => opensPlatformSettings;
 
   @override
   String get name => 'onesignal';
@@ -179,6 +190,22 @@ class _ThrowingPutVaultService extends MagicVaultService {
   Future<String?> get(String key) async => null;
 }
 
+/// Every reading `pushPromptAdvice` can actually produce, as the pair the row
+/// renders from.
+///
+/// Reachability alone no longer names a presentation: `blocked` splits on
+/// whether this platform can route the tap back to a setting, and that split is
+/// the whole point of [PushPromptAction]. A loop over `PushReachability.values`
+/// would render four of the five and miss the one that only exists on mobile.
+const List<(PushReachability, PushPromptAction)> _everyState =
+    <(PushReachability, PushPromptAction)>[
+      (PushReachability.off, PushPromptAction.request),
+      (PushReachability.blocked, PushPromptAction.openSettings),
+      (PushReachability.blocked, PushPromptAction.instructions),
+      (PushReachability.on, PushPromptAction.none),
+      (PushReachability.unavailable, PushPromptAction.none),
+    ];
+
 void main() {
   setUp(() async {
     MagicApp.reset();
@@ -227,23 +254,76 @@ void main() {
         wrap(
           const PushPrompt(
             reachability: PushReachability.blocked,
+            action: PushPromptAction.instructions,
             onEnable: null,
           ),
         ),
       );
 
       // A blocked permission cannot be re-prompted from inside the app: the
-      // platform answers the next request without showing anything. A toggle
-      // there is a control that does nothing, so the row says where the switch
-      // actually lives instead.
+      // platform answers the next request without showing anything. Where
+      // nothing can route the tap either (a browser, where no API opens the
+      // site settings panel), a toggle is a control that does nothing, so the
+      // row says where the switch actually lives instead.
       expect(find.byKey(PushPrompt.blockedInstructionKey), findsOneWidget);
       expect(find.byType(WButton), findsNothing);
       expect(find.text(trans('uptizm.push_prompt.enable')), findsNothing);
     });
 
+    testWidgets('a browser gets the instruction, because nothing there can '
+        'open site settings', (tester) async {
+      // Through the HOST, so the platform capability is read from the driver
+      // rather than declared by the test: `canOpenPlatformSettings` false is
+      // what a browser reports.
+      usePushDriver(
+        _RecordingPushDriver(permission: PushPermissionState.denied),
+      );
+
+      await tester.pumpWidget(wrap(const PushPromptHost()));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(PushPrompt.blockedInstructionKey), findsOneWidget);
+      expect(find.byType(WButton), findsNothing);
+    });
+
+    testWidgets('a device the platform can route back offers a real action', (
+      tester,
+    ) async {
+      // Mobile. The OS prompt is spent, but the SDK's `fallbackToSettings`
+      // lands the same request on the app's settings page, so the row that used
+      // to be a sentence is a control again. On a product that pages people,
+      // that is the difference between a responder with a route back and one
+      // stranded on a device that will never ring.
+      final _RecordingPushDriver driver = _RecordingPushDriver(
+        permission: PushPermissionState.denied,
+        opensPlatformSettings: true,
+      );
+      usePushDriver(driver);
+
+      await tester.pumpWidget(wrap(const PushPromptHost()));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(trans('uptizm.push_prompt.open_settings')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text(trans('uptizm.push_prompt.open_settings')));
+      await tester.pumpAndSettle();
+
+      // The same call the enable control makes: the driver hands it
+      // `canOpenPlatformSettings`, and the SDK turns it into the settings page.
+      expect(driver.permissionRequests, 1);
+    });
+
     testWidgets('the instruction is real copy, not a raw key', (tester) async {
       await tester.pumpWidget(
-        wrap(const PushPrompt(reachability: PushReachability.blocked)),
+        wrap(
+          const PushPrompt(
+            reachability: PushReachability.blocked,
+            action: PushPromptAction.instructions,
+          ),
+        ),
       );
 
       final WText instruction = tester.widget<WText>(
@@ -308,6 +388,119 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(driver.permissionRequests, 1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // The reminder cadence: the host owns the decline TIMESTAMP
+  // ---------------------------------------------------------------------------
+  //
+  // `magic_notifications` owns the POLICY (`pushPromptAdvice`) and deliberately
+  // refuses to own the moment a decline happened, because that is the host's
+  // own UI event. A boolean flag cannot express "declined 30 hours ago", so a
+  // device that said no once was never asked again on an on-call product where
+  // a device that cannot be paged is an outage nobody hears.
+
+  group('the reminder cadence', () {
+    /// The interval these cases drive, in hours. Deliberately not read from
+    /// `notificationsConfig`: an assertion that took its expectation from the
+    /// same value the code reads would pass for any shipped number, including
+    /// the `0` that means never.
+    const int repromptHours = 20;
+
+    setUp(() {
+      Config.set('notifications.push.reprompt_after_hours', repromptHours);
+    });
+
+    /// Records a decline [ago] before now, the way the host persists one.
+    Future<void> declinedAgo(Duration ago) async {
+      await Vault.put(
+        PushPromptHost.declinedVaultKey,
+        DateTime.now().toUtc().subtract(ago).toIso8601String(),
+      );
+    }
+
+    testWidgets('a decline older than the interval is asked again', (
+      tester,
+    ) async {
+      usePushDriver(_RecordingPushDriver());
+      await declinedAgo(const Duration(hours: repromptHours + 1));
+
+      await tester.pumpWidget(wrap(const PushPromptHost()));
+      await tester.pumpAndSettle();
+
+      // The full soft prompt, decline control and all: the interval has
+      // elapsed, so this device is due to be asked again rather than left with
+      // the compact row a fresh decline leaves behind.
+      expect(find.text(trans('uptizm.push_prompt.ask_title')), findsOneWidget);
+      expect(find.text(trans('uptizm.push_prompt.not_now')), findsOneWidget);
+    });
+
+    testWidgets('a decline younger than the interval is not', (tester) async {
+      usePushDriver(_RecordingPushDriver());
+      await declinedAgo(const Duration(hours: repromptHours - 1));
+
+      await tester.pumpWidget(wrap(const PushPromptHost()));
+      await tester.pumpAndSettle();
+
+      // The other half, and the one that keeps the reminder from being a
+      // nag: an operator who said no an hour ago is not asked again now.
+      expect(find.text(trans('uptizm.push_prompt.ask_title')), findsNothing);
+      expect(find.text(trans('uptizm.push_prompt.not_now')), findsNothing);
+      expect(find.text(trans('uptizm.push_prompt.enable')), findsOneWidget);
+    });
+
+    testWidgets('a decline recorded by an older build is migrated, not read as '
+        'never', (tester) async {
+      // The bare `'1'` shipped builds wrote. It carries no time at all, so the
+      // two wrong answers available are "never declined" (ask immediately,
+      // undoing a decision the operator already made) and "declined at the
+      // epoch" (which every interval has elapsed since, the same thing). It is
+      // migrated to NOW instead.
+      usePushDriver(_RecordingPushDriver());
+      await Vault.put(PushPromptHost.declinedVaultKey, '1');
+
+      await tester.pumpWidget(wrap(const PushPromptHost()));
+      await tester.pumpAndSettle();
+
+      expect(find.text(trans('uptizm.push_prompt.ask_title')), findsNothing);
+      expect(find.text(trans('uptizm.push_prompt.not_now')), findsNothing);
+    });
+
+    testWidgets('and the migrated decline is stamped, so the NEXT launch can '
+        'age it', (tester) async {
+      // Without the rewrite the flag stays unparseable forever, so every launch
+      // migrates it to that launch's "now" and the reminder never comes back at
+      // all: the exact defect the timestamp exists to remove, one level down.
+      usePushDriver(_RecordingPushDriver());
+      await Vault.put(PushPromptHost.declinedVaultKey, '1');
+
+      await tester.pumpWidget(wrap(const PushPromptHost()));
+      await tester.pumpAndSettle();
+
+      final String? stored = await Vault.get(PushPromptHost.declinedVaultKey);
+      final DateTime? migrated = DateTime.tryParse(stored ?? '');
+
+      expect(migrated, isNotNull);
+      expect(
+        DateTime.now().difference(migrated!).inMinutes.abs(),
+        lessThan(1),
+        reason: 'a legacy flag is stamped at the moment it is read',
+      );
+    });
+
+    testWidgets('a fresh decline is recorded as a timestamp', (tester) async {
+      usePushDriver(_RecordingPushDriver());
+
+      await tester.pumpWidget(wrap(const PushPromptHost()));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text(trans('uptizm.push_prompt.not_now')));
+      await tester.pumpAndSettle();
+
+      final String? stored = await Vault.get(PushPromptHost.declinedVaultKey);
+
+      expect(DateTime.tryParse(stored ?? ''), isNotNull);
     });
   });
 
@@ -467,6 +660,124 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // The shell notice: push being off is visible OUTSIDE the settings screen
+  // ---------------------------------------------------------------------------
+  //
+  // The soft prompt lives on the notification preferences screen, which is a
+  // screen an on-call engineer opens roughly never. A device that cannot be
+  // paged has to say so where they already are.
+
+  group('the shell notice', () {
+    testWidgets('warns while the permission has not been granted', (
+      tester,
+    ) async {
+      usePushDriver(_RecordingPushDriver());
+
+      await tester.pumpWidget(wrap(const PushOffNotice()));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(trans('uptizm.push_prompt.shell_notice')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('warns while the permission is blocked', (tester) async {
+      usePushDriver(
+        _RecordingPushDriver(permission: PushPermissionState.denied),
+      );
+
+      await tester.pumpWidget(wrap(const PushOffNotice()));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(trans('uptizm.push_prompt.shell_notice')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('says nothing when push can reach this device', (tester) async {
+      usePushDriver(
+        _RecordingPushDriver(
+          permission: PushPermissionState.authorized,
+          optedIn: true,
+          subscriptionId: 'sub-1',
+        ),
+      );
+
+      await tester.pumpWidget(wrap(const PushOffNotice()));
+      await tester.pumpAndSettle();
+
+      expect(find.text(trans('uptizm.push_prompt.shell_notice')), findsNothing);
+    });
+
+    testWidgets('says nothing when this build has no push at all', (
+      tester,
+    ) async {
+      // Nothing an operator can act on: no driver means no permission to grant
+      // and nowhere to send a tap. A permanent chip nobody can resolve is the
+      // fastest way to train people to ignore the one that matters.
+      await tester.pumpWidget(wrap(const PushOffNotice()));
+      await tester.pumpAndSettle();
+
+      expect(find.text(trans('uptizm.push_prompt.shell_notice')), findsNothing);
+    });
+
+    testWidgets('the compact form carries the same accessible name', (
+      tester,
+    ) async {
+      // The mobile top bar has no room for the label, so the only name the
+      // control has is the semantic one.
+      final SemanticsHandle semantics = tester.ensureSemantics();
+      usePushDriver(_RecordingPushDriver());
+
+      await tester.pumpWidget(wrap(const PushOffNotice(compact: true)));
+      await tester.pumpAndSettle();
+
+      expect(find.text(trans('uptizm.push_prompt.shell_notice')), findsNothing);
+      expect(
+        find.bySemanticsLabel(trans('uptizm.a11y.push_off')),
+        findsOneWidget,
+      );
+
+      semantics.dispose();
+    });
+
+    testWidgets('a tap opens the notification preferences screen', (
+      tester,
+    ) async {
+      // Where the prompt with the real controls lives. A notice that only
+      // states the problem leaves the operator to find the screen themselves.
+      MagicRouter.reset();
+      addTearDown(MagicRouter.reset);
+      MagicRoute.page('/', () => const PushOffNotice());
+      MagicRoute.page(
+        MagicStarterConfig.notificationPreferencesRoute(),
+        () => const SizedBox.shrink(),
+      );
+      usePushDriver(_RecordingPushDriver());
+
+      await tester.pumpWidget(
+        WindTheme(
+          data: WindThemeData(),
+          child: MaterialApp.router(
+            routerConfig: MagicRouter.instance.routerConfig,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text(trans('uptizm.push_prompt.shell_notice')));
+      await tester.pumpAndSettle();
+
+      expect(
+        MagicRouter.instance.currentPath,
+        MagicStarterConfig.notificationPreferencesRoute(),
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Every state, in both shipped locales
   // ---------------------------------------------------------------------------
 
@@ -477,9 +788,15 @@ void main() {
       Translator.instance.setLoader(_BundledLangLoader(locale));
       await Translator.instance.setLocale(Locale(locale));
 
-      for (final PushReachability reachability in PushReachability.values) {
+      for (final (PushReachability, PushPromptAction) state in _everyState) {
         await tester.pumpWidget(
-          wrap(PushPrompt(reachability: reachability, onEnable: () async {})),
+          wrap(
+            PushPrompt(
+              reachability: state.$1,
+              action: state.$2,
+              onEnable: () async {},
+            ),
+          ),
         );
         await tester.pump();
 
@@ -493,9 +810,9 @@ void main() {
     await tester.pump();
 
     expect(tester.takeException(), isNull);
-    expect(
-      find.byType(PushPrompt),
-      findsNWidgets(PushReachability.values.length + 1),
-    );
+    // Six: the soft prompt, the compact enable a resolved ask leaves, the two
+    // blocked rows (a control on mobile, an instruction on the web), on, and
+    // unavailable.
+    expect(find.byType(PushPrompt), findsNWidgets(6));
   });
 }
