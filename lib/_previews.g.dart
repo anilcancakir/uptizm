@@ -26,6 +26,7 @@ import 'ui/components/maintenance_card/maintenance_card.preview.dart';
 import 'ui/components/metric_chart/metric_chart.preview.dart';
 import 'ui/components/monitor_list_row/monitor_list_row.preview.dart';
 import 'ui/components/notification_center/notification_center.preview.dart';
+import 'ui/components/push_prompt/push_prompt.preview.dart';
 import 'ui/components/region_picker/region_picker.preview.dart';
 import 'ui/components/slo_budget_card/slo_budget_card.preview.dart';
 import 'ui/components/status_badge/status_badge.preview.dart';
@@ -145,6 +146,11 @@ List<PreviewEntry> previewEntries() {
       label: 'NotificationCenter',
       slug: 'notification_center',
       builder: (_) => const NotificationCenterPreview(),
+    ),
+    PreviewEntry(
+      label: 'PushPrompt',
+      slug: 'push_prompt',
+      builder: (_) => const PushPromptPreview(),
     ),
     PreviewEntry(
       label: 'RegionPicker',

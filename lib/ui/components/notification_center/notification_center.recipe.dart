@@ -1,37 +1,37 @@
 import 'package:magic/magic.dart';
 
-/// Builds the notification-center panel [WindRecipe].
+/// The kind axis key for the notification-centre recipe
+/// (`AppNotificationKind.<value>.name`).
+const String kNotificationCenterKindAxis = 'kind';
+
+/// Builds the notification-row indicator [WindRecipe].
 ///
-/// The recipe encodes only the outer panel shell (a contained surface card
-/// with a hairline border and `lg` rounding, sized for the overlay the shell
-/// mounts it in). All internal layout tokens (header row, rows, separators,
-/// footer) are applied inline in [NotificationCenter] using fixed semantic
-/// strings, mirroring the established `ai_insight` recipe shape where only the
-/// container shape varies through the recipe.
+/// This recipe IS uptizm's half of the package's notification row: what a
+/// notification kind looks like is this product's vocabulary, and
+/// `magic_notifications` deliberately carries none of it. The package wraps
+/// whatever the `notifications.icon` slot returns in a 32px neutral circle, so
+/// the tile here is `size-8` and covers it exactly; the solid [StatusDot] then
+/// sits in the middle of the kind's own soft tone.
 ///
-/// ### Slot structure
+/// Emission order: `base ++ kind-variant ++ caller`.
 ///
-/// ```
-/// NotificationCenter
-/// └── panel (bg-surface, border, lg rounded, w-80, flex-col, overflow-hidden)
-///     ├── header row ("Notifications" + "Mark all read")
-///     ├── separator (border-t)
-///     ├── notification rows (StatusDot + title/detail/time + unread marker)
-///     ├── separator (border-t)
-///     └── footer row ("Notification settings")
-/// ```
-///
-/// Emission order: `base`.
-///
-/// Token reference:
-/// - Panel: `w-80 max-w-full bg-surface border border-color-border rounded-lg`
-/// - Header label: `text-sm font-semibold text-fg`
-/// - Row title (unread): `text-sm font-medium text-fg`
-/// - Row title (read): `text-sm text-fg-muted`
-/// - Row detail: `text-xs text-fg-muted truncate`
-/// - Row time: `font-mono text-xs text-fg-muted`
+/// Kind -> soft token mapping (the solid dot tone comes from `statusDotRecipe`
+/// through `AppNotificationKind.status`, so the two cannot drift):
+/// - down / incident: `bg-down-soft`
+/// - up / resolved:   `bg-up-soft`
+/// - degraded:        `bg-degraded-soft`
+/// - ai:              `bg-ai-soft`
 const WindRecipe notificationCenterRecipe = WindRecipe(
-  base:
-      'flex flex-col w-80 max-w-full overflow-hidden rounded-lg '
-      'bg-surface border border-color-border',
+  base: 'size-8 shrink-0 rounded-full flex items-center justify-center',
+  variants: {
+    kNotificationCenterKindAxis: {
+      'down': 'bg-down-soft',
+      'up': 'bg-up-soft',
+      'degraded': 'bg-degraded-soft',
+      'incident': 'bg-down-soft',
+      'resolved': 'bg-up-soft',
+      'ai': 'bg-ai-soft',
+    },
+  },
+  defaultVariants: {kNotificationCenterKindAxis: 'incident'},
 );

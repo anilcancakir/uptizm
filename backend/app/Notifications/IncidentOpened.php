@@ -318,8 +318,8 @@ class IncidentOpened extends Notification implements ShouldQueue
 
     /**
      * Build the OneSignal push payload. The channel forces `app_id` and applies
-     * the notifiable's `external_id` (`user_{id}`) alias, so this only carries
-     * the localized heading and body.
+     * the notifiable's `external_id` (`user_{id}`) alias, so this carries the
+     * localized heading and body plus the additional-data map a tap needs.
      *
      * @param  mixed  $notifiable  The entity receiving the notification.
      */
@@ -347,8 +347,66 @@ class IncidentOpened extends Notification implements ShouldQueue
             'en' => IncidentTitle::render($this->incident, 'en'),
             'tr' => IncidentTitle::render($this->incident, 'tr'),
         ]));
+        $payload->setData($this->pushData($notifiable));
 
         return $payload;
+    }
+
+    /**
+     * The additional-data map delivered with the push.
+     *
+     * Reuses the SAME key vocabulary {@see toArray()} already carries
+     * (`type`/`incident_id`/`monitor_id`/`monitor_name`/`severity`/`kind`), so
+     * the in-app row and the push describe one event with one set of words. It
+     * deliberately omits `title` and `body`: the rendered sentence is not
+     * routing data, and adding it would burn into the 2,048-byte
+     * `additionalData` limit for nothing.
+     *
+     * `deep_link` is read by the Flutter client's
+     * `AppServiceProvider.openTappedPush`, which subscribes `Notify.onPushClicked`
+     * and navigates to the path, so a tap opens the incident instead of wherever
+     * the app happened to be. It is deliberately NOT `magic_deeplink`'s
+     * `OneSignalDeeplinkHandler`, which this docblock used to name: that
+     * package's provider boots before the notifications one, so the push driver
+     * it reads is not resolvable yet, and the read it attempts is a cast that
+     * throws into an empty catch. The handler cannot run, so nothing consumed
+     * this key at all until the client grew its own subscriber.
+     *
+     * `team_id` is what keeps that tap off a 404.
+     * `App\Http\Controllers\Api\V1\IncidentController::authorizeTeam()`
+     * resolves an incident against the caller's `current_team_id` and aborts 404
+     * otherwise, while `App\Services\OnCall\EscalationDispatcher` pages whoever
+     * is on call for a
+     * TEAM-SCOPED rota, which says nothing about the team that person happens to
+     * be on. Naming the owner here is what lets the client switch first and open
+     * the incident second; without it the client could not even offer to,
+     * because nothing in the payload said which team.
+     *
+     * `subject` is not one of `toArray()`'s keys: it names WHO the push was
+     * addressed to, the same `user_{id}` alias {@see routeNotificationForOneSignal()}
+     * targets. A later client-side guard compares it against the device's
+     * current signed-in identity and drops a push addressed to somebody who
+     * already signed out, the case a client-set value could not cover because
+     * the client is exactly what a stale sign-out cannot be trusted to update.
+     *
+     * @param  mixed  $notifiable  The entity receiving the notification.
+     * @return array<string, mixed>
+     */
+    private function pushData(mixed $notifiable): array
+    {
+        $monitorName = $this->monitorName();
+
+        return [
+            'type' => $this->eventType(),
+            'incident_id' => $this->incident->id,
+            'monitor_id' => $this->incident->primary_monitor_id,
+            'monitor_name' => $monitorName,
+            'severity' => $this->incident->severity->value,
+            'kind' => 'incident',
+            'team_id' => $this->incident->team_id,
+            'deep_link' => '/incidents/'.$this->incident->id,
+            'subject' => 'user_'.$notifiable->getKey(),
+        ];
     }
 
     /**

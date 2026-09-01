@@ -4,14 +4,15 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_notifications/magic_notifications.dart'
-    show DatabaseNotification, Notify;
+    show NotificationDropdown, Notify;
 import 'package:magic_starter/magic_starter.dart'
-    show MagicStarterTeamController;
+    show MagicStarterConfig, MagicStarterTeamController;
 
 import '../../app/models/team.dart';
 import '../../app/models/user.dart';
 import 'shell_account.dart';
 import '../components/notification_center/index.dart';
+import '../components/push_prompt/index.dart';
 import 'shell_control_semantics.dart';
 
 /// Computes uppercase avatar initials from a display [name].
@@ -57,9 +58,21 @@ class MobileTopBar extends StatelessWidget {
                 // The switcher flexes so its truncating label can shrink,
                 // leaving the right-hand controls their full footprint.
                 const Flexible(child: _MobileTeamSwitcher()),
+                // The push-off marker leads the right-hand group, in front of
+                // the bell rather than on it: the bell's badge already means
+                // "unread", and a second mark on the same control would read as
+                // a count. It renders nothing when push is reachable, so the
+                // bar keeps its usual two controls on a healthy device. The
+                // twin of the sidebar's own row; the two shells are separate
+                // widget trees, and a marker added to one of them alone is
+                // invisible on the other side of the `lg` breakpoint.
                 WDiv(
                   className: 'flex flex-row items-center gap-1 shrink-0',
-                  children: const [_MobileBell(), _MobileAccountMenu()],
+                  children: const [
+                    PushOffNotice(compact: true),
+                    _MobileBell(),
+                    _MobileAccountMenu(),
+                  ],
                 ),
               ],
             ),
@@ -182,86 +195,30 @@ class _MobileTeamSwitcher extends StatelessWidget {
   }
 }
 
-/// The notification bell in the mobile top bar (right). Opens the
-/// [NotificationCenter] panel; both the badge count and the panel content
-/// subscribe to the live feed fed by `Notify`'s polling (started/stopped on
-/// login/logout in `AppServiceProvider`).
+/// The notification bell in the mobile top bar (right).
+///
+/// The same mount as the desktop sidebar's `_NotificationBell`, deliberately:
+/// the two are separate classes because the shell swaps whole widget trees at
+/// `lg`, and a change made to one of them alone leaves the app rendering two
+/// different notification UIs depending on window width. The bell, the badge
+/// and the panel come from `magic_notifications`; uptizm supplies the leading
+/// status dot through the `notifications.icon` slot family and the route a
+/// tapped row opens.
 class _MobileBell extends StatelessWidget {
   const _MobileBell();
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<DatabaseNotification>>(
-      stream: notificationsStream('MobileTopBar'),
-      initialData: const [],
-      builder: (context, snapshot) {
-        final List<NotificationItem> items =
-            notificationItemsFromDatabaseNotifications(
-              snapshot.data ?? const [],
-            );
-        final int unread = items.where((n) => !n.read).length;
-
-        return ShellControlSemantics(
-          label: trans('uptizm.a11y.notifications'),
-          child: WPopover(
-              alignment: PopoverAlignment.bottomRight,
-              offset: const Offset(0, 6),
-              maxHeight: 480,
-              className: 'w-80 max-w-full rounded-lg shadow-xl',
-              triggerBuilder: (context, isOpen, isHovering) => WDiv(
-                className: '''
-                  w-9 h-9 shrink-0 rounded-md flex items-center justify-center
-                  text-fg-muted hover:bg-surface-container hover:text-fg
-                ''',
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  alignment: Alignment.center,
-                  children: [
-                    WIcon(Icons.notifications_none, className: 'text-[18px]'),
-                    if (unread > 0)
-                      Positioned(
-                        top: -4,
-                        right: -4,
-                        child: WDiv(
-                          className: '''
-                            min-w-[16px] h-4 px-1 rounded-full bg-down
-                            flex items-center justify-center
-                          ''',
-                          // Clamped for the same reason the tab labels are: the
-                          // pill's height is fixed at `h-4` while the count is
-                          // text, so at an iOS accessibility scale the number grew
-                          // past its own badge and the digit was clipped. A count
-                          // nobody can read is worse than a small one.
-                          child: MediaQuery.withClampedTextScaling(
-                            maxScaleFactor: 1.3,
-                            child: WText(
-                              '$unread',
-                              // The badge sits on `bg-down`, which has an
-                              // `on-` peer. In dark mode that is near-black on
-                              // the lighter red, which white was not.
-                              className: 'text-[10px] font-semibold text-on-destructive',
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              contentBuilder: (context, close) => SingleChildScrollView(
-                child: NotificationCenter(
-                  items: items,
-                  onClose: close,
-                  onItemTap: (item) {
-                    Notify.markAsRead(item.id);
-                    MagicRoute.to(item.to);
-                  },
-                  onMarkAllRead: () => Notify.markAllAsRead(),
-                  onSettings: () => MagicRoute.to('/settings'),
-                ),
-              ),
-            ),
-        );
-      },
+    return ShellControlSemantics(
+      label: trans('uptizm.a11y.notifications'),
+      child: NotificationDropdown(
+        notificationStream: notificationsStream('MobileTopBar'),
+        onMarkAsRead: (id) => Notify.markAsRead(id),
+        onMarkAllAsRead: () => Notify.markAllAsRead(),
+        onNotificationTap: (notification) =>
+            MagicRoute.to(notificationRouteFor(notification)),
+        onViewAll: () => MagicRoute.to(MagicStarterConfig.notificationsRoute()),
+      ),
     );
   }
 }

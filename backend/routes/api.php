@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\V1\MonitorController;
 use App\Http\Controllers\Api\V1\MonitorMetricController;
 use App\Http\Controllers\Api\V1\NotificationChannelController;
 use App\Http\Controllers\Api\V1\OnCallController;
+use App\Http\Controllers\Api\V1\PushDeviceController;
 use App\Http\Controllers\Api\V1\ScheduledMaintenanceController;
 use App\Http\Controllers\Api\V1\StatusPageController;
 use App\Http\Controllers\Api\V1\StatusPageLogoController;
@@ -455,6 +456,32 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->name('api.v1.notification-channels.destroy');
     Route::post('notification-channels/{channel}/test', [NotificationChannelController::class, 'test'])
         ->name('api.v1.notification-channels.test');
+
+    // What the caller's own device knows about whether a push can reach it.
+    // Posted by the client on a lifecycle event (launch, sign-in, a permission
+    // or subscription change), never on a timer, and read by
+    // `App\Services\OnCall\EscalationDispatcher` when it decides whether a rung
+    // whose only outward channel is push reached anybody at all.
+    //
+    // No `{user}` segment, and that is the authorisation: the row is written
+    // under the session's user, so there is no address in this URL for a caller
+    // to point at somebody else's device.
+    Route::post('devices/push-state', [PushDeviceController::class, 'store'])
+        ->name('api.v1.devices.push-state');
+    // The sign-out half of the same fact, posted while the token is still valid
+    // because after `Auth.logout()` this device has no way to say it left.
+    // Without it the row went on vouching `on` under the previous person's
+    // alias for the whole freshness window, and every escalation rung whose only
+    // outward channel is push was recorded as having woken somebody.
+    //
+    // A POST rather than a DELETE, and the reason is the body: the device is
+    // named by its subscription id, which is an opaque platform-issued string
+    // that has no business in a path segment or an access log, and magic's
+    // `Http` facade sends no body on a DELETE. The authorisation is the same as
+    // the report's, for the same reason: no `{user}` segment, and the row is
+    // addressed by the session's user plus that id.
+    Route::post('devices/push-state/release', [PushDeviceController::class, 'release'])
+        ->name('api.v1.devices.push-state.release');
 
     Route::get('billing', [BillingController::class, 'show'])
         ->name('api.v1.billing.show');

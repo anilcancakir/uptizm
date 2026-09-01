@@ -17,6 +17,8 @@ import '../support/sentry_network_interceptor.dart';
 import '../support/sentry_user_context.dart';
 import '../support/team_types.dart' show withUsageCopy;
 import '../support/web_links.dart';
+import '../../ui/components/notification_center/index.dart';
+import '../../ui/components/push_prompt/index.dart';
 import '../../ui/layouts/app_layout.dart';
 import '../../ui/layouts/uptizm_hub_extras.dart';
 
@@ -95,6 +97,583 @@ class AppServiceProvider extends ServiceProvider {
     );
   }
 
+  /// Declares WHO this device should receive push notifications as, tracking
+  /// [Auth]'s current state.
+  ///
+  /// Attached to `Auth.stateNotifier` like the four syncs around it, so a login,
+  /// a sign-out, a boot-time session restore and a team switch all reach it
+  /// without any of those call sites knowing a push rail exists. Nothing in this
+  /// app called it before: `magic_starter` never wired push either.
+  ///
+  /// ## The `user_` prefix is this caller's job
+  ///
+  /// `Notify.initializePush` records its argument as the intent and forwards it
+  /// to the SDK unchanged, and the backend addresses `external_id = user_<uuid>`
+  /// (`magic-starter-laravel/src/Traits/HasNotifications.php:155`, which uptizm's
+  /// `User` inherits). A bare uuid subscribes the device as an id the server
+  /// never addresses, so every push simply reaches nobody, on a device that
+  /// reports itself correctly subscribed and with nothing anywhere raising.
+  ///
+  /// ## An empty id declares NOTHING, and never `user_`
+  ///
+  /// `User.current.id` answers `''` for a session whose user has not resolved
+  /// yet (it is `getAttribute('id')?.toString() ?? ''`), and `'user_$userId'`
+  /// would turn that into `'user_'`: a well-formed external id addressing
+  /// nobody, which the SDK accepts and the reconciler then reports as CONVERGED,
+  /// so nothing ever corrects it. Declaring no intent instead leaves whatever
+  /// the reconciler already held, and the next `Auth.stateNotifier` bump arrives
+  /// with the identity. This is the same branch [_syncNotificationDeliveryWithAuthState]
+  /// carries, for the same reason.
+  ///
+  /// ## Sign-out is released HERE, not by magic_starter
+  ///
+  /// `MagicStarterAuthController.logout()` is the ecosystem's only caller of
+  /// `Notify.logoutPush()`, and it never runs in this app: the starter's profile
+  /// dropdown returns early when a custom `onLogout` is set, which [boot] sets.
+  /// Releasing the device in this same sync means the release does not depend on
+  /// which sign-out path fired, so the next person to sign in on a shared device
+  /// cannot be paged for the previous one's outage.
+  ///
+  /// A team switch bumps this same notifier and issues no SDK call at all: the
+  /// person is unchanged, so the intent is unchanged, and the manager reads the
+  /// device back before touching the SDK.
+  ///
+  /// Public only so a test can call it; see `test/app/providers/push_identity_test.dart`.
+  /// `Auth.fake(user: ...)` sets its user without bumping the notifier, so a
+  /// test cannot reach this through the listener.
+  @visibleForTesting
+  static void syncPushIdentity() {
+    // Wrapped the way [_syncRealtime] is: the notifier's listeners are
+    // synchronous and neither call below is. Both guards log at error level
+    // rather than swallowing, because nothing retries: until the next bump the
+    // device carries the previous person's id, and the manager's
+    // `isPushIdentityConverged` is the only other place that says so.
+    if (!Auth.check()) {
+      // The memo goes with the session, not with the device. Two people share
+      // one handset, and the second one's device state can be identical to the
+      // first's; a memo that survived the sign-out would recognise it as
+      // "already reported" and the server would keep vouching for a reachable
+      // device under the name of the person who left.
+      _lastReportedPushDeliveryState = null;
+
+      unawaited(
+        Notify.logoutPush().catchError((Object error) {
+          Log.error('[AppServiceProvider] push identity release failed: $error');
+        }),
+      );
+
+      return;
+    }
+
+    final String userId = User.current.id;
+    if (userId.isEmpty) return;
+
+    unawaited(
+      Notify.initializePush('user_$userId')
+          // Chained rather than fired beside it: the report describes the
+          // device AS THIS PERSON, and `initializePush` is what makes that
+          // true. Reporting first would post the previous subject, or none.
+          .then((_) => reportPushDeliveryState())
+          .catchError((Object error) {
+            Log.error('[AppServiceProvider] push identity sync failed: $error');
+          }),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Push reachability: the half of a page only the device can see
+  // ---------------------------------------------------------------------------
+
+  /// The endpoint that records what this device can receive, relative to
+  /// `API_URL` (which already ends in `/api/v1`).
+  static const String _pushStatePath = '/devices/push-state';
+
+  /// The endpoint that stops this device vouching for the person leaving it,
+  /// relative to `API_URL`. See [releasePushDevice].
+  static const String _pushStateReleasePath = '/devices/push-state/release';
+
+  /// The last state successfully reported, or `null` for a process that has
+  /// reported nothing yet.
+  ///
+  /// The device's own facts only: the reachability, the identity it carries and
+  /// the address it holds. `captured_at` is deliberately NOT part of it, since
+  /// it moves on every read and would turn this memo into a permanent miss.
+  static String? _lastReportedPushDeliveryState;
+
+  /// The subscription id the last ACCEPTED report was written under, or `null`
+  /// when nothing has been accepted yet.
+  ///
+  /// Held beside the memo above rather than parsed back out of it, because it
+  /// answers a different question: the memo says WHAT the server holds, this
+  /// says which ROW holds it. `push_devices` is keyed by (user, subscription
+  /// id), so this is the only thing on this side that can name the row a
+  /// release has to remove, and [releasePushDevice] falls back to it when the
+  /// live read cannot produce one.
+  static String? _reportedSubscriptionId;
+
+  /// The driver whose change streams are currently watched, so a second call
+  /// recognises the attachment it already holds instead of replacing it.
+  static PushDriver? _watchedPushDriver;
+
+  /// The two subscriptions that make this event-driven rather than polled.
+  static StreamSubscription<PushIdentityChange>? _pushIdentityChangeSubscription;
+  static StreamSubscription<PushPermissionState>? _pushPermissionSubscription;
+
+  /// The subscription that carries the declaration and the report a launch
+  /// could not make yet. See [syncPushIdentityWhenDriverArrives].
+  static StreamSubscription<PushDriver>? _pushDriverArrivalSubscription;
+
+  /// Tells the backend whether a push sent to this device would arrive.
+  ///
+  /// The server cannot see any of this. The permission, the opt-in flag and the
+  /// subscription id all live on the device, and OneSignal accepts a push for
+  /// an unreachable subscription without complaint, so this report is the only
+  /// evidence `EscalationDispatcher` will ever have that the responder it is
+  /// about to page can actually be woken.
+  ///
+  /// ## The payload is the package's, not this app's
+  ///
+  /// `PushDeliverySnapshot.toMap()` verbatim. `magic_notifications` ships the
+  /// SHAPE and deliberately no transport, precisely so that two consumers
+  /// reporting the same fact cannot describe it two ways; composing a second
+  /// spelling here would be the drift it exists to prevent.
+  ///
+  /// ## Reported on change, never on a timer
+  ///
+  /// This fact changes a handful of times in a device's life: a permission
+  /// granted or revoked, a subscription minted or swapped, a person signing in.
+  /// Every one of those is an EVENT the platform already reports, so a poll
+  /// would buy nothing and cost one write per device per interval on a backend
+  /// that is already carrying the monitoring load. The memo above is what makes
+  /// the auth-state path safe to fire on: `Auth.stateNotifier` bumps on every
+  /// restore, token refresh and team switch, and none of those move the device.
+  ///
+  /// The memo advances only on a report the server ACCEPTED. A refused post
+  /// left nothing behind, so remembering it would let one failed request
+  /// silence this device until its state changed again, which for a device that
+  /// is off is never.
+  ///
+  /// Public only so a test can drive it; the app reaches it through
+  /// [syncPushIdentity] and the two change streams.
+  @visibleForTesting
+  static Future<void> reportPushDeliveryState() async {
+    // 1. A signed-out session has nothing to attribute the report to, and the
+    //    endpoint sits behind `auth:sanctum`, so this would be a guaranteed 401
+    //    on every sign-out.
+    if (!Auth.check()) return;
+
+    // 2. Attach to the device's own change streams, here rather than in [boot].
+    //    `NotificationServiceProvider` registers the push driver in its OWN
+    //    boot, and it boots AFTER this provider (`lib/config/app.dart`), so a
+    //    subscription taken at boot would attach to nothing at all. This runs
+    //    behind an awaited `initializePush`, by which point a driver exists if
+    //    this build has one, and it is idempotent by driver identity so the
+    //    calls arriving FROM those streams re-attach nothing.
+    _watchPushDeliveryChanges();
+
+    try {
+      final PushDeliverySnapshot snapshot =
+          await Notify.manager.pushDeliverySnapshot();
+      final Map<String, dynamic> payload = snapshot.toMap();
+      final String state =
+          '${snapshot.reachability.name}|${snapshot.externalId ?? ''}'
+          '|${snapshot.subscriptionId ?? ''}';
+
+      if (state == _lastReportedPushDeliveryState) return;
+
+      final MagicResponse response = await Http.post(
+        _pushStatePath,
+        data: payload,
+      );
+
+      if (!response.successful) {
+        // Logged at error level rather than swallowed, and deliberately not
+        // surfaced: nothing the person can do about it, and the consequence is
+        // the server's, not theirs. It matters because until a report lands,
+        // an escalation rung that reaches only this device is recorded as
+        // having reached nobody.
+        Log.error(
+          '[AppServiceProvider] push delivery report refused '
+          'with ${response.statusCode}',
+        );
+
+        return;
+      }
+
+      _lastReportedPushDeliveryState = state;
+      _reportedSubscriptionId = snapshot.subscriptionId;
+    } catch (error) {
+      // Same posture as the failure branch above, for the throwing half: a
+      // transport error leaves the memo untouched, so the next lifecycle event
+      // reports again rather than this device going quiet forever.
+      Log.error('[AppServiceProvider] push delivery report failed: $error');
+    }
+  }
+
+  /// Tells the backend to stop counting this device as reaching the person who
+  /// is signing out of it.
+  ///
+  /// ## Why the sign-out needs its own call
+  ///
+  /// Every other push write in this class hangs off `Auth.stateNotifier`, and
+  /// that listener structurally cannot make this one: [reportPushDeliveryState]
+  /// returns on a signed-out session, rightly, because the endpoint is behind
+  /// `auth:sanctum`, and by the time the notifier bumps `Auth.logout()` has
+  /// already dropped the token. So nothing told the server at all, and the row
+  /// went on carrying `reachability: 'on'`, the previous person's `external_id`
+  /// and a fresh `reported_at`. `PushDevice::canReachByPush()` then answered
+  /// true for the whole freshness window (a day) and `EscalationDispatcher`
+  /// recorded each rung as having reached somebody, so for a responder whose
+  /// preference matrix leaves push as their only outward channel, a page was
+  /// booked as delivered to a handset nobody is signed into.
+  ///
+  /// The server's freshness horizon does not cover this. That constant
+  /// enumerates the false negatives it accepts, and every one of them is a
+  /// device that went SILENT: wiped, reinstalled, or silenced while the app was
+  /// closed. A sign-out is an event this client OBSERVES, on a live session,
+  /// with a valid token in hand.
+  ///
+  /// ## Called from `onLogout`, and awaited there
+  ///
+  /// It has to run in front of `Auth.logout()`: that call drops the bearer
+  /// token, and a release posted after it is a guaranteed 401. Awaiting costs
+  /// the person one request on their way out, which is the cheaper side of the
+  /// trade by a wide margin.
+  ///
+  /// ## What it names, and what it deliberately does not
+  ///
+  /// One device: the subscription id, which is the key `push_devices` is
+  /// written under. NOT every row this person owns, because an operator signing
+  /// out of a browser tab is still carrying the phone that pages them, and
+  /// releasing that would strand them for the rest of the window, which is the
+  /// same harm in the other direction. The live read is preferred and
+  /// [_reportedSubscriptionId] is the fallback, because the row the server
+  /// holds is the one the last accepted report created; a device whose driver
+  /// has since stopped answering would otherwise leave its own stale `on`
+  /// standing. With neither, there is nothing to release and nothing was ever
+  /// vouched for either: a row with no subscription id fails
+  /// `canReachByPush()` on its own.
+  ///
+  /// A subscription that was SWAPPED mid-session leaves the pre-swap row behind,
+  /// and that is out of this call's reach rather than overlooked: only the
+  /// server knows the addresses it has been told about, and a stale one is
+  /// exactly the silent-device case the freshness horizon is sized for.
+  ///
+  /// ## A refused release
+  ///
+  /// Logged at error level, and the sign-out proceeds. It is not retried (there
+  /// is no session left to retry under a moment later) and the person is not
+  /// held back (a sign-out that can fail is a session nobody can end). The memo
+  /// pair above is left untouched on failure, which keeps it honest: it mirrors
+  /// what the server holds, and a refused request left the server holding the
+  /// old row. What remains is a stale `on` bounded by the server's freshness
+  /// horizon, and that is the one shape this device's report genuinely cannot
+  /// distinguish itself from: a client that tried to speak and was not heard
+  /// looks exactly like a client that went quiet, which is the case that
+  /// horizon exists to bound.
+  ///
+  /// Public only so a test can drive it; the app reaches it through the
+  /// `onLogout` handler [boot] installs.
+  @visibleForTesting
+  static Future<void> releasePushDevice() async {
+    // 1. Nobody to release, and no token to do it with.
+    if (!Auth.check()) return;
+
+    try {
+      // 2. Which device this is. The read is the manager's, so a driver that
+      //    throws answers `unavailable` with no ids rather than taking the
+      //    sign-out down with it.
+      final PushDeliverySnapshot snapshot =
+          await Notify.manager.pushDeliverySnapshot();
+      final String? subscriptionId =
+          snapshot.subscriptionId ?? _reportedSubscriptionId;
+      if (subscriptionId == null) return;
+
+      final MagicResponse response = await Http.post(
+        _pushStateReleasePath,
+        data: <String, dynamic>{'subscription_id': subscriptionId},
+      );
+
+      if (!response.successful) {
+        Log.error(
+          '[AppServiceProvider] push device release refused '
+          'with ${response.statusCode}',
+        );
+
+        return;
+      }
+
+      // 3. The server no longer holds a row for this device, so neither half of
+      //    the memo may go on claiming it does: the next person on this handset
+      //    reports for themselves from scratch.
+      _lastReportedPushDeliveryState = null;
+      _reportedSubscriptionId = null;
+    } catch (error) {
+      Log.error('[AppServiceProvider] push device release failed: $error');
+    }
+  }
+
+  /// Declares the identity and reports the device again, the moment a push
+  /// driver exists at all.
+  ///
+  /// This is not a safety net, it repairs an ordering the app is GUARANTEED to
+  /// take. `lib/config/app.dart` boots this provider (45), then
+  /// `AuthServiceProvider` (46), then `NotificationServiceProvider` (48), and 48
+  /// is the only place a push driver is ever resolved. Provider 46's boot awaits
+  /// `Auth.restore()`, which calls `setUser` and bumps `Auth.stateNotifier`, so
+  /// on every cold boot that restores a stored session, which is the ordinary
+  /// launch for a signed-in operator, [syncPushIdentity] and the report chained
+  /// behind it both run while `pushDriverOrNull` is still null. Nothing about
+  /// that is a race; the provider order decides it.
+  ///
+  /// What it costs without this: [reportPushDeliveryState] finds no driver, so
+  /// it attaches to no change streams, reads `pushDeliverySnapshot()`'s
+  /// no-driver value (`reachability: unavailable`), posts THAT, and memoises it.
+  /// The only re-entries are [syncPushIdentity] and the two streams nothing
+  /// attached, so a session with no further auth bump leaves the server
+  /// vouching that this responder cannot be paged for its whole life, and every
+  /// escalation rung that reaches only them is recorded as having reached
+  /// nobody while their phone would in fact have rung.
+  ///
+  /// The `unavailable` reading is still posted rather than withheld, and the
+  /// correction follows it a few hundred milliseconds later. Of the two orders
+  /// available that is the safe one: holding "may not be reachable" for the rest
+  /// of a boot escalates to a human who is, while withholding leaves whatever
+  /// the server already had standing, and on a device that has since lost its
+  /// driver entirely that is a stale `on` promising a page nobody receives. The
+  /// memo is what keeps the pair from being two writes of one fact: the
+  /// correction posts only because the state genuinely changed, and where the
+  /// first report was already right (a signed-out boot reports nothing at all,
+  /// and an interactive login later in the session happens long after the
+  /// driver was resolved) the second one writes nothing.
+  ///
+  /// It re-runs the whole of [syncPushIdentity] rather than the report alone,
+  /// and for that method's own reason: the report describes the device AS THIS
+  /// PERSON, and on this launch nothing has logged the device in yet, so a bare
+  /// re-read would post a subscription subscribed as nobody, which the server
+  /// refuses just as flatly as `unavailable`. Both halves are idempotent
+  /// (`want` returns early on an unchanged intent, the manager reads the device
+  /// back before touching the SDK, and the memo stops a duplicate write).
+  ///
+  /// `Notify.manager.onPushDriverAttached` is a package signal added in the
+  /// same round, for want of anything else that could say this. A driver's own
+  /// streams are unreachable until a driver exists, `Auth.stateNotifier` does
+  /// not bump again on this path, and the first frame is the only other moment
+  /// this app can prove the boot is over, which is not a dependency a delivery
+  /// report should carry (it would also throw in every plain unit test, where
+  /// no binding exists).
+  ///
+  /// Idempotent: a widget test boots this provider repeatedly, and a second
+  /// subscription would mean one attachment declaring and reporting twice.
+  @visibleForTesting
+  static void syncPushIdentityWhenDriverArrives() {
+    final StreamSubscription<PushDriver>? attached =
+        _pushDriverArrivalSubscription;
+    _pushDriverArrivalSubscription = null;
+    if (attached != null) unawaited(attached.cancel());
+
+    _pushDriverArrivalSubscription = Notify.manager.onPushDriverAttached.listen(
+      (PushDriver _) => syncPushIdentity(),
+    );
+  }
+
+  /// Watches the device's own change streams, if it is not already watching
+  /// this driver.
+  ///
+  /// The permission stream covers a responder revoking notifications in system
+  /// settings with the app open; the identity stream covers the SDK swapping
+  /// the subscription underneath. Both are the platform telling us the answer
+  /// moved, which is the whole reason this needs no timer.
+  ///
+  /// Keyed on driver IDENTITY rather than on a boolean: a consumer (or a test)
+  /// can replace the driver, and a boolean would leave the app watching a
+  /// stream nobody feeds while the live one goes unheard.
+  static void _watchPushDeliveryChanges() {
+    final PushDriver? driver = Notify.manager.pushDriverOrNull;
+    if (driver == null || identical(driver, _watchedPushDriver)) return;
+
+    _cancelPushDeliverySubscriptions();
+    _watchedPushDriver = driver;
+
+    _pushIdentityChangeSubscription = driver.onIdentityChanged.listen(
+      (PushIdentityChange _) => unawaited(reportPushDeliveryState()),
+    );
+    _pushPermissionSubscription = driver.onPermissionChanged.listen(
+      (PushPermissionState _) => unawaited(reportPushDeliveryState()),
+    );
+  }
+
+  /// Drops both change subscriptions, keeping the watched driver as it is.
+  static void _cancelPushDeliverySubscriptions() {
+    final StreamSubscription<PushIdentityChange>? identity =
+        _pushIdentityChangeSubscription;
+    final StreamSubscription<PushPermissionState>? permission =
+        _pushPermissionSubscription;
+    _pushIdentityChangeSubscription = null;
+    _pushPermissionSubscription = null;
+
+    if (identity != null) unawaited(identity.cancel());
+    if (permission != null) unawaited(permission.cancel());
+  }
+
+  /// Leaves push-delivery reporting exactly as a fresh process would find it:
+  /// nothing watched, nothing remembered.
+  ///
+  /// Test-only, and it exists because every piece of state here is static: the
+  /// subscriptions would fire inside the next test, and the memo would make its
+  /// first report look like a repeat. The app itself never stops reporting,
+  /// because a device that cannot be paged is worth knowing about for as long
+  /// as the process is alive.
+  ///
+  /// The driver-arrival watch goes with them, and it is the one whose leak
+  /// would be loudest: `NotificationManager` is a `static final` singleton that
+  /// outlives a container reset, so a subscription left on its stream turns the
+  /// next test's `setPushDriver` into a full identity declaration nothing there
+  /// asked for.
+  @visibleForTesting
+  static void resetPushDeliveryReporting() {
+    _cancelPushDeliverySubscriptions();
+
+    final StreamSubscription<PushDriver>? arrival =
+        _pushDriverArrivalSubscription;
+    _pushDriverArrivalSubscription = null;
+    if (arrival != null) unawaited(arrival.cancel());
+
+    _watchedPushDriver = null;
+    _lastReportedPushDeliveryState = null;
+    _reportedSubscriptionId = null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Push taps: the other half of a page
+  // ---------------------------------------------------------------------------
+
+  /// The push payload key carrying the in-app path a tap should open.
+  static const String _pushDeepLinkKey = 'deep_link';
+
+  /// The push payload key naming the team that OWNS what the tap opens.
+  static const String _pushTeamKey = 'team_id';
+
+  /// The tap subscription, held statically rather than per instance so a second
+  /// boot replaces it instead of stacking a second listener on the same stream.
+  static StreamSubscription<PushNotificationEvent>? _pushTapSubscription;
+
+  /// Opens what a tapped push points at.
+  ///
+  /// `magic_notifications` republishes every tap that passed its own subject
+  /// guard on `Notify.manager.onPushClicked`, and nothing in this app was
+  /// listening: the backend has always put the incident's path in `deep_link`
+  /// (`IncidentOpened::pushData()`), and a tap opened the app wherever it
+  /// happened to be. For a product whose push wakes an on-call responder, the
+  /// tap IS the page; the notification is only its ring.
+  ///
+  /// Subscribed here rather than through `magic_deeplink`, whose
+  /// `OneSignalDeeplinkHandler` the payload's docblock used to name: that
+  /// package's provider boots BEFORE the notifications one, so the driver it
+  /// tries to read is not resolvable yet, and the read it attempts is a cast
+  /// that throws into an empty catch. Depending on it would have been depending
+  /// on a handler that cannot run.
+  ///
+  /// Idempotent, and that is the whole reason it is a method rather than two
+  /// lines in [boot]: a widget test boots this provider repeatedly, and a
+  /// subscription per boot means one tap opening one incident N times.
+  static void listenForPushTaps() {
+    stopListeningForPushTaps();
+
+    _pushTapSubscription = Notify.manager.onPushClicked.listen(
+      (PushNotificationEvent event) => unawaited(openTappedPush(event)),
+    );
+  }
+
+  /// Drops the tap subscription, if there is one.
+  ///
+  /// The disposal half of [listenForPushTaps], which calls it before
+  /// subscribing again. Public so a test can leave the manager's stream as it
+  /// found it; the app itself never stops listening, because a tap is
+  /// meaningful for as long as the process is alive.
+  @visibleForTesting
+  static void stopListeningForPushTaps() {
+    final StreamSubscription<PushNotificationEvent>? attached =
+        _pushTapSubscription;
+    _pushTapSubscription = null;
+
+    if (attached != null) unawaited(attached.cancel());
+  }
+
+  /// Navigates to what [event] points at.
+  ///
+  /// Public only so a test can drive the handler directly; the app reaches it
+  /// through [listenForPushTaps].
+  @visibleForTesting
+  static Future<void> openTappedPush(PushNotificationEvent event) async {
+    // 1. Where the push says to go. Required to be an in-app PATH: the payload
+    //    is server-authored, but a push can also be composed by hand in the
+    //    OneSignal dashboard, and handing an arbitrary string to the router is
+    //    not a navigation this app should perform.
+    final Object? destination = event.data[_pushDeepLinkKey];
+    final String deepLink = destination is String ? destination.trim() : '';
+    if (!deepLink.startsWith('/')) {
+      Log.warning(
+        '[AppServiceProvider] push tap names no in-app destination: '
+        '"${destination ?? ''}"',
+      );
+
+      return;
+    }
+
+    // 2. Whose incident it is. An ABSENT team is not evidence of a mismatch,
+    //    the way an absent `subject` is not evidence of misaddressing in
+    //    `NotificationManager._addressedToIntent`: a server older than this key
+    //    must not leave a paged responder on whatever screen they were on. An
+    //    UNRESOLVED local team reads the same way: a restored session whose
+    //    user has not resolved yet (the same state `User.current.id` documents
+    //    above) has no team to compare against, so falling back to an empty
+    //    string would make every such tap collapse to owner == '', which is
+    //    never true for a real owner id and would read as a mismatch instead
+    //    of the absence it is.
+    final String owner = event.data[_pushTeamKey]?.toString().trim() ?? '';
+    final Team? localTeam = User.current.currentTeam;
+    if (owner.isEmpty || localTeam == null || owner == localTeam.id) {
+      MagicRoute.to(deepLink);
+
+      return;
+    }
+
+    // 3. The page came from a TEAM-scoped rota and the responder is sitting on
+    //    another team, so the incident would 404: `IncidentController::
+    //    authorizeTeam` resolves it against `users.current_team_id`, and that
+    //    404 is a deliberate non-disclosure choice rather than something to
+    //    weaken. Switch rather than ask: during an outage the responder wants
+    //    the incident, not a dialog, and refusing to move would leave the tap
+    //    doing nothing at all. Through [switchTeamAndIdentifyStore] rather than
+    //    the controller directly, because the team is also the paying subject
+    //    and the store rail has to follow it.
+    final bool switched = await switchTeamAndIdentifyStore(owner);
+    if (!switched) {
+      // NOT navigating is the point: the backend still resolves the incident
+      // against a team the session is not on, so going anyway lands on the same
+      // 404 with an extra step. Logged as well as surfaced because nothing
+      // retries, and a responder who cannot reach a live incident is an
+      // operational failure rather than a UI hiccup.
+      Log.error(
+        '[AppServiceProvider] push tap could not switch to team $owner; '
+        'staying put rather than opening $deepLink on a 404',
+      );
+      Magic.error(trans('common.error_occurred'), trans('teams.switch_failed'));
+
+      return;
+    }
+
+    // 4. Say so. The switch is silent otherwise, and a responder who resolves
+    //    the incident and carries on would be reading another team's dashboard
+    //    believing they are still on their own.
+    Magic.success(
+      trans('uptizm.incidents.push_team_switch_toast_title'),
+      trans('uptizm.incidents.push_team_switch_toast_description'),
+    );
+    MagicRoute.to(deepLink);
+  }
+
   /// Re-syncs the realtime channel subscription to track [Auth]'s current
   /// state.
   ///
@@ -144,17 +723,25 @@ class AppServiceProvider extends ServiceProvider {
   /// `users.current_team_id` now holds and therefore what `GET /billing` and the
   /// rail's webhook will both resolve.
   ///
+  /// Answers whether the switch took, which is what [openTappedPush] turns on:
+  /// a tap that navigates after a refused switch lands on the same 404 it was
+  /// switching to avoid. `MagicStarter.bootstrap`'s `onSwitch` declares a
+  /// `Future<void>`, and a `Future<bool>` satisfies it, so the team switcher is
+  /// unaffected by the answer being there.
+  ///
   /// Public only so a test can call the real handler; see the test group in
   /// `test/app/providers/store_identity_test.dart`, which asserts the id at the
   /// point the identify happens rather than on a flag set before it.
   @visibleForTesting
-  static Future<void> switchTeamAndIdentifyStore(dynamic teamId) async {
+  static Future<bool> switchTeamAndIdentifyStore(dynamic teamId) async {
     final bool switched = await MagicStarterTeamController.instance.switchTeam(
       teamId,
     );
-    if (!switched) return;
+    if (!switched) return false;
 
     await _identifyStoreCustomer(teamId?.toString() ?? '');
+
+    return true;
   }
 
   /// Re-points the STORE rail at the team the current session is on.
@@ -409,6 +996,53 @@ class AppServiceProvider extends ServiceProvider {
     return team.ownerId == null ? null : team.isOwner;
   }
 
+  /// Registers the two things `magic_notifications` asks this app for.
+  ///
+  /// Both are slots on `Notify.view`, the notification package's own view
+  /// registry, and it is deliberately the same shape as the
+  /// `MagicStarter.view.slot('settings.hub', ...)` call above: a published
+  /// package owns the screen, the adopter fills the parts only it can answer.
+  ///
+  /// 1. **What a notification type looks like.** The package dropped its
+  ///    hardcoded `monitor_down` / `monitor_up` / `monitor_degraded` icon map,
+  ///    because that is one monitoring product's vocabulary, and asks through
+  ///    the `notifications.icon` slot family instead: the slot NAME is the
+  ///    notification type. Uptizm answers with its own status dot, per type,
+  ///    plus the `default` slot so a type this build has never seen still gets
+  ///    a dot rather than the package's neutral bell.
+  /// 2. **The push soft prompt**, into the preference screen's header slot.
+  ///    The package deliberately ships no prompt widget (the one it had was a
+  ///    Material dialog with hardcoded English), only the four-state
+  ///    reachability read this app's [PushPromptHost] renders.
+  ///
+  /// A `static` method rather than inline in [boot] for the same reason
+  /// [registerBillingSurface] is one: a widget test can call it directly and
+  /// assert the seam resolves, which is what catches a bell remounted on one
+  /// side of the `lg` breakpoint and not the other.
+  static void registerNotificationSurface() {
+    for (final MapEntry<String, AppNotificationKind> entry
+        in kNotificationKindsByEventType.entries) {
+      Notify.view.slot(
+        NotificationViewRegistry.typeIconSlotView,
+        entry.key,
+        (context) => NotificationCenter(kind: entry.value),
+      );
+    }
+
+    Notify.view.slot(
+      NotificationViewRegistry.typeIconSlotView,
+      NotificationViewRegistry.typeIconFallbackSlot,
+      (context) =>
+          const NotificationCenter(kind: AppNotificationKind.incident),
+    );
+
+    Notify.view.slot(
+      'notifications.preferences',
+      'header',
+      (context) => const PushPromptHost(),
+    );
+  }
+
   @override
   Future<void> boot() async {
     // Report HTTP failures that would otherwise be invisible. magic's Http
@@ -445,6 +1079,13 @@ class AppServiceProvider extends ServiceProvider {
     MagicStarter.bootstrap(
       userFactory: (data) => User.fromMap(data),
       onLogout: () async {
+        // BEFORE the token is dropped, and awaited: this is the only moment in
+        // the app that holds both a live session and the knowledge that it is
+        // ending, and after `Auth.logout()` the release endpoint answers 401.
+        // Without it the server goes on vouching that a push reaches this
+        // responder on a handset nobody is signed into. See
+        // [releasePushDevice].
+        await releasePushDevice();
         await Auth.logout();
         MagicRoute.to(MagicStarterConfig.loginRoute());
       },
@@ -496,11 +1137,36 @@ class AppServiceProvider extends ServiceProvider {
       (context) => const UptizmHubExtras(),
     );
 
+    // Notifications: the two things `magic_notifications` asks the adopter for.
+    registerNotificationSurface();
+
     // Notifications: start polling immediately if a session was restored on
     // boot, then keep polling in lockstep with every future login/logout via
     // `Auth.stateNotifier`.
     _syncNotificationDeliveryWithAuthState();
     Auth.stateNotifier.addListener(_syncNotificationDeliveryWithAuthState);
+
+    // Push identity: subscribe this device as the person a restored session
+    // boots with, then follow every login and sign-out. The delivery sync above
+    // covers the bell inside the app; this one covers the notification that
+    // arrives while the app is closed, which is the one an on-call responder is
+    // actually paged by. See [syncPushIdentity] for why the `user_` prefix, the
+    // empty-id branch and the sign-out release all belong on this side.
+    //
+    // The arrival watch is armed FIRST, and the order is load-bearing rather
+    // than tidy: `NotificationServiceProvider` boots after this provider, so
+    // every declaration below happens with no driver to declare through, and
+    // this is what comes back for them. See
+    // [syncPushIdentityWhenDriverArrives].
+    syncPushIdentityWhenDriverArrives();
+    syncPushIdentity();
+    Auth.stateNotifier.addListener(syncPushIdentity);
+
+    // Push taps: the other half of that page. The identity sync above decides
+    // WHO gets woken up; this decides where they land when they act on it. See
+    // [listenForPushTaps] for why the subscription lives here rather than in
+    // `magic_deeplink`, and why it is idempotent.
+    listenForPushTaps();
 
     // Realtime: subscribe to the team's private channel immediately if a
     // session was restored on boot, then keep the subscription in lockstep

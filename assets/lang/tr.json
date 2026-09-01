@@ -1,5 +1,6 @@
 {
   "common": {
+    "back": "Geri",
     "welcome": "Hoş geldiniz: ",
     "loading": "Yükleniyor...",
     "save": "Kaydet",
@@ -282,6 +283,7 @@
   },
   "notifications": {
     "empty": "Bildirim yok",
+    "fetch_error": "Bildirim tercihleriniz yüklenemedi",
     "list_subtitle": "Bildirimlerinizi görüntüleyin ve yönetin",
     "load_failed": "Bildirimler yüklenemedi",
     "mark_all_read": "Tümünü okundu olarak işaretle",
@@ -483,7 +485,8 @@
       "remove_row": "Satırı kaldır",
       "remove_value": ":value değerini kaldır",
       "select_brand_color": "Marka rengini seç: :color",
-      "open_full_preview": "Tam önizlemeyi aç"
+      "open_full_preview": "Tam önizlemeyi aç",
+      "push_off": "Bu cihazda anlık bildirimler kapalı. Bildirim ayarlarını aç"
     },
     "account": {
       "sign_out": "Çıkış yap"
@@ -1126,6 +1129,8 @@
       "detail_postmortem_save_toast_description": "Olay kaydına eklendi. Yayınlayana kadar dahili kalır.",
       "detail_postmortem_publish_toast_title": "Olay sonrası inceleme yayınlandı",
       "detail_postmortem_publish_toast_description": "Artık herkese açık durum sayfasından okunabilir.",
+      "push_team_switch_toast_title": "Takım değiştirildi",
+      "push_team_switch_toast_description": "Artık bu olayın sahibi olan takımdasınız.",
       "ai_analysis_gated": "Yapay zeka olay analizi, kanıt, güven ve sonraki adımlarla birlikte olası nedeni belirler.",
       "analysis_degraded_heading": "Yapay zeka analizi",
       "analysis_pending_heading": "AI analizi",
@@ -1365,6 +1370,22 @@
       "banner_confirm": "Onayla",
       "banner_change": "Değiştir",
       "banner_dismiss": "Kapat"
+    },
+    "push_prompt": {
+      "ask_title": "Bir şey bozulduğunda haberiniz olsun",
+      "ask_body": "Anlık bildirimleri açtığınızda, Uptizm kapalıyken bile bir olay açıldığı anda bu cihaz sizi uyarır.",
+      "enable": "Anlık bildirimleri aç",
+      "not_now": "Şimdi değil",
+      "declined_body": "Bu cihazda anlık bildirimler kapalı. İstediğiniz zaman açabilirsiniz.",
+      "blocked_title": "Anlık bildirimler engellendi",
+      "blocked_body_web": "Tarayıcınız Uptizm için bildirimleri engelliyor. Adres çubuğunun yanındaki site ayarlarından izin verin, ardından bu sayfayı yenileyin.",
+      "blocked_body_ios": "Uptizm için bildirimler kapalı. Ayarlar'ı açın, Uptizm'i bulun ve bildirimlere izin verin.",
+      "blocked_body_android": "Uptizm için bildirimler kapalı. Ayarlar'ı açın, Uygulamalar altından Uptizm'i bulun ve bildirimlere izin verin.",
+      "blocked_body_settings": "Bu cihazda Uptizm için bildirimler kapalı. Ayarlar sayfasını açıp izin verdiğinizde bu cihaz sizi yeniden çağırabilir.",
+      "open_settings": "Ayarları aç",
+      "on_body": "Bu cihazda anlık bildirimler açık.",
+      "unavailable_body": "Bu cihaz anlık bildirim alamıyor.",
+      "shell_notice": "Bu cihazda anlık bildirim kapalı"
     },
     "welcome": {
       "skip": "Atla",

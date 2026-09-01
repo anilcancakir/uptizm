@@ -12,6 +12,7 @@ import 'config/cache.dart';
 import 'config/logging.dart';
 import 'config/broadcasting.dart';
 import 'config/deeplink.dart';
+import 'config/notifications.dart';
 import 'config/localization.dart';
 import 'config/page_header_theme.dart';
 import 'config/uptizm_theme.dart';
@@ -97,6 +98,7 @@ Future<void> _boot() async {
       () => loggingConfig,
       () => broadcastingConfig,
       () => deeplinkConfig,
+      () => notificationsConfig,
       () => localizationConfig,
       () => magicStarterConfig,
     ],
