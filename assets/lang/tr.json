@@ -1,5 +1,6 @@
 {
   "common": {
+    "back": "Geri",
     "welcome": "Hoş geldiniz: ",
     "loading": "Yükleniyor...",
     "save": "Kaydet",
@@ -282,6 +283,7 @@
   },
   "notifications": {
     "empty": "Bildirim yok",
+    "fetch_error": "Bildirim tercihleriniz yüklenemedi",
     "list_subtitle": "Bildirimlerinizi görüntüleyin ve yönetin",
     "load_failed": "Bildirimler yüklenemedi",
     "mark_all_read": "Tümünü okundu olarak işaretle",
@@ -1365,6 +1367,19 @@
       "banner_confirm": "Onayla",
       "banner_change": "Değiştir",
       "banner_dismiss": "Kapat"
+    },
+    "push_prompt": {
+      "ask_title": "Bir şey bozulduğunda haberiniz olsun",
+      "ask_body": "Anlık bildirimleri açtığınızda, Uptizm kapalıyken bile bir olay açıldığı anda bu cihaz sizi uyarır.",
+      "enable": "Anlık bildirimleri aç",
+      "not_now": "Şimdi değil",
+      "declined_body": "Bu cihazda anlık bildirimler kapalı. İstediğiniz zaman açabilirsiniz.",
+      "blocked_title": "Anlık bildirimler engellendi",
+      "blocked_body_web": "Tarayıcınız Uptizm için bildirimleri engelliyor. Adres çubuğunun yanındaki site ayarlarından izin verin, ardından bu sayfayı yenileyin.",
+      "blocked_body_ios": "Uptizm için bildirimler kapalı. Ayarlar'ı açın, Uptizm'i bulun ve bildirimlere izin verin.",
+      "blocked_body_android": "Uptizm için bildirimler kapalı. Ayarlar'ı açın, Uygulamalar altından Uptizm'i bulun ve bildirimlere izin verin.",
+      "on_body": "Bu cihazda anlık bildirimler açık.",
+      "unavailable_body": "Bu cihaz anlık bildirim alamıyor."
     },
     "welcome": {
       "skip": "Atla",

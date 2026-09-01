@@ -1,5 +1,6 @@
 {
   "common": {
+    "back": "Back",
     "welcome": "Welcome to ",
     "loading": "Loading...",
     "save": "Save",
@@ -282,6 +283,7 @@
   },
   "notifications": {
     "empty": "No notifications",
+    "fetch_error": "Could not load your notification preferences",
     "list_subtitle": "View and manage your notifications",
     "load_failed": "Failed to load notifications",
     "mark_all_read": "Mark all as read",
@@ -1365,6 +1367,19 @@
       "banner_confirm": "Confirm",
       "banner_change": "Change",
       "banner_dismiss": "Dismiss"
+    },
+    "push_prompt": {
+      "ask_title": "Get paged when something breaks",
+      "ask_body": "Turn push notifications on and this device alerts you the moment an incident opens, even with Uptizm closed.",
+      "enable": "Turn on push",
+      "not_now": "Not now",
+      "declined_body": "Push notifications are off on this device. You can turn them on whenever you want.",
+      "blocked_title": "Push notifications are blocked",
+      "blocked_body_web": "Your browser is blocking notifications for Uptizm. Allow them in the site settings next to the address bar, then reload this page.",
+      "blocked_body_ios": "Notifications are turned off for Uptizm. Open Settings, find Uptizm, and allow notifications.",
+      "blocked_body_android": "Notifications are turned off for Uptizm. Open Settings, find Uptizm under Apps, and allow notifications.",
+      "on_body": "Push notifications are on for this device.",
+      "unavailable_body": "This device cannot receive push notifications."
     },
     "welcome": {
       "skip": "Skip",

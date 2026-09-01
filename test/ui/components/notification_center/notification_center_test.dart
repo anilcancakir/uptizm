@@ -2,46 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_notifications/magic_notifications.dart';
-import 'package:magic_starter/magic_starter.dart';
 import 'package:uptizm/app/enums/status_key.dart';
 import 'package:uptizm/ui/components/notification_center/index.dart';
 import 'package:uptizm/ui/components/notification_center/notification_center.preview.dart';
 import 'package:uptizm/ui/components/status_dot/index.dart';
 
-import '../../../support/bundled_lang.dart';
-
-/// In-memory loader feeding the panel's fixed labels so [trans] resolves the
-/// real English strings instead of falling back to the raw key. This mirrors
-/// production, where the bundled `assets/lang/en.json` is loaded.
-class _NotificationLangLoader implements TranslationLoader {
-  @override
-  Future<Map<String, dynamic>> load(Locale locale) async {
-    // The Translator caches whatever the loader returns verbatim; flattening
-    // is the loader's job (see JsonAssetLoader), so the keys are pre-flattened.
-    return {
-      'notifications.title': 'Notifications',
-      'notifications.mark_all_read': 'Mark all as read',
-      'notifications.settings': 'Notification Settings',
-      'notifications.empty': 'No notifications',
-    };
-  }
-}
-
 void main() {
-  setUp(() async {
-    MagicApp.reset();
-    Magic.flush();
-    Magic.singleton('magic_starter', () => MagicStarterManager());
-
-    Translator.instance.setLoader(_NotificationLangLoader());
-    await Translator.instance.setLocale(const Locale('en'));
-  });
-
-  tearDown(() {
-    MagicApp.reset();
-    Magic.flush();
-  });
-
   /// Wraps [widget] in a [MaterialApp] with a default [WindTheme].
   Widget wrap(Widget widget) {
     return MaterialApp(
@@ -52,65 +18,29 @@ void main() {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Recipe assertions
-  // ---------------------------------------------------------------------------
-
-  group('notificationItemFromDatabaseNotification', () {
-    DatabaseNotification make(String title, String body) =>
-        DatabaseNotification(
-          id: 'n-1',
-          type: 'App\\Notifications\\IncidentOpened',
-          title: title,
-          body: body,
-          data: const {'type': 'incident_opened', 'incident_id': 'inc-1'},
-          createdAt: DateTime.utc(2026, 8, 19, 16),
-        );
-
-    test('a body that only repeats the title is dropped', () {
-      // `IncidentOpened` builds `title` from the copy catalogue and `body` from
-      // `IncidentTitle::render`, and for a monitor-down incident both resolve to
-      // the same sentence. The row printed it twice, one line under the other.
-      final NotificationItem item = notificationItemFromDatabaseNotification(
-        make('QA Manual Monitor kesintide', 'QA Manual Monitor kesintide'),
-      );
-
-      expect(item.title, equals('QA Manual Monitor kesintide'));
-      expect(item.detail, isNull);
-    });
-
-    test('a body that adds something is kept', () {
-      final NotificationItem item = notificationItemFromDatabaseNotification(
-        make(
-          'Checkout is down',
-          'All regions failed for 3 consecutive checks.',
-        ),
-      );
-
-      expect(
-        item.detail,
-        equals('All regions failed for 3 consecutive checks.'),
-      );
-    });
-  });
-
-  group('notificationCenterRecipe', () {
-    test('base emits a contained surface panel', () {
-      final cls = notificationCenterRecipe();
-      expect(cls, contains('bg-surface'));
-      expect(cls, contains('border-color-border'));
-      expect(cls, contains('rounded-lg'));
-    });
-
-    test('base emits flex flex-col layout', () {
-      final cls = notificationCenterRecipe();
-      expect(cls, contains('flex'));
-      expect(cls, contains('flex-col'));
-    });
-  });
+  /// Builds a notification carrying [type] as the backend's event
+  /// discriminator, plus the two id keys the route decode reads.
+  DatabaseNotification notification({
+    String type = 'incident_opened',
+    String? incidentId = 'inc-1',
+    String? monitorId = 'mon-1',
+  }) {
+    return DatabaseNotification(
+      id: 'n-1',
+      type: type,
+      title: 'A monitoring event',
+      body: 'Some monitor changed state',
+      data: <String, dynamic>{
+        'type': type,
+        'incident_id': ?incidentId,
+        'monitor_id': ?monitorId,
+      },
+      createdAt: DateTime.utc(2026, 8, 19, 16),
+    );
+  }
 
   // ---------------------------------------------------------------------------
-  // Model assertions
+  // The kind vocabulary: uptizm's half of the package's row
   // ---------------------------------------------------------------------------
 
   group('AppNotificationKind.status', () {
@@ -124,176 +54,150 @@ void main() {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // Widget tests
-  // ---------------------------------------------------------------------------
-
-  testWidgets('renders the localized panel header label', (tester) async {
-    await tester.pumpWidget(wrap(const NotificationCenter()));
-
-    final label = trans('notifications.title');
-    final texts = tester.widgetList<WText>(find.byType(WText)).toList();
-    expect(
-      texts.any((w) => w.data == label),
-      isTrue,
-      reason: 'header label not found',
-    );
-  });
-
-  testWidgets('renders every sample item title', (tester) async {
-    await tester.pumpWidget(wrap(const NotificationCenter()));
-
-    final texts = tester.widgetList<WText>(find.byType(WText)).toList();
-    for (final item in kSampleNotifications) {
+  group('kNotificationKindsByEventType', () {
+    test('answers for every event type the backend emits today', () {
+      // `NotificationResource` publishes `data['type']` as the row's `type`,
+      // and the three notification classes in `backend/app/Notifications/`
+      // write `incident_opened`, `incident_escalated` and `incident_resolved`.
       expect(
-        texts.any((w) => w.data == item.title),
-        isTrue,
-        reason: 'title "${item.title}" not found',
+        kNotificationKindsByEventType['incident_opened'],
+        AppNotificationKind.incident,
       );
+      expect(
+        kNotificationKindsByEventType['incident_escalated'],
+        AppNotificationKind.incident,
+      );
+      expect(
+        kNotificationKindsByEventType['incident_resolved'],
+        AppNotificationKind.resolved,
+      );
+    });
+
+    test('answers for the monitor vocabulary the package no longer carries', () {
+      expect(
+        kNotificationKindsByEventType['monitor_down'],
+        AppNotificationKind.down,
+      );
+      expect(
+        kNotificationKindsByEventType['monitor_up'],
+        AppNotificationKind.up,
+      );
+      expect(
+        kNotificationKindsByEventType['monitor_degraded'],
+        AppNotificationKind.degraded,
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // The route decode
+  // ---------------------------------------------------------------------------
+
+  group('notificationRouteFor', () {
+    test('prefers the incident over the monitor', () {
+      expect(notificationRouteFor(notification()), '/incidents/inc-1');
+    });
+
+    test('falls back to the monitor when there is no incident', () {
+      expect(
+        notificationRouteFor(notification(incidentId: null)),
+        '/monitors/mon-1',
+      );
+    });
+
+    test('falls back to the preference screen when there is neither', () {
+      expect(
+        notificationRouteFor(
+          notification(incidentId: null, monitorId: null),
+        ),
+        '/settings/notifications',
+      );
+    });
+
+    test('reads a non-string id without throwing', () {
+      // The backend writes an integer id on a non-UUID deployment, and a row
+      // that throws while being decoded takes the whole bell down with it.
+      final DatabaseNotification numeric = DatabaseNotification(
+        id: 'n-2',
+        type: 'incident_opened',
+        title: 'A monitoring event',
+        body: 'body',
+        data: const <String, dynamic>{'type': 'incident_opened', 'incident_id': 7},
+        createdAt: DateTime.utc(2026, 8, 19, 16),
+      );
+
+      expect(notificationRouteFor(numeric), '/incidents/7');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // The recipe carries the kind-to-token mapping
+  // ---------------------------------------------------------------------------
+
+  group('notificationCenterRecipe', () {
+    test('emits a soft status tint per kind', () {
+      String forKind(AppNotificationKind kind) => notificationCenterRecipe(
+        variants: {kNotificationCenterKindAxis: kind.name},
+      );
+
+      expect(forKind(AppNotificationKind.down), contains('bg-down-soft'));
+      expect(forKind(AppNotificationKind.up), contains('bg-up-soft'));
+      expect(
+        forKind(AppNotificationKind.degraded),
+        contains('bg-degraded-soft'),
+      );
+      expect(forKind(AppNotificationKind.incident), contains('bg-down-soft'));
+      expect(forKind(AppNotificationKind.resolved), contains('bg-up-soft'));
+      expect(forKind(AppNotificationKind.ai), contains('bg-ai-soft'));
+    });
+
+    test('base centres the dot in a round tile', () {
+      final String cls = notificationCenterRecipe();
+
+      expect(cls, contains('rounded-full'));
+      expect(cls, contains('items-center'));
+      expect(cls, contains('justify-center'));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // The widget: one dot, in the kind's tone
+  // ---------------------------------------------------------------------------
+
+  testWidgets('renders one StatusDot in the kind tone', (tester) async {
+    for (final AppNotificationKind kind in AppNotificationKind.values) {
+      await tester.pumpWidget(wrap(NotificationCenter(kind: kind)));
+      await tester.pump();
+
+      expect(find.byType(StatusDot), findsOneWidget);
+      expect(tester.widget<StatusDot>(find.byType(StatusDot)).status,
+          kind.status);
     }
   });
 
-  testWidgets('renders a StatusDot per item', (tester) async {
-    await tester.pumpWidget(wrap(const NotificationCenter()));
-
-    expect(find.byType(StatusDot), findsNWidgets(kSampleNotifications.length));
-  });
-
-  testWidgets('shows the mark-all-read action while unread items remain', (
+  testWidgets('the reduced component carries no feed of its own', (
     tester,
   ) async {
-    await tester.pumpWidget(wrap(const NotificationCenter()));
-
-    expect(find.text(trans('notifications.mark_all_read')), findsOneWidget);
-  });
-
-  testWidgets('mark-all-read clears the unread action', (tester) async {
-    await tester.pumpWidget(wrap(const NotificationCenter()));
-
-    await tester.tap(find.text(trans('notifications.mark_all_read')));
-    await tester.pump();
-
-    expect(find.text(trans('notifications.mark_all_read')), findsNothing);
-  });
-
-  testWidgets('tapping a row fires onItemTap then onClose', (tester) async {
-    NotificationItem? tapped;
-    var closed = false;
-
+    // The list, the read-state handling, the mark-all footer, the empty state
+    // and the relative-time formatter all live in `magic_notifications` now;
+    // what stays here is the one thing the package cannot know, which is what
+    // an uptizm notification type looks like.
     await tester.pumpWidget(
-      wrap(
-        NotificationCenter(
-          onItemTap: (item) => tapped = item,
-          onClose: () => closed = true,
-        ),
-      ),
+      wrap(const NotificationCenter(kind: AppNotificationKind.incident)),
     );
-
-    await tester.tap(find.text(kSampleNotifications.first.title));
     await tester.pump();
 
-    expect(tapped?.id, kSampleNotifications.first.id);
-    expect(closed, isTrue);
+    expect(find.byType(WText), findsNothing);
   });
 
-  testWidgets('settings row fires onSettings then onClose', (tester) async {
-    var settings = false;
-    var closed = false;
-
-    await tester.pumpWidget(
-      wrap(
-        NotificationCenter(
-          onSettings: () => settings = true,
-          onClose: () => closed = true,
-        ),
-      ),
-    );
-
-    await tester.tap(find.text(trans('notifications.settings')));
-    await tester.pump();
-
-    expect(settings, isTrue);
-    expect(closed, isTrue);
-  });
-
-  testWidgets('renders the empty state when the feed has no items', (
-    tester,
-  ) async {
-    await tester.pumpWidget(wrap(const NotificationCenter(items: [])));
-
-    expect(find.text(trans('notifications.empty')), findsOneWidget);
-    expect(find.byType(StatusDot), findsNothing);
-  });
-
-  testWidgets('every sample item carries a route target', (tester) async {
-    for (final item in kSampleNotifications) {
-      expect(item.to, isNotEmpty, reason: '"${item.title}" is missing a route');
-    }
-  });
-
-  testWidgets('preview renders without error', (tester) async {
+  testWidgets('preview renders every kind', (tester) async {
     await tester.pumpWidget(wrap(const NotificationCenterPreview()));
     await tester.pump();
 
-    expect(find.byType(NotificationCenter), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byType(NotificationCenter),
+      findsNWidgets(AppNotificationKind.values.length),
+    );
   });
-
-  // ---------------------------------------------------------------------------
-  // The header holds at the shipped copy, in both locales
-  // ---------------------------------------------------------------------------
-
-  for (final String locale in <String>['en', 'tr']) {
-    testWidgets('the header holds at the shipped $locale copy, and at 2x text', (
-      tester,
-    ) async {
-      // The loader above hands out English LITERALS, so every assertion in this
-      // file passes by construction and no locale-length problem can surface.
-      // These read the shipped catalogue instead.
-      //
-      // Deliberately an overflow-ABSENCE assertion and nothing more. A fit
-      // assertion here (rendered width == intrinsic width) is invalid in a
-      // widget test: the test font is roughly one em per glyph, so it inflates
-      // the 29-character Turkish label to about 355 logical pixels against a
-      // 294px content row and reports a clipping that the app does not have.
-      // Measured in the running Chrome build at the real Geist metrics: the
-      // Turkish pair needs 69 + 165 and fits. What does NOT fit is the same
-      // pair at an accessibility text scale (312 at 1.3x, 476 at 2x), which is
-      // what the Wrap is actually for, and what the second case below pins.
-      Translator.instance.setLoader(_BundledLangLoader(locale));
-      await Translator.instance.setLocale(Locale(locale));
-
-      await tester.pumpWidget(
-        wrap(NotificationCenter(items: kSampleNotifications)),
-      );
-      await tester.pump();
-
-      expect(tester.takeException(), isNull);
-
-      // The same header at 2x, where the two labels cannot share a line in
-      // either locale. A Row overflowed here; the Wrap drops the action to its
-      // own run instead.
-      await tester.pumpWidget(
-        MediaQuery(
-          data: const MediaQueryData(textScaler: TextScaler.linear(2.0)),
-          child: wrap(NotificationCenter(items: kSampleNotifications)),
-        ),
-      );
-      await tester.pump();
-
-      expect(tester.takeException(), isNull);
-    });
-  }
-}
-
-/// Feeds [trans] the app's shipped catalogue for one locale, so a layout
-/// assertion is made against the words an operator actually reads.
-class _BundledLangLoader implements TranslationLoader {
-  /// The locale whose shipped catalogue to serve.
-  final String locale;
-
-  const _BundledLangLoader(this.locale);
-
-  @override
-  Future<Map<String, dynamic>> load(Locale requested) async =>
-      readBundledLang(locale);
 }

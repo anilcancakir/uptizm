@@ -2,9 +2,9 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_notifications/magic_notifications.dart'
-    show DatabaseNotification, Notify;
+    show NotificationDropdown, Notify;
 import 'package:magic_starter/magic_starter.dart'
-    show MagicStarterTeamController;
+    show MagicStarterConfig, MagicStarterTeamController;
 
 import '../../app/models/team.dart';
 import '../../app/models/user.dart';
@@ -70,7 +70,8 @@ const List<_SidebarNavItem> _navItems = [
 /// lab's `Sidebar`:
 ///
 /// - A top row with the [_TeamSwitcher] (team avatar + name + popover) and the
-///   [_NotificationBell] (bell + unread badge + the [NotificationCenter] panel).
+///   [_NotificationBell] (the package's [NotificationDropdown], carrying
+///   uptizm's own status dot per row).
 /// - The 5 primary nav items (Dashboard / Monitors / Incidents / Status page /
 ///   Settings), each highlighted when its path matches the current route.
 /// - An account menu pinned to the bottom (avatar + name + email) opening a
@@ -285,80 +286,27 @@ class _TeamSwitcher extends StatelessWidget {
 
 /// **The notification bell** in the sidebar top row.
 ///
-/// A bell trigger carrying an unread badge that opens the [NotificationCenter]
-/// panel in a popover. Both the badge count and the panel content subscribe
-/// to the live feed fed by `Notify`'s polling (started/stopped on
-/// login/logout in `AppServiceProvider`).
+/// The bell, its unread badge and the feed panel all come from
+/// `magic_notifications` now; what stays uptizm's is the leading status dot
+/// (supplied through the `notifications.icon` slot family in
+/// [AppServiceProvider.registerNotificationSurface]) and where a tapped row
+/// goes. The feed itself is fed by `Notify`'s polling / socket, started and
+/// stopped on login and logout in `AppServiceProvider`.
 class _NotificationBell extends StatelessWidget {
   const _NotificationBell();
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<DatabaseNotification>>(
-      stream: notificationsStream('Sidebar'),
-      initialData: const [],
-      builder: (context, snapshot) {
-        final List<NotificationItem> items =
-            notificationItemsFromDatabaseNotifications(
-              snapshot.data ?? const [],
-            );
-        final int unread = items.where((n) => !n.read).length;
-
-        return ShellControlSemantics(
-          label: trans('uptizm.a11y.notifications'),
-          child: WPopover(
-              alignment: PopoverAlignment.bottomRight,
-              offset: const Offset(0, 6),
-              maxHeight: 480,
-              className: 'w-80 max-w-full rounded-lg shadow-xl',
-              triggerBuilder: (context, isOpen, isHovering) => WDiv(
-                className: '''
-                  w-9 h-9 shrink-0 rounded-md flex items-center justify-center
-                  text-fg-muted hover:bg-surface-container hover:text-fg
-                ''',
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  alignment: Alignment.center,
-                  children: [
-                    WIcon(Icons.notifications_none, className: 'text-[18px]'),
-                    if (unread > 0)
-                      Positioned(
-                        top: -4,
-                        right: -4,
-                        child: WDiv(
-                          className: '''
-                            min-w-[16px] h-4 px-1 rounded-full bg-down
-                            flex items-center justify-center
-                          ''',
-                          child: WText(
-                            '$unread',
-                            // The badge sits on `bg-down`, which has an `on-`
-                            // peer; white was wrong in dark mode.
-                            className: 'text-[10px] font-semibold text-on-destructive',
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              // WPopover constrains height without scrolling, so the panel is
-              // wrapped in a scroll view: the feed scrolls when it exceeds the
-              // popover height instead of overflowing.
-              contentBuilder: (context, close) => SingleChildScrollView(
-                child: NotificationCenter(
-                  items: items,
-                  onClose: close,
-                  onItemTap: (item) {
-                    Notify.markAsRead(item.id);
-                    MagicRoute.to(item.to);
-                  },
-                  onMarkAllRead: () => Notify.markAllAsRead(),
-                  onSettings: () => MagicRoute.to('/settings'),
-                ),
-              ),
-            ),
-        );
-      },
+    return ShellControlSemantics(
+      label: trans('uptizm.a11y.notifications'),
+      child: NotificationDropdown(
+        notificationStream: notificationsStream('Sidebar'),
+        onMarkAsRead: (id) => Notify.markAsRead(id),
+        onMarkAllAsRead: () => Notify.markAllAsRead(),
+        onNotificationTap: (notification) =>
+            MagicRoute.to(notificationRouteFor(notification)),
+        onViewAll: () => MagicRoute.to(MagicStarterConfig.notificationsRoute()),
+      ),
     );
   }
 }

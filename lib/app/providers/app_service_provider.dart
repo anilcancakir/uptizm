@@ -17,6 +17,8 @@ import '../support/sentry_network_interceptor.dart';
 import '../support/sentry_user_context.dart';
 import '../support/team_types.dart' show withUsageCopy;
 import '../support/web_links.dart';
+import '../../ui/components/notification_center/index.dart';
+import '../../ui/components/push_prompt/index.dart';
 import '../../ui/layouts/app_layout.dart';
 import '../../ui/layouts/uptizm_hub_extras.dart';
 
@@ -480,6 +482,53 @@ class AppServiceProvider extends ServiceProvider {
     return team.ownerId == null ? null : team.isOwner;
   }
 
+  /// Registers the two things `magic_notifications` asks this app for.
+  ///
+  /// Both are slots on `Notify.view`, the notification package's own view
+  /// registry, and it is deliberately the same shape as the
+  /// `MagicStarter.view.slot('settings.hub', ...)` call above: a published
+  /// package owns the screen, the adopter fills the parts only it can answer.
+  ///
+  /// 1. **What a notification type looks like.** The package dropped its
+  ///    hardcoded `monitor_down` / `monitor_up` / `monitor_degraded` icon map,
+  ///    because that is one monitoring product's vocabulary, and asks through
+  ///    the `notifications.icon` slot family instead: the slot NAME is the
+  ///    notification type. Uptizm answers with its own status dot, per type,
+  ///    plus the `default` slot so a type this build has never seen still gets
+  ///    a dot rather than the package's neutral bell.
+  /// 2. **The push soft prompt**, into the preference screen's header slot.
+  ///    The package deliberately ships no prompt widget (the one it had was a
+  ///    Material dialog with hardcoded English), only the four-state
+  ///    reachability read this app's [PushPromptHost] renders.
+  ///
+  /// A `static` method rather than inline in [boot] for the same reason
+  /// [registerBillingSurface] is one: a widget test can call it directly and
+  /// assert the seam resolves, which is what catches a bell remounted on one
+  /// side of the `lg` breakpoint and not the other.
+  static void registerNotificationSurface() {
+    for (final MapEntry<String, AppNotificationKind> entry
+        in kNotificationKindsByEventType.entries) {
+      Notify.view.slot(
+        NotificationViewRegistry.typeIconSlotView,
+        entry.key,
+        (context) => NotificationCenter(kind: entry.value),
+      );
+    }
+
+    Notify.view.slot(
+      NotificationViewRegistry.typeIconSlotView,
+      NotificationViewRegistry.typeIconFallbackSlot,
+      (context) =>
+          const NotificationCenter(kind: AppNotificationKind.incident),
+    );
+
+    Notify.view.slot(
+      'notifications.preferences',
+      'header',
+      (context) => const PushPromptHost(),
+    );
+  }
+
   @override
   Future<void> boot() async {
     // Report HTTP failures that would otherwise be invisible. magic's Http
@@ -566,6 +615,9 @@ class AppServiceProvider extends ServiceProvider {
       'footer',
       (context) => const UptizmHubExtras(),
     );
+
+    // Notifications: the two things `magic_notifications` asks the adopter for.
+    registerNotificationSurface();
 
     // Notifications: start polling immediately if a session was restored on
     // boot, then keep polling in lockstep with every future login/logout via
