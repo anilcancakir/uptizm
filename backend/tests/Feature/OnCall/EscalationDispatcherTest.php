@@ -29,6 +29,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
+use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CapturesEvidenceLog;
 use Tests\TestCase;
 
@@ -489,6 +490,70 @@ class EscalationDispatcherTest extends TestCase
 
         $this->dispatcher()->pageStep($incident->id, $policy->steps->first()->id);
 
+        $this->assertStringContainsString(
+            'Escalation step reached nobody',
+            $this->evidenceLogContents(),
+        );
+    }
+
+    /**
+     * The sign-out scenario, driven through the real routes, with the ladder's
+     * answer measured on BOTH sides of it.
+     *
+     * The two rungs are the point. Asserting the released row is gone proves a
+     * column changed; asserting the same policy reaches somebody at rung one and
+     * nobody at rung two proves the thing that was actually broken, which is
+     * that the escalation ladder counted a device nobody is signed into as
+     * having reached this responder.
+     *
+     * The report and the release both go over `api/v1` rather than through the
+     * model, because the client half of this fix is an HTTP call made on the way
+     * out of a session and the endpoint it calls is the whole contract. Before
+     * the release verb existed there was no such endpoint at all: the row kept
+     * its `on`, its `reported_at` and the previous person's alias, and every
+     * rung whose only outward channel is push was recorded as having woken
+     * somebody for the rest of the freshness window.
+     */
+    public function test_a_device_signed_out_of_no_longer_reaches_the_responder(): void
+    {
+        $this->provisionPushChannel();
+        Notification::fake();
+        $this->captureLogsUnderProductionLevels();
+
+        [$team, $responder] = $this->teamWithOnCall();
+        $responder->forceFill(['current_team_id' => $team->id])->save();
+        $this->leaveOnlyPushEnabled($responder);
+
+        $policy = $this->makePolicy($team);
+        $first = $this->makeStep($policy, 0, 0);
+        $second = $this->makeStep($policy, 1, 5);
+        $incident = $this->openIncident($team, $policy->fresh('steps'));
+
+        Sanctum::actingAs($responder);
+        $this->postJson('/api/v1/devices/push-state', [
+            'external_id' => 'user_'.$responder->getKey(),
+            'subscription_id' => 'sub-handset',
+            'reachability' => 'on',
+            'captured_at' => now()->toIso8601String(),
+        ])->assertNoContent();
+
+        // Rung one, while the responder is signed in on that handset: the phone
+        // rings, so the ladder reached somebody and records nothing.
+        $this->dispatcher()->pageStep($incident->id, $first->id);
+        $this->assertStringNotContainsString(
+            'Escalation step reached nobody',
+            $this->evidenceLogContents(),
+        );
+
+        // The sign-out. The client reports it while the token is still valid,
+        // which is the only moment it can: after `Auth.logout()` the endpoint
+        // answers 401 and the device has no way to say it left.
+        $this->postJson('/api/v1/devices/push-state/release', [
+            'subscription_id' => 'sub-handset',
+        ])->assertNoContent();
+
+        // Rung two, minutes later, on the same policy and the same responder.
+        $this->dispatcher()->pageStep($incident->id, $second->id);
         $this->assertStringContainsString(
             'Escalation step reached nobody',
             $this->evidenceLogContents(),

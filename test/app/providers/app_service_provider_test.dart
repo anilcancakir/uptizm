@@ -888,10 +888,24 @@ void main() {
       return driver;
     }
 
+    /// The endpoint a sign-out releases this device through.
+    const String releasePath = 'devices/push-state/release';
+
     /// Every report this device has posted, in order.
+    ///
+    /// Matched on the END of the url rather than anywhere in it, because the
+    /// release path below extends this one and is a different verb entirely.
     List<Map<String, dynamic>> reports(FakeNetworkDriver network) {
       return network.recorded
-          .where((entry) => entry.$1.url.contains(path))
+          .where((entry) => entry.$1.url.endsWith(path))
+          .map((entry) => entry.$1.data as Map<String, dynamic>)
+          .toList();
+    }
+
+    /// Every release this device has posted, in order.
+    List<Map<String, dynamic>> releases(FakeNetworkDriver network) {
+      return network.recorded
+          .where((entry) => entry.$1.url.endsWith(releasePath))
           .map((entry) => entry.$1.data as Map<String, dynamic>)
           .toList();
     }
@@ -1078,6 +1092,145 @@ void main() {
       await pumpEventQueue();
 
       expect(reports(network), hasLength(1));
+    });
+
+    test('a sign-out names this device, and nothing else about it', () async {
+      // The defect this closes: nothing was posted for the sign-out transition
+      // at all, so `PushDevice::canReachByPush()` kept answering true under the
+      // previous person's alias for a day, and every escalation rung whose only
+      // outward channel is push was recorded as having woken somebody.
+      final FakeNetworkDriver network = Http.fake();
+      useDriver();
+      await declareIdentity();
+
+      await AppServiceProvider.releasePushDevice();
+
+      // The subscription id and nothing else: the person comes from the SESSION
+      // on the server side, so a body naming one would be a second, weaker
+      // answer to a question the token already settles.
+      expect(releases(network), hasLength(1));
+      expect(releases(network).single, <String, dynamic>{
+        'subscription_id': 'sub-phone',
+      });
+    });
+
+    test('a sign-out with no device to name posts nothing', () async {
+      // A build with no push at all (web, desktop) reports `unavailable` with no
+      // subscription id and has therefore never vouched for anybody: a row
+      // without one fails `canReachByPush()` on its own, so there is nothing for
+      // a release to remove and no request worth spending on the way out.
+      final FakeNetworkDriver network = Http.fake();
+      AppServiceProvider.syncPushIdentityWhenDriverArrives();
+      addTearDown(AppServiceProvider.resetPushDeliveryReporting);
+      await declareIdentity();
+
+      await AppServiceProvider.releasePushDevice();
+
+      expect(releases(network), isEmpty);
+    });
+
+    test('a driver that has stopped answering still releases its row', () async {
+      // The row the server holds was created by the last ACCEPTED report, so
+      // that report is what names it. A device whose driver has since gone
+      // quiet reads no subscription id, and naming nothing there would leave
+      // this handset's own stale `on` standing for the rest of the window,
+      // which is the exact defect being fixed.
+      final FakeNetworkDriver network = Http.fake();
+      final _ReportingPushDriver driver = useDriver();
+      await declareIdentity();
+
+      // Assigned rather than announced through `changeSubscription`, which would
+      // fire a report of its own and describe a different case.
+      driver.subscriptionId = null;
+
+      await AppServiceProvider.releasePushDevice();
+
+      expect(releases(network).single['subscription_id'], 'sub-phone');
+    });
+
+    test('a signed-out session releases nothing', () async {
+      // The guard `reportPushDeliveryState` carries, for the same reason: there
+      // is no token left, so this would be a guaranteed 401. It is also why the
+      // release cannot live on the auth-state listener at all.
+      final FakeNetworkDriver network = Http.fake();
+      useDriver();
+      await declareIdentity();
+      await Auth.logout();
+
+      await AppServiceProvider.releasePushDevice();
+
+      expect(releases(network), isEmpty);
+    });
+
+    test('a released device is reported from scratch, not remembered',
+        () async {
+      // The memo says what the SERVER holds, and after an accepted release it
+      // holds nothing for this device. Left standing, the next person signing in
+      // on this handset with an identical device state would never be reported
+      // at all, and the server would have no row for a phone that rings.
+      final FakeNetworkDriver network = Http.fake();
+      useDriver();
+      await declareIdentity();
+
+      await AppServiceProvider.releasePushDevice();
+      AppServiceProvider.syncPushIdentity();
+      await pumpEventQueue();
+
+      expect(reports(network), hasLength(2));
+      expect(reports(network).last['subscription_id'], 'sub-phone');
+    });
+
+    test('a refused release leaves the memo describing what the server has',
+        () async {
+      // The other side of the same rule. A refused release changed nothing on
+      // the server, so forgetting the report it still holds would make the next
+      // identical report a second write of one fact. What is left is a stale
+      // `on` bounded by the server's freshness horizon, which is the one shape
+      // this device cannot distinguish itself from: a client that tried to
+      // speak and was not heard looks exactly like one that went quiet.
+      final FakeNetworkDriver network = Http.fake(<String, MagicResponse>{
+        releasePath: Http.response(<String, dynamic>{'message': 'nope'}, 500),
+      });
+      useDriver();
+      await declareIdentity();
+
+      await AppServiceProvider.releasePushDevice();
+      AppServiceProvider.syncPushIdentity();
+      await pumpEventQueue();
+
+      expect(releases(network), hasLength(1));
+      expect(reports(network), hasLength(1));
+    });
+
+    test('the sign-out path releases this device before it drops the token',
+        () {
+      // The seam, and it is the whole reason this defect existed: every other
+      // push write in this file hangs off `Auth.stateNotifier`, and that
+      // listener structurally CANNOT do this one. `reportPushDeliveryState`
+      // returns early on a signed-out session (rightly: the endpoint is behind
+      // `auth:sanctum`), and by the time the notifier bumps, `Auth.logout()` has
+      // already dropped the token. The only place with a live session and the
+      // knowledge that it is ending is the `onLogout` handler, and until this
+      // call landed there, nothing anywhere told the server: the row kept its
+      // `on` and the previous person's alias for the whole freshness window,
+      // and every escalation rung whose only outward channel is push was
+      // recorded as having woken somebody.
+      //
+      // Asserted off the source for the reason the late-driver test gives: a
+      // widget test cannot boot this provider, and this repo has already
+      // shipped a write path whose only defect was that nothing called it. The
+      // ORDER is asserted too, because a release posted after the token is gone
+      // is a guaranteed 401.
+      final String source = File(
+        'lib/app/providers/app_service_provider.dart',
+      ).readAsStringSync();
+
+      final int release = source.indexOf('releasePushDevice()');
+      final int logout = source.indexOf('await Auth.logout();');
+
+      expect(release, isNot(-1));
+      expect(logout, isNot(-1));
+      expect(release, lessThan(logout));
     });
 
     test('a report the server refused is made again, not remembered', () async {

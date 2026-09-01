@@ -188,6 +188,10 @@ class AppServiceProvider extends ServiceProvider {
   /// `API_URL` (which already ends in `/api/v1`).
   static const String _pushStatePath = '/devices/push-state';
 
+  /// The endpoint that stops this device vouching for the person leaving it,
+  /// relative to `API_URL`. See [releasePushDevice].
+  static const String _pushStateReleasePath = '/devices/push-state/release';
+
   /// The last state successfully reported, or `null` for a process that has
   /// reported nothing yet.
   ///
@@ -195,6 +199,17 @@ class AppServiceProvider extends ServiceProvider {
   /// the address it holds. `captured_at` is deliberately NOT part of it, since
   /// it moves on every read and would turn this memo into a permanent miss.
   static String? _lastReportedPushDeliveryState;
+
+  /// The subscription id the last ACCEPTED report was written under, or `null`
+  /// when nothing has been accepted yet.
+  ///
+  /// Held beside the memo above rather than parsed back out of it, because it
+  /// answers a different question: the memo says WHAT the server holds, this
+  /// says which ROW holds it. `push_devices` is keyed by (user, subscription
+  /// id), so this is the only thing on this side that can name the row a
+  /// release has to remove, and [releasePushDevice] falls back to it when the
+  /// live read cannot produce one.
+  static String? _reportedSubscriptionId;
 
   /// The driver whose change streams are currently watched, so a second call
   /// recognises the attachment it already holds instead of replacing it.
@@ -286,11 +301,115 @@ class AppServiceProvider extends ServiceProvider {
       }
 
       _lastReportedPushDeliveryState = state;
+      _reportedSubscriptionId = snapshot.subscriptionId;
     } catch (error) {
       // Same posture as the failure branch above, for the throwing half: a
       // transport error leaves the memo untouched, so the next lifecycle event
       // reports again rather than this device going quiet forever.
       Log.error('[AppServiceProvider] push delivery report failed: $error');
+    }
+  }
+
+  /// Tells the backend to stop counting this device as reaching the person who
+  /// is signing out of it.
+  ///
+  /// ## Why the sign-out needs its own call
+  ///
+  /// Every other push write in this class hangs off `Auth.stateNotifier`, and
+  /// that listener structurally cannot make this one: [reportPushDeliveryState]
+  /// returns on a signed-out session, rightly, because the endpoint is behind
+  /// `auth:sanctum`, and by the time the notifier bumps `Auth.logout()` has
+  /// already dropped the token. So nothing told the server at all, and the row
+  /// went on carrying `reachability: 'on'`, the previous person's `external_id`
+  /// and a fresh `reported_at`. `PushDevice::canReachByPush()` then answered
+  /// true for the whole freshness window (a day) and `EscalationDispatcher`
+  /// recorded each rung as having reached somebody, so for a responder whose
+  /// preference matrix leaves push as their only outward channel, a page was
+  /// booked as delivered to a handset nobody is signed into.
+  ///
+  /// The server's freshness horizon does not cover this. That constant
+  /// enumerates the false negatives it accepts, and every one of them is a
+  /// device that went SILENT: wiped, reinstalled, or silenced while the app was
+  /// closed. A sign-out is an event this client OBSERVES, on a live session,
+  /// with a valid token in hand.
+  ///
+  /// ## Called from `onLogout`, and awaited there
+  ///
+  /// It has to run in front of `Auth.logout()`: that call drops the bearer
+  /// token, and a release posted after it is a guaranteed 401. Awaiting costs
+  /// the person one request on their way out, which is the cheaper side of the
+  /// trade by a wide margin.
+  ///
+  /// ## What it names, and what it deliberately does not
+  ///
+  /// One device: the subscription id, which is the key `push_devices` is
+  /// written under. NOT every row this person owns, because an operator signing
+  /// out of a browser tab is still carrying the phone that pages them, and
+  /// releasing that would strand them for the rest of the window, which is the
+  /// same harm in the other direction. The live read is preferred and
+  /// [_reportedSubscriptionId] is the fallback, because the row the server
+  /// holds is the one the last accepted report created; a device whose driver
+  /// has since stopped answering would otherwise leave its own stale `on`
+  /// standing. With neither, there is nothing to release and nothing was ever
+  /// vouched for either: a row with no subscription id fails
+  /// `canReachByPush()` on its own.
+  ///
+  /// A subscription that was SWAPPED mid-session leaves the pre-swap row behind,
+  /// and that is out of this call's reach rather than overlooked: only the
+  /// server knows the addresses it has been told about, and a stale one is
+  /// exactly the silent-device case the freshness horizon is sized for.
+  ///
+  /// ## A refused release
+  ///
+  /// Logged at error level, and the sign-out proceeds. It is not retried (there
+  /// is no session left to retry under a moment later) and the person is not
+  /// held back (a sign-out that can fail is a session nobody can end). The memo
+  /// pair above is left untouched on failure, which keeps it honest: it mirrors
+  /// what the server holds, and a refused request left the server holding the
+  /// old row. What remains is a stale `on` bounded by the server's freshness
+  /// horizon, and that is the one shape this device's report genuinely cannot
+  /// distinguish itself from: a client that tried to speak and was not heard
+  /// looks exactly like a client that went quiet, which is the case that
+  /// horizon exists to bound.
+  ///
+  /// Public only so a test can drive it; the app reaches it through the
+  /// `onLogout` handler [boot] installs.
+  @visibleForTesting
+  static Future<void> releasePushDevice() async {
+    // 1. Nobody to release, and no token to do it with.
+    if (!Auth.check()) return;
+
+    try {
+      // 2. Which device this is. The read is the manager's, so a driver that
+      //    throws answers `unavailable` with no ids rather than taking the
+      //    sign-out down with it.
+      final PushDeliverySnapshot snapshot =
+          await Notify.manager.pushDeliverySnapshot();
+      final String? subscriptionId =
+          snapshot.subscriptionId ?? _reportedSubscriptionId;
+      if (subscriptionId == null) return;
+
+      final MagicResponse response = await Http.post(
+        _pushStateReleasePath,
+        data: <String, dynamic>{'subscription_id': subscriptionId},
+      );
+
+      if (!response.successful) {
+        Log.error(
+          '[AppServiceProvider] push device release refused '
+          'with ${response.statusCode}',
+        );
+
+        return;
+      }
+
+      // 3. The server no longer holds a row for this device, so neither half of
+      //    the memo may go on claiming it does: the next person on this handset
+      //    reports for themselves from scratch.
+      _lastReportedPushDeliveryState = null;
+      _reportedSubscriptionId = null;
+    } catch (error) {
+      Log.error('[AppServiceProvider] push device release failed: $error');
     }
   }
 
@@ -422,6 +541,7 @@ class AppServiceProvider extends ServiceProvider {
 
     _watchedPushDriver = null;
     _lastReportedPushDeliveryState = null;
+    _reportedSubscriptionId = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -959,6 +1079,13 @@ class AppServiceProvider extends ServiceProvider {
     MagicStarter.bootstrap(
       userFactory: (data) => User.fromMap(data),
       onLogout: () async {
+        // BEFORE the token is dropped, and awaited: this is the only moment in
+        // the app that holds both a live session and the knowledge that it is
+        // ending, and after `Auth.logout()` the release endpoint answers 401.
+        // Without it the server goes on vouching that a push reaches this
+        // responder on a handset nobody is signed into. See
+        // [releasePushDevice].
+        await releasePushDevice();
         await Auth.logout();
         MagicRoute.to(MagicStarterConfig.loginRoute());
       },

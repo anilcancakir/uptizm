@@ -156,6 +156,60 @@ class PushDevice extends Model
     }
 
     /**
+     * Stop one of [$user]'s devices vouching for them, because the person on it
+     * signed out.
+     *
+     * ## Why a sign-out needs its own write path at all
+     *
+     * {@see FRESH_FOR_HOURS} bounds the false negatives it knows about, and every
+     * one of them is a device that went SILENT: wiped, reinstalled, or silenced
+     * while the app was closed. A sign-out is not in that class. It is an event
+     * the client OBSERVES, on a live session, with a valid token still in hand,
+     * and OneSignal stops delivering this person's pushes to that subscription
+     * the moment the client detaches it. Without this call the row kept its
+     * `on`, its `reported_at` and the previous person's alias, so
+     * {@see canReachByPush()} answered true for a day and every rung whose only
+     * outward channel is push was recorded as having woken somebody.
+     *
+     * ## The row is removed rather than blanked
+     *
+     * This table answers exactly one question, "would a push sent to this
+     * person right now arrive at this device", and a device nobody is signed
+     * into on their behalf makes no statement about it. A row kept with a
+     * cleared alias would still carry a `reachability` and a `reported_at`, and
+     * every future reader of those two columns would have to remember that a
+     * third one silently disqualifies them. Removing it also makes the operation
+     * unambiguously idempotent, which a retried sign-out needs.
+     *
+     * ## Per device, and per session
+     *
+     * Addressed by (this user, this subscription id), which is the same key
+     * `store` writes under. Two properties fall out of that and both are
+     * load-bearing: a caller can only release a row of their own, so knowing
+     * somebody else's subscription id buys nothing; and the caller's OTHER
+     * devices are untouched, so an operator signing out of a browser tab is
+     * still reachable on the phone in their pocket. An "all my devices" release
+     * would strand that responder for the rest of the window, which is the same
+     * harm in the other direction.
+     *
+     * @param  User  $user  The person signing out, from the session.
+     * @param  string  $subscriptionId  The device this sign-out happened on.
+     */
+    public static function release(User $user, string $subscriptionId): void
+    {
+        $subscriptionId = trim($subscriptionId);
+
+        if ($subscriptionId === '') {
+            return;
+        }
+
+        self::query()
+            ->where('user_id', $user->getKey())
+            ->where('subscription_id', $subscriptionId)
+            ->delete();
+    }
+
+    /**
      * The OneSignal alias a push to [$user] is addressed to, or null when this
      * notifiable has none.
      *
