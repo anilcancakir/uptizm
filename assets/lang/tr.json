@@ -282,6 +282,9 @@
     "system": "Sistem"
   },
   "notifications": {
+    "delete_confirm_message": "Bu bildirim kalıcı olarak silinecek.",
+    "delete_confirm_title": "Bildirim silinsin mi?",
+    "delete_failed": "Bildirim silinemedi. Lütfen tekrar deneyin.",
     "empty": "Bildirim yok",
     "fetch_error": "Bildirim tercihleriniz yüklenemedi",
     "list_subtitle": "Bildirimlerinizi görüntüleyin ve yönetin",

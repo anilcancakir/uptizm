@@ -282,6 +282,9 @@
     "system": "System"
   },
   "notifications": {
+    "delete_confirm_message": "This notification will be permanently removed.",
+    "delete_confirm_title": "Delete notification?",
+    "delete_failed": "Could not delete the notification. Please try again.",
     "empty": "No notifications",
     "fetch_error": "Could not load your notification preferences",
     "list_subtitle": "View and manage your notifications",

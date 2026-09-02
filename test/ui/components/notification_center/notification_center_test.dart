@@ -114,6 +114,35 @@ void main() {
       );
     });
 
+    test('the fallback follows the configured profile prefix', () async {
+      // The case above passes on a literal too, because `/settings` is what
+      // this app happens to configure. This one moves the key, which is what
+      // the key is for: the preference screen lives under
+      // `magic_starter.routes.profile_prefix`, and a hardcoded answer here
+      // would keep pointing at a path the router no longer serves while the
+      // push notice beside this row followed the config correctly.
+      await Magic.init(
+        configFactories: <Map<String, dynamic> Function()>[
+          () => <String, dynamic>{
+            'magic_starter': <String, dynamic>{
+              'routes': <String, dynamic>{'profile_prefix': '/account'},
+            },
+          },
+        ],
+      );
+      addTearDown(() {
+        MagicApp.reset();
+        Magic.flush();
+      });
+
+      expect(
+        notificationRouteFor(
+          notification(incidentId: null, monitorId: null),
+        ),
+        '/account/notifications',
+      );
+    });
+
     test('reads a non-string id without throwing', () {
       // The backend writes an integer id on a non-UUID deployment, and a row
       // that throws while being decoded takes the whole bell down with it.

@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_notifications/magic_notifications.dart'
     show DatabaseNotification;
+import 'package:magic_starter/magic_starter.dart' show MagicStarterConfig;
 
 import '../../../app/enums/status_key.dart';
 import '../status_dot/index.dart';
@@ -55,6 +56,16 @@ enum AppNotificationKind {
 /// This map is what [AppServiceProvider.registerNotificationSurface] walks to
 /// register one `notifications.icon` slot per type; a type absent from it is
 /// answered by the `default` slot instead.
+///
+/// Only the three `incident_*` keys are reachable today: `backend/app/
+/// Notifications/` holds `IncidentOpened`, `IncidentEscalated` and
+/// `IncidentResolved` and nothing else, so no notification is published under a
+/// `monitor_*` type. Those three are kept rather than deleted because the
+/// mapping is the one a monitor-level notification would want and the cost of
+/// carrying it is three lines, where deleting it would mean a future
+/// `monitor_down` renders the generic fallback until somebody remembers this
+/// file. `incidents.monitor_down` in `IncidentTitle` is a TITLE catalogue key,
+/// not an event type, and is unrelated to these entries.
 const Map<String, AppNotificationKind> kNotificationKindsByEventType =
     <String, AppNotificationKind>{
       'monitor_down': AppNotificationKind.down,
@@ -76,6 +87,12 @@ const Map<String, AppNotificationKind> kNotificationKindsByEventType =
 /// `toString()` rather than a `String` cast: a deployment that has not switched
 /// its primary keys to UUIDs serves integer ids, and a row that throws while
 /// being decoded takes the whole bell down with it.
+///
+/// The fallback is composed through [MagicStarterConfig] rather than written
+/// out: the preference screen lives under `magic_starter.routes.profile_prefix`,
+/// a key that exists in order to be changed, and a literal here would keep
+/// answering `/settings/notifications` after the router stopped serving it while
+/// the push notice beside it followed the config correctly.
 String notificationRouteFor(DatabaseNotification notification) {
   final String? incidentId = notification.data['incident_id']?.toString();
   if (incidentId != null && incidentId.isNotEmpty) {
@@ -87,7 +104,7 @@ String notificationRouteFor(DatabaseNotification notification) {
     return '/monitors/$monitorId';
   }
 
-  return '/settings/notifications';
+  return MagicStarterConfig.notificationPreferencesRoute();
 }
 
 /// **The notification-row indicator.**

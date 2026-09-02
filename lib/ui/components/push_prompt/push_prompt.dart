@@ -348,10 +348,60 @@ class _PushPromptHostState extends State<PushPromptHost> {
   /// Whether an enable request is in flight.
   bool _busy = false;
 
+  /// The driver reports this widget listens to while it is mounted.
+  ///
+  /// The same pair, and for the same reason, as [PushOffNotice]: either stream
+  /// can end the state this prompt is about. It matters MORE here, because this
+  /// is the surface an operator is sent to in order to fix push, and the fix
+  /// almost always lands out of band. `requestPermission` on an already-denied
+  /// device opens the platform settings page rather than a dialog, so the grant
+  /// arrives while this widget is backgrounded and unchanged; and a granted
+  /// request whose subscription has not landed yet reads as `off` until the
+  /// identity stream carries it (see [_asked]). Without these two, the one
+  /// screen that exists to turn push on is the only one that never notices push
+  /// was turned on.
+  final List<StreamSubscription<Object?>> _watching =
+      <StreamSubscription<Object?>>[];
+
   @override
   void initState() {
     super.initState();
     unawaited(_read());
+    _watch();
+  }
+
+  @override
+  void dispose() {
+    for (final StreamSubscription<Object?> subscription in _watching) {
+      unawaited(subscription.cancel());
+    }
+    _watching.clear();
+    super.dispose();
+  }
+
+  /// Follows everything the driver reports about this device's state.
+  ///
+  /// Re-reads through [_read] rather than [_apply] so the stored decline is
+  /// re-fetched too: a grant arriving after a decline has to clear the compact
+  /// row, not re-render it against a stale timestamp.
+  void _watch() {
+    final PushDriver? driver = Notify.manager.pushDriverOrNull;
+    if (driver == null) return;
+
+    _watching.add(
+      driver.onPermissionChanged.listen(
+        (_) => unawaited(_read()),
+        onError: (Object error) =>
+            Log.error('[PushPromptHost] permission stream failed: $error'),
+      ),
+    );
+    _watching.add(
+      driver.onIdentityChanged.listen(
+        (_) => unawaited(_read()),
+        onError: (Object error) =>
+            Log.error('[PushPromptHost] identity stream failed: $error'),
+      ),
+    );
   }
 
   /// Reads the decline this device carries, then what the package makes of it.
@@ -629,8 +679,23 @@ class _PushOffNoticeState extends State<PushOffNotice> {
     final PushDriver? driver = Notify.manager.pushDriverOrNull;
     if (driver == null) return;
 
-    _watching.add(driver.onPermissionChanged.listen((_) => unawaited(_read())));
-    _watching.add(driver.onIdentityChanged.listen((_) => unawaited(_read())));
+    // Both carry an `onError`: the driver pipes a failed platform read into
+    // these streams instead of swallowing it, and a subscription without a
+    // handler would hand that to the zone as an unhandled async error.
+    _watching.add(
+      driver.onPermissionChanged.listen(
+        (_) => unawaited(_read()),
+        onError: (Object error) =>
+            Log.error('[PushOffNotice] permission stream failed: $error'),
+      ),
+    );
+    _watching.add(
+      driver.onIdentityChanged.listen(
+        (_) => unawaited(_read()),
+        onError: (Object error) =>
+            Log.error('[PushOffNotice] identity stream failed: $error'),
+      ),
+    );
   }
 
   /// Asks the package where this device stands.

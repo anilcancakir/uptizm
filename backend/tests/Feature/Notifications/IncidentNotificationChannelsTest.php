@@ -7,6 +7,7 @@ use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\NotificationChannel;
 use App\Models\User;
+use App\Notifications\IncidentEscalated;
 use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
 use FlutterSdk\MagicStarter\Models\Team;
@@ -318,7 +319,20 @@ class IncidentNotificationChannelsTest extends TestCase
         // the shape here is the contract and this test is what pins it.
         $payload = $message->data;
         $this->assertSame('fixed-notification-id', $payload['id']);
-        $this->assertSame(IncidentOpened::class, $payload['type']);
+        // The EVENT TOKEN, not the class name, and this assertion used to say
+        // the opposite. `NotificationResource` serves `data['type']` as the
+        // row's type, the client reads this top-level key in
+        // `DatabaseNotification.fromMap`, and uptizm's icon lookup keys on the
+        // token. A class name here made one notification arrive as two
+        // different types depending on its transport: a row delivered over the
+        // socket missed the lookup and rendered the generic fallback icon,
+        // then silently changed to the right one on the next fetch.
+        $this->assertSame('incident_opened', $payload['type']);
+        $this->assertSame(
+            $payload['data']['type'],
+            $payload['type'],
+            'the frame and the row it carries must name one type',
+        );
         $this->assertNull($payload['read_at']);
         $this->assertNotNull($payload['created_at']);
         $this->assertIsArray($payload['data']);
@@ -329,6 +343,38 @@ class IncidentNotificationChannelsTest extends TestCase
         );
         $this->assertArrayHasKey('title', $payload['data']);
         $this->assertArrayHasKey('body', $payload['data']);
+    }
+
+    public function test_the_resolved_frame_names_the_event_token_too(): void
+    {
+        // Its own case because `IncidentResolved` declares its own
+        // `toBroadcast()` rather than inheriting: the same line was wrong in
+        // two files, and a test covering only the first would have let the
+        // recovery notification keep arriving as a class name.
+        $incident = $this->makeIncident();
+        $user = User::factory()->create();
+        $notification = new IncidentResolved($incident);
+        $notification->id = 'fixed-resolved-id';
+
+        $payload = $notification->toBroadcast($user)->data;
+
+        $this->assertSame('incident_resolved', $payload['type']);
+        $this->assertSame($payload['data']['type'], $payload['type']);
+    }
+
+    public function test_the_escalated_frame_names_its_own_event_token(): void
+    {
+        // `IncidentEscalated` extends `IncidentOpened` and overrides only
+        // `eventType()`, so this proves the inherited `toBroadcast()` reads the
+        // subclass's token rather than the parent's. `static::class` happened to
+        // get this right; a hardcoded parent token would not have.
+        $incident = $this->makeIncident();
+        $user = User::factory()->create();
+
+        $payload = (new IncidentEscalated($incident))->toBroadcast($user)->data;
+
+        $this->assertSame('incident_escalated', $payload['type']);
+        $this->assertSame($payload['data']['type'], $payload['type']);
     }
 
     public function test_the_broadcast_frame_goes_to_the_notifiable_own_channel(): void

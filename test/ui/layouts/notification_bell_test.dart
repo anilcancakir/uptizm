@@ -71,6 +71,70 @@ void main() {
 
       expect(find.byType(NotificationDropdown), findsOneWidget);
     });
+
+    /// Asserts the mounted dropdown wears uptizm's tokens, not the package's.
+    ///
+    /// On the widget's parameters rather than on rendered pixels, because the
+    /// override IS the contract: `NotificationDropdown` composes these strings
+    /// itself, and each one REPLACES its default outright, so a shell that
+    /// passes nothing ships Wind's own palette (`bg-white`, `text-gray-500`,
+    /// `bg-red-500`) next to controls written in semantic aliases.
+    void expectAppTokens(WidgetTester tester) {
+      final NotificationDropdown bell = tester.widget<NotificationDropdown>(
+        find.byType(NotificationDropdown),
+      );
+
+      expect(bell.triggerClassName, kNotificationBellTriggerClassName);
+      expect(bell.triggerIconClassName, kNotificationBellTriggerIconClassName);
+      expect(bell.panelClassName, kNotificationBellPanelClassName);
+      expect(bell.badgeClassName, kNotificationBellBadgeClassName);
+      expect(bell.badgeTextClassName, kNotificationBellBadgeTextClassName);
+
+      // The palette half specifically, so a future edit that keeps the
+      // constants wired but empties them of app tokens still turns this red.
+      expect(bell.panelClassName, contains('bg-surface-container'));
+      expect(bell.badgeClassName, contains('bg-down'));
+      expect(bell.badgeTextClassName, contains('text-on-destructive'));
+      expect(bell.triggerIconClassName, contains('text-fg-muted'));
+
+      // Both trigger states, because the widget computes them and hands them
+      // down as Wind states: this string is the only place they can be given a
+      // tone, and an override that carries neither ships a bell that looks
+      // identical whether its panel is open or shut. `active:` is the one that
+      // matters on a touch device, where there is no hover to fall back on.
+      expect(bell.triggerClassName, contains('hover:bg-surface-container'));
+      expect(bell.triggerClassName, contains('active:bg-surface-container'));
+    }
+
+    testWidgets('the desktop sidebar dresses the bell in the app tokens', (
+      tester,
+    ) async {
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(1200, 900);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(wrap(const Sidebar(currentPath: '/')));
+      await tester.pump();
+
+      expectAppTokens(tester);
+    });
+
+    testWidgets('the mobile top bar dresses the bell in the app tokens', (
+      tester,
+    ) async {
+      // Its own case for the reason the mount cases above are two: the shells
+      // are two classes, and dressing one is not dressing the other.
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(390, 844);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(wrap(const MobileTopBar()));
+      await tester.pump();
+
+      expectAppTokens(tester);
+    });
   });
 
   // ---------------------------------------------------------------------------

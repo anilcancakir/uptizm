@@ -102,10 +102,15 @@ class IncidentResolved extends Notification implements ShouldQueue
      */
     public function toBroadcast(mixed $notifiable): BroadcastMessage
     {
+        $data = $this->toArray($notifiable);
+
         return new BroadcastMessage([
             'id' => $this->id,
-            'type' => static::class,
-            'data' => $this->toArray($notifiable),
+            // See the same line in `IncidentOpened::toBroadcast()`: the frame's
+            // `type` is the payload's, not the class name, because the client
+            // reads this key and the API row serves the event token.
+            'type' => $data['type'],
+            'data' => $data,
             'created_at' => now()->toIso8601String(),
             'read_at' => null,
         ]);

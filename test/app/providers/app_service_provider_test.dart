@@ -1376,6 +1376,49 @@ void main() {
       );
     });
 
+    testWidgets('a deep link carrying a host is refused, not navigated', (
+      WidgetTester tester,
+    ) async {
+      // The guard's own comment says a push "can also be composed by hand in
+      // the OneSignal dashboard, and handing an arbitrary string to the router
+      // is not a navigation this app should perform". `startsWith('/')` alone
+      // does not say that: `//evil.example/incidents/inc-9` passes it while
+      // parsing to a URI whose authority is somebody else's host, and
+      // `MagicRoute.to` hands its argument straight to `GoRouter.go` with no
+      // sanitising of its own.
+      final FakeLogManager log = Log.fake();
+      signIn(<String, dynamic>{'id': 't1', 'name': 'Alpha'});
+      await mountRouter(tester);
+      final _TappablePushDriver driver = listen();
+
+      final String? before = MagicRouter.instance.currentPath;
+
+      driver.tap(<String, dynamic>{
+        'type': 'incident_opened',
+        'incident_id': 'inc-9',
+        'kind': 'incident',
+        'team_id': 't1',
+        'deep_link': '//evil.example/incidents/inc-9',
+      });
+      await settleTap(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(
+        MagicRouter.instance.currentPath,
+        before,
+        reason: 'the tap moved the app nowhere',
+      );
+      expect(
+        log.entries
+            .where(
+              (FakeLogEntry entry) =>
+                  entry.message.contains('names no in-app destination'),
+            )
+            .length,
+        1,
+      );
+    });
+
     testWidgets('a tap arriving while the local team is unresolved navigates '
         'without attempting a switch', (WidgetTester tester) async {
       // The local mirror of the absent-payload-team case above: a restored

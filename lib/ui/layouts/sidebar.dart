@@ -315,6 +315,14 @@ class _NotificationBell extends StatelessWidget {
         onNotificationTap: (notification) =>
             MagicRoute.to(notificationRouteFor(notification)),
         onViewAll: () => MagicRoute.to(MagicStarterConfig.notificationsRoute()),
+        // Without these the bell renders the package's own Wind palette and
+        // reads as a foreign control in this shell. Shared with the mobile top
+        // bar so the two cannot drift.
+        triggerClassName: kNotificationBellTriggerClassName,
+        triggerIconClassName: kNotificationBellTriggerIconClassName,
+        panelClassName: kNotificationBellPanelClassName,
+        badgeClassName: kNotificationBellBadgeClassName,
+        badgeTextClassName: kNotificationBellBadgeTextClassName,
       ),
     );
   }
