@@ -156,13 +156,13 @@ class AnalyzeMonitorRequest extends FormRequest
             $host = parse_url((string) $value, PHP_URL_HOST);
 
             if (! is_string($host) || $host === '') {
-                $fail('The :attribute must contain a valid host.');
+                $fail('guards.host.field.no_host')->translate();
 
                 return;
             }
 
             if ($this->hostGuard()->isBlockedHost($host)) {
-                $fail('The :attribute host is not allowed.');
+                $fail('guards.host.field.not_allowed')->translate();
             }
         };
     }

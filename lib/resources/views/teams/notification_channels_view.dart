@@ -396,9 +396,15 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
       );
     }
 
+    // The switch carries no visible label of its own: the channel name sits in
+    // a sibling column, so without a semantic label a screen reader announced a
+    // bare "switch" with nothing saying which integration it turns off, and an
+    // E2E driver had no handle to resolve it by. The channel name is what the
+    // sighted reader pairs it with, so it is what the assistive reader hears.
     return MSSwitch(
       value: record.isEnabled,
       onChanged: (bool value) => _setEnabled(record, value),
+      semanticLabel: type.label,
     );
   }
 

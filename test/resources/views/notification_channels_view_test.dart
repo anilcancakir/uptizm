@@ -422,6 +422,37 @@ void main() {
     },
   );
 
+  testWidgets(
+    "a connected channel's enable switch is named after the channel",
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      Http.fake();
+      NotificationChannelController.instance.seedForTest([
+        const NotificationChannelRecord(
+          id: 'nc1',
+          type: ChannelType.slack,
+          name: 'Slack',
+          isEnabled: true,
+          severity: 'all',
+          hasCredentials: true,
+          detail: '#incidents',
+        ),
+      ]);
+
+      await tester.pumpWidget(wrap(const NotificationChannelsView()));
+      await tester.pump();
+
+      // Read the property rather than `find.bySemanticsLabel`: the channel name
+      // also renders as a sibling WText, so a label lookup passes even when the
+      // switch itself is anonymous, which is the exact defect this pins.
+      final MSSwitch toggle = tester.widget<MSSwitch>(find.byType(MSSwitch));
+
+      expect(toggle.semanticLabel, 'Slack');
+    },
+  );
+
   /// The phone-width regression gate: this view used to blow past a 390px
   /// viewport, which no desktop-sized test could catch. Two flexes overflowed
   /// (the push heads-up row, and the severity segmented control inside the

@@ -33,9 +33,12 @@ class PlanGatedInviteTeamMember extends InviteTeamMember
                 // (unaccepted) invitations, so a team cannot over-invite the cap.
                 $committed = $gate->respondersUsed($team) + $team->invitations()->count();
                 if ($committed >= $limit) {
-                    $suffix = $limit === 1 ? '' : 's';
+                    $key = $limit === 1
+                        ? 'guards.team.responder_limit_reached_singular'
+                        : 'guards.team.responder_limit_reached_plural';
+
                     throw ValidationException::withMessages([
-                        'email' => "Your {$gate->planLabel($team)} plan is limited to {$limit} responder{$suffix}. Upgrade to invite more.",
+                        'email' => __($key, ['plan' => $gate->planLabel($team), 'limit' => $limit]),
                     ]);
                 }
             }

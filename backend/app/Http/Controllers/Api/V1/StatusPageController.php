@@ -352,7 +352,7 @@ class StatusPageController extends Controller
         $limit = $team !== null ? (new PlanGate)->subscriberLimit($team) : null;
         if ($limit !== null && $statusPage->subscribers()->count() >= $limit) {
             throw ValidationException::withMessages([
-                'email' => "This status page has reached its {$limit}-subscriber limit. Upgrade the team's plan to add more.",
+                'email' => __('guards.status_page.subscriber_limit_reached', ['limit' => $limit]),
             ]);
         }
 

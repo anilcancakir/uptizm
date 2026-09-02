@@ -86,6 +86,82 @@ class NotificationChannelControllerTest extends TestCase
         ]);
     }
 
+    public function test_a_turkish_client_gets_turkish_validation_errors(): void
+    {
+        // The whole API used to answer every validation error in English: no
+        // lang/*/validation.php existed in any locale, and the app's own
+        // messages were string literals. Measured in a real browser before the
+        // fix, on this exact endpoint: a Turkish UI painted "The url must use
+        // the https scheme." under a Turkish field label.
+        //
+        // Three layers have to line up for this to pass, which is why one test
+        // covers all three rather than three covering one each: the client's
+        // Accept-Language has to reach SetApiLocale, a stock rule message
+        // (`required`) has to resolve from lang/tr/validation.php, and a
+        // hand-written one (the https refusal) has to resolve from
+        // lang/tr/guards.php.
+        $this->actingAsTeamMember();
+
+        $response = $this->withHeader('Accept-Language', 'tr')
+            ->postJson('/api/v1/notification-channels', [
+                'channel_type' => 'webhook',
+                'credentials' => [
+                    'url' => 'http://example.com/hook',
+                    'secret' => 'shhh',
+                ],
+            ]);
+
+        $response->assertStatus(422);
+
+        $errors = $response->json('errors');
+
+        // A stock Laravel rule, through lang/tr/validation.php, with the
+        // friendly attribute name from its `attributes` block rather than the
+        // raw field key.
+        $this->assertSame(
+            'Ad alanı zorunludur.',
+            $errors['name'][0],
+            'a stock rule message did not resolve in Turkish',
+        );
+
+        // The app's own guard message, through lang/tr/guards.php.
+        $this->assertSame(
+            'Url https şeması kullanmalıdır.',
+            $errors['credentials.url'][0],
+            'a hand-written guard message did not resolve in Turkish',
+        );
+    }
+
+    public function test_an_english_client_still_gets_the_english_messages(): void
+    {
+        // The other half: making the API bilingual must not move what an
+        // English client reads, and every existing assertion in this suite is
+        // written against the English text.
+        $this->actingAsTeamMember();
+
+        $response = $this->withHeader('Accept-Language', 'en')
+            ->postJson('/api/v1/notification-channels', [
+                'name' => 'Insecure',
+                'channel_type' => 'webhook',
+                'credentials' => [
+                    'url' => 'http://example.com/hook',
+                    'secret' => 'shhh',
+                ],
+            ]);
+
+        $response->assertStatus(422);
+
+        // Read the errors map and index it, rather than a dotted json path:
+        // the KEY itself contains a dot (`credentials.url`), and `json()`
+        // resolves its argument through dot notation with no way to escape one.
+        $errors = $response->json('errors');
+
+        $this->assertSame(
+            'The url must use the https scheme.',
+            $errors['credentials.url'][0],
+        );
+    }
+
     public function test_store_rejects_a_channel_type_outside_the_enum(): void
     {
         $this->actingAsTeamMember();

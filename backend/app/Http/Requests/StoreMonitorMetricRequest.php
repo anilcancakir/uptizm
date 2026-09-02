@@ -503,8 +503,8 @@ class StoreMonitorMetricRequest extends FormRequest
         // Reported on `critical_bound`: it is the bound the operator sets
         // second and the one that has to be the more extreme of the pair.
         $validator->errors()->add('critical_bound', match ($direction) {
-            ThresholdDirection::HighBad => 'Critical must be above the warning bound when higher values are worse.',
-            ThresholdDirection::LowBad => 'Critical must be below the warning bound when lower values are worse.',
+            ThresholdDirection::HighBad => __('guards.threshold.critical_above_warning'),
+            ThresholdDirection::LowBad => __('guards.threshold.critical_below_warning'),
         });
     }
 
@@ -648,8 +648,8 @@ class StoreMonitorMetricRequest extends FormRequest
         }
 
         $validator->errors()->add("{$errorPrefix}critical_bound", match ($direction) {
-            ThresholdDirection::HighBad => 'Critical must be above the warning bound when higher values are worse.',
-            ThresholdDirection::LowBad => 'Critical must be below the warning bound when lower values are worse.',
+            ThresholdDirection::HighBad => __('guards.threshold.critical_above_warning'),
+            ThresholdDirection::LowBad => __('guards.threshold.critical_below_warning'),
         });
     }
 
