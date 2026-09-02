@@ -57,7 +57,7 @@ class StoreSubscriptionGuardedDeleteTeam extends DeleteTeam
     {
         if (self::storeIsBilling($team)) {
             throw ValidationException::withMessages([
-                'team' => 'A store subscription is still billing this team. Cancel it in the store account that bought it first: deleting the team now would remove the plan and leave the store charging you, and this app cannot cancel it for you.',
+                'team' => __('guards.team.store_subscription_active'),
             ])->errorBag('deleteTeam');
         }
 

@@ -52,10 +52,16 @@ class StoreStatusPageRequest extends FormRequest
             if (! ($this->route('statusPage') instanceof StatusPage)) {
                 $limit = $gate->statusPageLimit($team);
                 if ($limit !== null && $gate->statusPagesUsed($team) >= $limit) {
-                    $suffix = $limit === 1 ? '' : 's';
+                    $key = $limit === 1
+                        ? 'guards.status_page.limit_reached_singular'
+                        : 'guards.status_page.limit_reached_plural';
+
                     $validator->errors()->add(
                         'plan',
-                        "Your {$gate->planLabel($team)} plan is limited to {$limit} status page{$suffix}. Upgrade to add more.",
+                        __($key, [
+                            'plan' => $gate->planLabel($team),
+                            'limit' => $limit,
+                        ]),
                     );
                 }
             }
@@ -65,7 +71,7 @@ class StoreStatusPageRequest extends FormRequest
             if ($this->has('is_public') && ! $this->boolean('is_public') && ! $gate->allowsPrivatePages($team)) {
                 $validator->errors()->add(
                     'is_public',
-                    'Private status pages are available on the Business plan and up. Upgrade to make a page private.',
+                    __('guards.status_page.private_requires_business'),
                 );
             }
         });

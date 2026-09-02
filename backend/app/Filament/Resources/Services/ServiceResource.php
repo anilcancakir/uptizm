@@ -89,13 +89,13 @@ class ServiceResource extends Resource
 
         if (blank($data['terms_reviewed_at'] ?? null)) {
             throw ValidationException::withMessages([
-                'data.is_published' => 'Cannot publish: terms have not been reviewed.',
+                'data.is_published' => __('guards.publish.terms_not_reviewed'),
             ]);
         }
 
         if ($selectedMonitorIds === []) {
             throw ValidationException::withMessages([
-                'data.is_published' => 'Cannot publish: no monitor is attached.',
+                'data.is_published' => __('guards.publish.no_monitor_attached'),
             ]);
         }
     }

@@ -300,7 +300,9 @@
     "channel_email": "E-posta",
     "channel_in_app": "Uygulama İçi",
     "channel_push": "Anlık Bildirim",
-    "channel_push_unconfigured": "Anlık bildirim henüz yapılandırılmadı"
+    "channel_push_unconfigured": "Anlık bildirim henüz yapılandırılmadı",
+    "channel_sms": "SMS",
+    "delete": "Bildirimi sil"
   },
   "profile": {
     "browser_sessions": "Tarayıcı Oturumları",
@@ -405,9 +407,9 @@
   },
   "time": {
     "days_ago": ":days gün önce",
-    "hours_ago": ":hours saat önce",
+    "hours_ago": ":hours sa önce",
     "just_now": "Az önce",
-    "minutes_ago": ":minutes dakika önce",
+    "minutes_ago": ":minutes dk önce",
     "date_format": ":day/:month/:year"
   },
   "uptizm": {

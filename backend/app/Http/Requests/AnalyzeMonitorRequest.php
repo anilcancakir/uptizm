@@ -136,7 +136,7 @@ class AnalyzeMonitorRequest extends FormRequest
     {
         return function (string $attribute, mixed $value, Closure $fail): void {
             if ($this->hostGuard()->carriesCredentials((string) $value)) {
-                $fail('The :attribute must not embed a username or password. Use the monitor\'s authentication settings instead.');
+                $fail('guards.host.field.no_embedded_credential')->translate();
             }
         };
     }
@@ -156,13 +156,13 @@ class AnalyzeMonitorRequest extends FormRequest
             $host = parse_url((string) $value, PHP_URL_HOST);
 
             if (! is_string($host) || $host === '') {
-                $fail('The :attribute must contain a valid host.');
+                $fail('guards.host.field.no_host')->translate();
 
                 return;
             }
 
             if ($this->hostGuard()->isBlockedHost($host)) {
-                $fail('The :attribute host is not allowed.');
+                $fail('guards.host.field.not_allowed')->translate();
             }
         };
     }

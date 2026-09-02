@@ -160,13 +160,13 @@ class HostGuard
 
         if (! is_string($host) || $host === '') {
             throw ValidationException::withMessages([
-                'url' => 'The url must contain a valid host.',
+                'url' => __('guards.host.no_host'),
             ]);
         }
 
         if ($this->isBlockedHost($host)) {
             throw ValidationException::withMessages([
-                'url' => 'The url host is not allowed.',
+                'url' => __('guards.host.not_allowed'),
             ]);
         }
     }
@@ -202,7 +202,7 @@ class HostGuard
         // 1. A malformed URL has no safe interpretation; reject outright.
         if (! is_array($parts)) {
             throw ValidationException::withMessages([
-                'url' => 'The url is malformed.',
+                'url' => __('guards.host.malformed'),
             ]);
         }
 
@@ -210,7 +210,7 @@ class HostGuard
         //    non-http(s) schemes (file, gopher, ...) are classic SSRF vectors.
         if (($parts['scheme'] ?? null) !== 'https') {
             throw ValidationException::withMessages([
-                'url' => 'The url must use the https scheme.',
+                'url' => __('guards.host.https_required'),
             ]);
         }
 
@@ -218,14 +218,14 @@ class HostGuard
         //    confusion and non-standard ports are internal-reach vectors.
         if (isset($parts['user']) || isset($parts['pass']) || isset($parts['port'])) {
             throw ValidationException::withMessages([
-                'url' => 'The url must not contain credentials or a port.',
+                'url' => __('guards.host.no_credentials_or_port'),
             ]);
         }
 
         $host = $parts['host'] ?? null;
         if (! is_string($host) || $host === '') {
             throw ValidationException::withMessages([
-                'url' => 'The url must contain a valid host.',
+                'url' => __('guards.host.no_host'),
             ]);
         }
 
@@ -234,7 +234,7 @@ class HostGuard
         // 4. Reject reserved names that never front a public host.
         if ($host === 'localhost' || str_ends_with($host, '.internal')) {
             throw ValidationException::withMessages([
-                'url' => 'The url host is not allowed.',
+                'url' => __('guards.host.not_allowed'),
             ]);
         }
 
@@ -244,7 +244,7 @@ class HostGuard
 
         if ($ips === []) {
             throw ValidationException::withMessages([
-                'url' => 'The url host could not be resolved.',
+                'url' => __('guards.host.unresolvable'),
             ]);
         }
 
@@ -253,7 +253,7 @@ class HostGuard
         foreach ($ips as $ip) {
             if ($this->isBlockedIp($ip)) {
                 throw ValidationException::withMessages([
-                    'url' => 'The url host is not allowed.',
+                    'url' => __('guards.host.not_allowed'),
                 ]);
             }
         }

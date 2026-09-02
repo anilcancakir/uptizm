@@ -300,7 +300,9 @@
     "channel_email": "Email",
     "channel_in_app": "In-App",
     "channel_push": "Push",
-    "channel_push_unconfigured": "Push not yet configured"
+    "channel_push_unconfigured": "Push not yet configured",
+    "channel_sms": "SMS",
+    "delete": "Delete notification"
   },
   "profile": {
     "browser_sessions": "Browser Sessions",
@@ -404,10 +406,10 @@
     "updated": "Team updated successfully."
   },
   "time": {
-    "days_ago": ":days d ago",
-    "hours_ago": ":hours h ago",
+    "days_ago": ":daysd ago",
+    "hours_ago": ":hoursh ago",
     "just_now": "Just now",
-    "minutes_ago": ":minutes m ago",
+    "minutes_ago": ":minutesm ago",
     "date_format": ":day/:month/:year"
   },
   "uptizm": {
