@@ -16,7 +16,6 @@ use App\Support\Monitoring\HostGuard;
 use Closure;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 /**
@@ -104,7 +103,10 @@ class StoreMonitorRequest extends FormRequest
                 if ($limit !== null && $gate->monitorsUsed($team) >= $limit) {
                     $validator->errors()->add(
                         'plan',
-                        "Your {$gate->planLabel($team)} plan is limited to {$limit} monitors. Upgrade to add more.",
+                        __('guards.team.monitor_limit_reached', [
+                            'plan' => $gate->planLabel($team),
+                            'limit' => $limit,
+                        ]),
                     );
                 }
             }
@@ -134,7 +136,10 @@ class StoreMonitorRequest extends FormRequest
             if ($interval > 0 && $interval < $floor && $exceedsStored) {
                 $validator->errors()->add(
                     'check_interval_sec',
-                    "Your {$gate->planLabel($team)} plan checks at most every {$floor}s. Upgrade for faster checks.",
+                    __('guards.team.check_interval_floor', [
+                        'plan' => $gate->planLabel($team),
+                        'seconds' => "{$floor}s",
+                    ]),
                 );
             }
 
@@ -148,10 +153,16 @@ class StoreMonitorRequest extends FormRequest
             $allowance = $gate->maxRegionsPerMonitor($team);
 
             if ($submittedCount > $allowance && $submittedCount > count($stored)) {
-                $noun = Str::plural('region', $allowance);
+                $key = $allowance === 1
+                    ? 'guards.team.region_limit_reached_singular'
+                    : 'guards.team.region_limit_reached_plural';
+
                 $validator->errors()->add(
                     'regions',
-                    "Your {$gate->planLabel($team)} plan checks from at most {$allowance} {$noun} per monitor. Upgrade to add more.",
+                    __($key, [
+                        'plan' => $gate->planLabel($team),
+                        'limit' => $allowance,
+                    ]),
                 );
             }
 

@@ -274,6 +274,48 @@ class MonitorControllerTest extends TestCase
         $response->assertStatus(422);
         $response->assertJsonValidationErrors('regions');
         Queue::assertNothingPushed();
+
+        // The SENTENCE, not just the field. This refusal moved from an inline
+        // English literal to `guards.team.region_limit_reached_*`, and a wrong
+        // key or a dropped `:plan`/`:limit` placeholder still produces a 422 on
+        // the right field, so asserting the field alone would not have noticed.
+        // It also pins the singular arm: the Free allowance is exactly one, so
+        // "region" here rather than "regions" is the plural selection working.
+        $this->assertSame(
+            'Your Free plan checks from at most 1 region per monitor. Upgrade to add more.',
+            $response->json('errors.regions.0'),
+        );
+    }
+
+    public function test_the_region_allowance_refusal_is_translated(): void
+    {
+        // The Turkish half of the sentence above. This whole family used to be
+        // English literals inside the FormRequest, so a Turkish operator hitting
+        // a plan limit read an English refusal on an otherwise Turkish screen.
+        Queue::fake();
+        $team = $this->actingAsTeamMember();
+
+        // Re-bind after setting the locale. `Sanctum::actingAs` binds a user
+        // INSTANCE, and `SetApiLocale` reads `$request->user()->locale` off
+        // that instance, so writing the column afterwards leaves the bound copy
+        // carrying the old value and the response comes back in English.
+        $user = User::findOrFail($team->user_id);
+        $user->forceFill(['locale' => 'tr'])->save();
+        Sanctum::actingAs($user->fresh());
+
+        $response = $this->postJson('/api/v1/monitors', [
+            ...$this->validPayload(),
+            'regions' => [
+                'us-east',
+                'eu-west',
+            ],
+        ]);
+
+        $response->assertStatus(422);
+        $this->assertSame(
+            'Planınız (Free) her monitörü en fazla 1 bölgeden kontrol eder. Daha fazla eklemek için yükseltin.',
+            $response->json('errors.regions.0'),
+        );
     }
 
     public function test_a_grandfathered_monitor_saves_at_its_stored_region_count(): void

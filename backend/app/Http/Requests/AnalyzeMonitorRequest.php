@@ -136,7 +136,7 @@ class AnalyzeMonitorRequest extends FormRequest
     {
         return function (string $attribute, mixed $value, Closure $fail): void {
             if ($this->hostGuard()->carriesCredentials((string) $value)) {
-                $fail('The :attribute must not embed a username or password. Use the monitor\'s authentication settings instead.');
+                $fail('guards.host.field.no_embedded_credential')->translate();
             }
         };
     }

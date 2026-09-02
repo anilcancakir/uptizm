@@ -433,7 +433,11 @@ void main() {
         const NotificationChannelRecord(
           id: 'nc1',
           type: ChannelType.slack,
-          name: 'Slack',
+          // Deliberately NOT 'Slack'. The label under test comes from
+          // `type.label`, and with the record named 'Slack' too the assertion
+          // passed either way: it could not tell the channel TYPE's name from
+          // whatever the team happened to call this connection.
+          name: 'Ops Slack',
           isEnabled: true,
           severity: 'all',
           hasCredentials: true,
@@ -450,6 +454,11 @@ void main() {
       final MSSwitch toggle = tester.widget<MSSwitch>(find.byType(MSSwitch));
 
       expect(toggle.semanticLabel, 'Slack');
+      expect(
+        toggle.semanticLabel,
+        isNot('Ops Slack'),
+        reason: 'the switch was named after the record, not the channel type',
+      );
     },
   );
 

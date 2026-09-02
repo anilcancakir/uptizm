@@ -139,9 +139,13 @@ class NotificationChannelControllerTest extends TestCase
         // written against the English text.
         $this->actingAsTeamMember();
 
+        // The payload deliberately omits `name`, mirroring the Turkish case:
+        // sending one means `required` never fires, and then this test asserts
+        // only the guard message and cannot see the `attributes` block at all.
+        // That block is the one thing here that DID change English output, so
+        // it is the thing most worth pinning.
         $response = $this->withHeader('Accept-Language', 'en')
             ->postJson('/api/v1/notification-channels', [
-                'name' => 'Insecure',
                 'channel_type' => 'webhook',
                 'credentials' => [
                     'url' => 'http://example.com/hook',
@@ -155,6 +159,14 @@ class NotificationChannelControllerTest extends TestCase
         // the KEY itself contains a dot (`credentials.url`), and `json()`
         // resolves its argument through dot notation with no way to escape one.
         $errors = $response->json('errors');
+
+        // A stock rule, reading its field name through `attributes`. Adding
+        // that block is what turned "the name field" into "the Name field",
+        // and this is the assertion that notices if it moves again.
+        $this->assertSame(
+            'The Name field is required.',
+            $errors['name'][0],
+        );
 
         $this->assertSame(
             'The url must use the https scheme.',
