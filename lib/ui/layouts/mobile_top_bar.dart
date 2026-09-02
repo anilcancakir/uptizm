@@ -218,6 +218,13 @@ class _MobileBell extends StatelessWidget {
         onNotificationTap: (notification) =>
             MagicRoute.to(notificationRouteFor(notification)),
         onViewAll: () => MagicRoute.to(MagicStarterConfig.notificationsRoute()),
+        // The same five the sidebar passes, from the same constants: this shell
+        // and that one show the same control and must not diverge.
+        triggerClassName: kNotificationBellTriggerClassName,
+        triggerIconClassName: kNotificationBellTriggerIconClassName,
+        panelClassName: kNotificationBellPanelClassName,
+        badgeClassName: kNotificationBellBadgeClassName,
+        badgeTextClassName: kNotificationBellBadgeTextClassName,
       ),
     );
   }

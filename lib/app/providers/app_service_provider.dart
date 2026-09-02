@@ -495,11 +495,24 @@ class AppServiceProvider extends ServiceProvider {
     _cancelPushDeliverySubscriptions();
     _watchedPushDriver = driver;
 
+    // Both carry an `onError`, because both streams carry errors: the driver's
+    // permission observer re-reads the tri-state through a platform channel and
+    // pipes a failed read into the controller rather than swallowing it
+    // (`onesignal_driver.dart`, `permissionState().then(add).catchError(addError)`).
+    // A subscription with no error handler hands that to the zone, so a channel
+    // that answers `NOT_INITIALIZED` would surface in Sentry as an app error
+    // instead of the log line every other guard in this class writes.
     _pushIdentityChangeSubscription = driver.onIdentityChanged.listen(
       (PushIdentityChange _) => unawaited(reportPushDeliveryState()),
+      onError: (Object error) => Log.error(
+        '[AppServiceProvider] push identity stream failed: $error',
+      ),
     );
     _pushPermissionSubscription = driver.onPermissionChanged.listen(
       (PushPermissionState _) => unawaited(reportPushDeliveryState()),
+      onError: (Object error) => Log.error(
+        '[AppServiceProvider] push permission stream failed: $error',
+      ),
     );
   }
 
@@ -610,9 +623,19 @@ class AppServiceProvider extends ServiceProvider {
     //    is server-authored, but a push can also be composed by hand in the
     //    OneSignal dashboard, and handing an arbitrary string to the router is
     //    not a navigation this app should perform.
+    //
+    //    `startsWith('/')` alone does not say that. `//evil.example/incidents/1`
+    //    passes it while parsing to a URI with a foreign AUTHORITY, and
+    //    `MagicRoute.to` hands its argument straight to `GoRouter.go` with no
+    //    sanitising of its own, so the check has to reject a scheme and an
+    //    authority explicitly to mean what the paragraph above says it means.
     final Object? destination = event.data[_pushDeepLinkKey];
     final String deepLink = destination is String ? destination.trim() : '';
-    if (!deepLink.startsWith('/')) {
+    final Uri? parsed = Uri.tryParse(deepLink);
+    if (parsed == null ||
+        parsed.hasScheme ||
+        parsed.hasAuthority ||
+        !deepLink.startsWith('/')) {
       Log.warning(
         '[AppServiceProvider] push tap names no in-app destination: '
         '"${destination ?? ''}"',

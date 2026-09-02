@@ -154,10 +154,20 @@ class IncidentOpened extends Notification implements ShouldQueue
      */
     public function toBroadcast(mixed $notifiable): BroadcastMessage
     {
+        $data = $this->toArray($notifiable);
+
         return new BroadcastMessage([
             'id' => $this->id,
-            'type' => static::class,
-            'data' => $this->toArray($notifiable),
+            // Taken from the payload rather than from `static::class`, so this
+            // frame answers the same `type` the API row does. `NotificationResource`
+            // serves `data['type']` (the event token), the client reads the
+            // TOP-LEVEL `type` in `DatabaseNotification.fromMap`, and a class name
+            // here made one notification arrive as two different types depending on
+            // its transport: the icon a live row rendered was the generic fallback
+            // until the next fetch silently replaced it. Reading `$data` keeps the
+            // two structurally identical rather than merely equal today.
+            'type' => $data['type'],
+            'data' => $data,
             'created_at' => now()->toIso8601String(),
             'read_at' => null,
         ]);

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
@@ -168,6 +170,83 @@ class _ThrowingReachabilityPushDriver extends _RecordingPushDriver {
   @override
   Future<PushPermissionState> permissionState() async {
     throw StateError('permission state read failed');
+  }
+}
+
+/// A driver whose reported state can change and whose change streams a test
+/// can drive.
+///
+/// [_RecordingPushDriver] answers `const Stream.empty()` for both change
+/// streams, which is exactly the condition a widget that never subscribes
+/// cannot be told apart from: with nothing ever delivered, a missing
+/// subscription and a working one look identical. This double carries real
+/// broadcast controllers so a grant that arrives OUT OF BAND can be delivered,
+/// which is how a grant normally arrives: `requestPermission` on an
+/// already-denied device opens the platform settings page rather than a dialog,
+/// so the permission changes while the app is backgrounded.
+class _LivePushDriver extends _RecordingPushDriver {
+  /// Creates a double starting at the given state.
+  ///
+  /// The three fields carry a `Now` suffix because the base class already holds
+  /// `permission` / `optedIn` / `subscriptionId` as finals: these are the same
+  /// readings made movable, and a name collision would hide which of the two a
+  /// call site meant.
+  _LivePushDriver({
+    this.permissionNow = PushPermissionState.notDetermined,
+    this.optedInNow = false,
+    this.subscriptionIdNow,
+  });
+
+  /// The permission the platform reports right now.
+  PushPermissionState permissionNow;
+
+  /// Whether this fake device is opted in right now.
+  bool optedInNow;
+
+  /// The subscription id the platform holds right now, or null for none.
+  String? subscriptionIdNow;
+
+  final StreamController<PushPermissionState> _permissions =
+      StreamController<PushPermissionState>.broadcast();
+
+  final StreamController<PushIdentityChange> _identities =
+      StreamController<PushIdentityChange>.broadcast();
+
+  @override
+  Future<PushPermissionState> permissionState() async => permissionNow;
+
+  @override
+  bool get isOptedIn => optedInNow;
+
+  @override
+  Future<String?> currentSubscriptionId() async => subscriptionIdNow;
+
+  @override
+  Stream<PushPermissionState> get onPermissionChanged => _permissions.stream;
+
+  @override
+  Stream<PushIdentityChange> get onIdentityChanged => _identities.stream;
+
+  /// Turns this device into a subscribed one and announces it the way the SDK
+  /// does: the permission first, then the subscription landing behind it.
+  void grantAndSubscribe(String subscriptionId) {
+    permissionNow = PushPermissionState.authorized;
+    optedInNow = true;
+    subscriptionIdNow = subscriptionId;
+    _permissions.add(PushPermissionState.authorized);
+    _identities.add(const PushIdentityChange(externalId: 'user_u1'));
+  }
+
+  /// Pushes an error onto the permission stream, the way the real driver does:
+  /// its observer re-reads the tri-state through a platform channel and pipes a
+  /// failed read into the controller rather than swallowing it.
+  void failPermissionRead() =>
+      _permissions.addError(StateError('permission channel unavailable'));
+
+  /// Closes both controllers. Registered through `addTearDown` by the caller.
+  Future<void> close() async {
+    await _permissions.close();
+    await _identities.close();
   }
 }
 
@@ -644,6 +723,72 @@ void main() {
 
       expect(find.text(trans('uptizm.push_prompt.on_body')), findsOneWidget);
       expect(find.byType(WButton), findsNothing);
+    });
+
+    testWidgets('a grant arriving out of band clears the ask row', (
+      tester,
+    ) async {
+      // The path this screen exists for. An operator lands here, is sent to the
+      // platform settings page (where `requestPermission` routes an
+      // already-denied device), grants the permission there and comes back.
+      // Nothing about that round trip goes through this widget, so unless it
+      // follows the driver's streams it keeps offering to enable push that is
+      // already on, for as long as it stays mounted.
+      final _LivePushDriver driver = _LivePushDriver();
+      usePushDriver(driver);
+      addTearDown(driver.close);
+
+      await tester.pumpWidget(wrap(const PushPromptHost()));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(trans('uptizm.push_prompt.ask_title')),
+        findsOneWidget,
+        reason: 'a device with no decision yet is asked',
+      );
+
+      driver.grantAndSubscribe('sub-1');
+      await tester.pumpAndSettle();
+
+      expect(find.text(trans('uptizm.push_prompt.on_body')), findsOneWidget);
+      expect(find.text(trans('uptizm.push_prompt.ask_title')), findsNothing);
+    });
+
+    testWidgets('a failed permission read is logged, not thrown at the zone', (
+      tester,
+    ) async {
+      // The driver forwards a failed platform read into this stream rather than
+      // swallowing it, so a subscription with no `onError` hands it to the zone
+      // and it surfaces in Sentry as an app error. Asserting the log entry
+      // rather than merely the absence of a crash: `flutter_test` would fail on
+      // the escaped error anyway, but only the entry proves it was HANDLED here
+      // instead of being dropped by a stream nobody was listening to.
+      final FakeLogManager log = Log.fake();
+      final _LivePushDriver driver = _LivePushDriver(
+        permissionNow: PushPermissionState.authorized,
+        optedInNow: true,
+        subscriptionIdNow: 'sub-1',
+      );
+      usePushDriver(driver);
+      addTearDown(driver.close);
+
+      await tester.pumpWidget(wrap(const PushPromptHost()));
+      await tester.pumpAndSettle();
+
+      driver.failPermissionRead();
+      await tester.pumpAndSettle();
+
+      expect(
+        log.entries
+            .where(
+              (FakeLogEntry entry) => entry.message.contains(
+                '[PushPromptHost] permission stream failed',
+              ),
+            )
+            .length,
+        1,
+      );
+      expect(find.text(trans('uptizm.push_prompt.on_body')), findsOneWidget);
     });
 
     testWidgets('renders the unavailable row when the build has no driver', (
