@@ -12,6 +12,9 @@ return [
     'incident_opened_state_line' => ':monitor şu anda ":lifecycle" durumunda.',
     'incident_opened_title' => ':title',
     'incident_opened_push_heading' => ':title',
+    // The row heading on /settings/notifications, naming the event a person
+    // is choosing channels for.
+    'incident_opened_preference_label' => 'Olay açıldı',
 
     // Tırmanma kopyası "açıldı" demez: operatör bu olaya zaten bakıyor ve
     // yeniden açılış gibi okunan bir bildirim ayrı bir kesinti sanılır.
@@ -20,12 +23,14 @@ return [
     'incident_escalated_state_line' => ':monitor daha ağır bir seviyeye geçti ve ":lifecycle" durumunda.',
     'incident_escalated_title' => ':monitor kötüleşti',
     'incident_escalated_push_heading' => ':monitor kötüleşti',
+    'incident_escalated_preference_label' => 'Olay kötüleşti',
 
     'incident_resolved_subject' => '[Uptizm] :monitor sorunu giderildi',
     'incident_resolved_greeting' => 'Olay çözüldü',
     'incident_resolved_line' => ':monitor üzerindeki olay çözüldü.',
     'incident_resolved_title' => ':monitor sorunu giderildi',
     'incident_resolved_push_heading' => ':monitor sorunu giderildi',
+    'incident_resolved_preference_label' => 'Olay çözüldü',
 
     'severity_line' => 'Önem derecesi: :severity.',
     'view_incident_action' => 'Olayı görüntüle',

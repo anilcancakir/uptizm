@@ -21,6 +21,11 @@ return [
     'incident_opened_state_line' => ':monitor has entered the ":lifecycle" state.',
     'incident_opened_title' => ':title',
     'incident_opened_push_heading' => ':title',
+    // The row heading on /settings/notifications, naming the event a person
+    // is choosing channels for. Registered as a KEY in AppServiceProvider
+    // rather than as a sentence: magic-starter-laravel resolves it inside
+    // the request, so a boot-time __() would freeze one language in.
+    'incident_opened_preference_label' => 'Incident opened',
 
     // The escalation copy never says "opened": the operator has been looking at
     // this incident already, and a second open-shaped page reads as a separate
@@ -30,12 +35,14 @@ return [
     'incident_escalated_state_line' => ':monitor is now more severe and is in the ":lifecycle" state.',
     'incident_escalated_title' => ':monitor got worse',
     'incident_escalated_push_heading' => ':monitor got worse',
+    'incident_escalated_preference_label' => 'Incident escalated',
 
     'incident_resolved_subject' => '[Uptizm] :monitor is resolved',
     'incident_resolved_greeting' => 'Incident resolved',
     'incident_resolved_line' => 'The incident affecting :monitor has been resolved.',
     'incident_resolved_title' => ':monitor is resolved',
     'incident_resolved_push_heading' => ':monitor is resolved',
+    'incident_resolved_preference_label' => 'Incident resolved',
 
     'severity_line' => 'Severity: :severity.',
     'view_incident_action' => 'View incident',

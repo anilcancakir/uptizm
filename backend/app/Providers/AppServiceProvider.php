@@ -174,7 +174,13 @@ class AppServiceProvider extends ServiceProvider
         // to it and gates on the notifiable's push preference.
         NotificationPreferenceRegistry::register([
             IncidentOpened::class => [
-                'label' => 'Incident opened',
+                // A translation KEY, not a sentence. magic-starter-laravel
+                // 0.0.6 resolves it inside the request through the
+                // notifiable's own preferredLocale(), so it follows the
+                // account's language. Registering the finished English here
+                // froze it at boot, and a Turkish operator read "Incident
+                // opened" on a screen whose every other string was Turkish.
+                'label' => 'notifications.incident_opened_preference_label',
                 'channels' => [
                     'mail',
                     'database',
@@ -201,7 +207,7 @@ class AppServiceProvider extends ServiceProvider
             // The registry auto-derives the slug from the class name, which lands
             // on exactly the `incident_escalated` token the notification uses.
             IncidentEscalated::class => [
-                'label' => 'Incident escalated',
+                'label' => 'notifications.incident_escalated_preference_label',
                 'channels' => [
                     'mail',
                     'database',
@@ -216,7 +222,7 @@ class AppServiceProvider extends ServiceProvider
                 'locked' => [],
             ],
             IncidentResolved::class => [
-                'label' => 'Incident resolved',
+                'label' => 'notifications.incident_resolved_preference_label',
                 'channels' => [
                     'mail',
                     'database',

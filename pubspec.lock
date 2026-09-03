@@ -723,7 +723,7 @@ packages:
       path: "../magic_notifications"
       relative: true
     source: path
-    version: "0.1.0"
+    version: "0.2.0"
   magic_payments:
     dependency: "direct main"
     description:
@@ -744,7 +744,7 @@ packages:
       path: "../magic_starter"
       relative: true
     source: path
-    version: "0.0.1-alpha.25"
+    version: "0.0.1-alpha.26"
   matcher:
     dependency: transitive
     description:
