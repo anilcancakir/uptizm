@@ -130,15 +130,45 @@ class ContentArchive
             );
         }
 
-        // 3. Content-addressed, so an existing target already holds exactly these
-        //    bytes and rewriting it would only spend mount throughput. The path
-        //    derives from the ROW's team, the same column the retention sweep and
-        //    the download endpoint will derive from later.
+        // 3. Write unconditionally. The path derives from the ROW's team, the
+        //    same column the retention sweep and the download endpoint will
+        //    derive from later.
+        //
+        //    This used to ask the disk `fileExists($path)` first, on the
+        //    reasoning that a content-addressed target already holds exactly
+        //    these bytes so rewriting it would only spend mount throughput. The
+        //    reasoning was sound and the trade was upside down, measured on
+        //    production 2026-09-01:
+        //
+        //    - The question is a cache MISS by construction. This job runs
+        //      because the content CHANGED, so the hash is new, and
+        //      {@see self::blobPath()} fans it out across 256 directories. The
+        //      one being asked about is one rclone has usually not listed.
+        //    - A cold listing through the mount measured 16.9 s and 16.3 s; the
+        //      same call against an already-listed directory measured 0.2 ms.
+        //      Google Drive was rate limiting the account throughout (309 x 429,
+        //      246 x 503 and 71 x rateLimitExceeded in 20,000 log lines), which
+        //      is what stretches a cold listing past the job's whole budget.
+        //      Every `TimeoutExceededException` this job has thrown is that.
+        //    - What it saved: 3 of 2508 version rows (0.12%) share a blob with a
+        //      sibling row, and the write it would have skipped costs 8 ms into
+        //      an rclone VFS cache holding 13 MB of a 10 GB ceiling.
+        //
+        //    So the guard paid a rate-limited round trip on 100% of archives to
+        //    skip an 8 ms write on 0.12% of them, and a write that misses its
+        //    budget loses the version for good ({@see ArchiveContent::failed()}
+        //    releases the claim, and 13 of 13 releases measured were never
+        //    re-archived, because by the next check the content has moved on).
+        //
+        //    Rewriting is safe for the same reason the guard thought it was
+        //    pointless: the address IS the content. Concurrency was already
+        //    handled without it, by the per-writer staging key
+        //    {@see self::stagingPath()} describes, so two monitors serving
+        //    byte-identical content still rename their own complete file onto
+        //    the same address.
         $path = $this->blobPath($version->team_id, $hashes->rawHash);
 
-        if (! $this->disk()->fileExists($path)) {
-            $this->publishBlob($path, $this->readSpool($spoolPath));
-        }
+        $this->publishBlob($path, $this->readSpool($spoolPath));
 
         // 4. Finalize: `last_seen_at` and nothing else. `byte_size` still holds
         //    the RAW decoded length the claim wrote.

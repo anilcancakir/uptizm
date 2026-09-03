@@ -41,7 +41,17 @@ class ContentQueueConfigTest extends TestCase
      * test_the_pinned_job_timeout_matches_the_archive_job, so the chain asserted
      * here cannot drift away from the job it is sized for.
      */
-    private const JOB_TIMEOUT = 80;
+    private const JOB_TIMEOUT = 270;
+
+    /**
+     * The connection whose `retry_after` is the wall the chain fits under.
+     *
+     * NOT the shared `redis`. This queue moved to its own connection on
+     * 2026-09-01 because the archive's budget went past the shared 90; reading
+     * the wrong connection here would assert the chain against a number no
+     * worker on this queue uses, which is the failure the assertion exists for.
+     */
+    private const CONNECTION = 'redis-content';
 
     /** The archive job. */
     private const JOB_CLASS = 'App\Jobs\ArchiveContent';
@@ -65,9 +75,12 @@ class ContentQueueConfigTest extends TestCase
      */
     public function test_the_content_timing_chain_holds_in_every_horizon_environment(): void
     {
-        $retryAfter = config('queue.connections.redis.retry_after');
+        $retryAfter = config('queue.connections.'.self::CONNECTION.'.retry_after');
 
-        $this->assertIsInt($retryAfter, 'The redis queue connection no longer declares a retry_after.');
+        $this->assertIsInt(
+            $retryAfter,
+            'The ['.self::CONNECTION.'] queue connection no longer declares a retry_after.'
+        );
 
         foreach ($this->horizonEnvironments() as $environment => $supervisors) {
             $timeout = $this->effectiveSupervisors($supervisors)[self::SUPERVISOR]['timeout'] ?? null;
@@ -112,21 +125,33 @@ class ContentQueueConfigTest extends TestCase
     }
 
     /**
-     * Every environment provisions EXACTLY one content process.
+     * Every environment provisions at least two content processes, and few.
      *
-     * Both bounds are failures, and different ones. Zero means Horizon's
-     * ProvisioningPlan skips the supervisor outright, the queue is never
-     * consumed, and every claim row stays blobless with nothing logged. More
-     * than one means concurrent writers on an rclone FUSE mount that sustains
-     * roughly two file operations a second: the write is content-addressed and
-     * staged per process, so it stays CORRECT under concurrency, but the mount
-     * is the bottleneck and parallel writers only lengthen the stall each one
-     * sits in.
+     * Both bounds are failures, and different ones.
      *
-     * Raising the ceiling therefore needs the mount's throughput measured
-     * first, which is why it cannot be done by editing config alone.
+     * Fewer than two is the one that changed. It used to be exactly one, on the
+     * argument that the mount serialises writers anyway so a second buys no
+     * throughput. That argument is still true about THROUGHPUT and stopped being
+     * the whole story on 2026-09-01, when the job budget went to 270 seconds to
+     * outlast a rate-limited directory listing: behind a single consumer, a
+     * budget that long means one stalled write holds the entire lane for the
+     * length of it, so the raise would have traded a lost archive for a blocked
+     * queue. The second process is availability, not capacity. (Zero remains its
+     * own failure: Horizon's ProvisioningPlan skips the supervisor outright, the
+     * queue is never consumed, and every claim row stays blobless with nothing
+     * logged.)
+     *
+     * The upper bound is the original reasoning, unchanged. The mount is the
+     * bottleneck at roughly two file operations a second and an archive spends
+     * three of them, so more workers only lengthen the stall each one sits in.
+     * The write stays CORRECT under concurrency either way (content-addressed
+     * target, per-process staging name), so this is a throughput bound and never
+     * a correctness one.
+     *
+     * Moving either bound needs the mount measured again, which is why it cannot
+     * be done by editing config alone.
      */
-    public function test_every_horizon_environment_provisions_exactly_one_content_process(): void
+    public function test_every_horizon_environment_provisions_a_small_content_pool(): void
     {
         foreach ($this->horizonEnvironments() as $environment => $supervisors) {
             $maxProcesses = $this->effectiveSupervisors($supervisors)[self::SUPERVISOR]['maxProcesses'] ?? null;
@@ -136,12 +161,20 @@ class ContentQueueConfigTest extends TestCase
                 "The [{$environment}] environment provisions no [content] maxProcesses."
             );
 
-            $this->assertSame(
-                1,
+            $this->assertGreaterThanOrEqual(
+                2,
                 $maxProcesses,
-                "The [{$environment}] content supervisor must provision exactly one process: "
-                .'zero leaves every claimed version row without a blob, and more than one puts '
-                .'concurrent writers on a mount that serialises them anyway.'
+                "The [{$environment}] content supervisor must provision at least two processes: "
+                .'zero leaves every claimed version row without a blob, and one lets a single '
+                .'stalled write hold the lane for the whole '.self::JOB_TIMEOUT.'s job budget.'
+            );
+
+            $this->assertLessThanOrEqual(
+                2,
+                $maxProcesses,
+                "The [{$environment}] content supervisor provisions more processes than the mount "
+                .'can use: it sustains roughly two file operations a second and an archive spends '
+                .'three, so extra workers only lengthen the stall each one sits in.'
             );
         }
     }
@@ -176,6 +209,38 @@ class ContentQueueConfigTest extends TestCase
             config('content-archive.queue'),
             'The archive dispatches onto config(content-archive.queue); a supervisor serving a '
             .'different name consumes nothing.'
+        );
+
+        // The CONSUMER's connection, and it is the load-bearing one: `retry_after`
+        // is a property of the connection the worker runs on, so this is what
+        // decides when a still-running write is released to a second worker.
+        //
+        // Asserted here rather than on the job, because the job reads
+        // `content-archive.connection` and phpunit.xml pins that to `sync` so the
+        // suite can run the archive inline. That override is what keeps the
+        // archive tests honest, and it is also why nothing else in this file can
+        // see the production value.
+        $this->assertSame(
+            self::CONNECTION,
+            $defaults[self::SUPERVISOR]['connection'] ?? null,
+            'The [content] supervisor must run on ['.self::CONNECTION.']: on the shared [redis] '
+            .'connection its 90s retry_after releases a '.self::JOB_TIMEOUT.'s write to a second '
+            .'worker long before it finishes.'
+        );
+
+        // The producer half, and the reason it is asserted against a CONSTANT
+        // rather than against `config('content-archive.connection')`: phpunit.xml
+        // pins that config to `sync` so the archive runs inline and the write
+        // tests stay real, which means the running value here is never the
+        // production one. The constant is what JobTimeoutFitsItsConnectionTest
+        // reads to size this job's budget, so pinning it against the supervisor
+        // is what stops the two halves of the chain from drifting apart while
+        // both look green.
+        $this->assertSame(
+            self::CONNECTION,
+            (new ReflectionClass(self::JOB_CLASS))->getConstants()['CONNECTION'] ?? null,
+            'The archive job names a different connection than the supervisor draining its queue, '
+            .'so the budget is sized against one retry_after and governed by another.'
         );
     }
 

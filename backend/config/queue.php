@@ -149,6 +149,50 @@ return [
             'after_commit' => false,
         ],
 
+        /*
+        | The archive queue's own connection, and the second one here to exist for
+        | the single reason `redis-analyze` above does: a `retry_after` past the
+        | shared 90.
+        |
+        | App\Jobs\ArchiveContent writes through an rclone FUSE mount of a Google
+        | Drive remote, and what makes it slow is not the write. Measured on
+        | production 2026-09-01: the write lands in rclone's VFS cache in about
+        | 8 ms, while a directory listing rclone has not cached measured 16.9 s
+        | and 16.3 s, against 0.2 ms once warm. Drive was rate limiting the
+        | account throughout (309 x 429, 246 x 503, 71 x rateLimitExceeded in
+        | 20,000 log lines), which is what stretches a cold listing without
+        | bound: rclone retries it with backoff, and the job sits inside that.
+        |
+        | The blob-existence check that spent one of those listings on EVERY
+        | archive is gone (see ContentArchive::store()), so the remaining exposure
+        | is the sentinel probe and the staging rename. Those are smaller and they
+        | are still Drive operations, so the budget is sized to outlast a backoff
+        | rather than to lose the write: at the old 80 seconds the archive lost 5
+        | to 7 versions a day, and a lost version is lost for good, because
+        | ArchiveContent::failed() releases the claim and by the next check the
+        | content has moved on. Thirteen of thirteen releases measured were never
+        | re-archived.
+        |
+        | The full chain, pinned by Tests\Unit\ContentQueueConfigTest:
+        | retry_after 300 > supervisor timeout 280 > job $timeout 270.
+        |
+        | Every precondition on `redis-analyze` applies here word for word, and
+        | they are not repeated: both connections share one Redis list namespace,
+        | so `onConnection()` without `onQueue()` lands the job in a list some
+        | other supervisor drains under ITS timeout, and a hand-run worker must
+        | name this connection positionally to inherit this number:
+        |
+        |   php artisan queue:work redis-content --queue=content --tries=1
+        */
+        'redis-content' => [
+            'driver' => 'redis',
+            'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
+            'queue' => env('REDIS_CONTENT_QUEUE', 'content'),
+            'retry_after' => (int) env('REDIS_CONTENT_QUEUE_RETRY_AFTER', 300),
+            'block_for' => (int) env('REDIS_CONTENT_QUEUE_BLOCK_FOR', 5),
+            'after_commit' => false,
+        ],
+
         'deferred' => [
             'driver' => 'deferred',
         ],

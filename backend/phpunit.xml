@@ -36,6 +36,12 @@
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
+        <!-- The archive job names its own connection in production, so that
+             `retry_after` (300) can hold its 270s budget. Left alone here it
+             would override the sync default above, the dispatch would enqueue
+             instead of running, and every test asserting an archived blob would
+             pass over a write that never happened. -->
+        <env name="CONTENT_ARCHIVE_QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
         <!-- Routes are registered at boot, before a test can set config(), so the
              subdomain status-page route needs its host from the environment. -->
