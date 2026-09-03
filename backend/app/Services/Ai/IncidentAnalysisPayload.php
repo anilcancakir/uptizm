@@ -433,6 +433,13 @@ readonly class IncidentAnalysisPayload
      * ordinary single-monitor incident it would repeat the same name on every
      * row to say something the roster already said.
      *
+     * The header says the rows may not be contiguous, and that is not hedging.
+     * {@see IncidentAnalysisService::evidenceChecks()} samples the two ENDS of a
+     * long incident, so on a 38-hour outage two adjacent rows here are ten hours
+     * apart with nothing in the layout marking it. Without the clause a reader
+     * looking at twenty evenly-formatted lines has every reason to narrate one
+     * continuous run, and the timestamps are the only thing that says otherwise.
+     *
      * @return list<string>
      */
     private function renderChecks(): array
@@ -442,7 +449,7 @@ readonly class IncidentAnalysisPayload
         }
 
         $named = count($this->monitors) > 1;
-        $lines = ['checks (newest first, the number is the citation handle):'];
+        $lines = ['checks (newest first, not necessarily contiguous, so read the timestamps; the number is the citation handle):'];
 
         foreach ($this->checks as $check) {
             $lines[] = '  '.implode('  ', array_filter([

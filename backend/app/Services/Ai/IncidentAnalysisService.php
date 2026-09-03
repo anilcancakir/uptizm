@@ -32,7 +32,12 @@ use Laravel\Ai\Exceptions\AiException;
 class IncidentAnalysisService
 {
     /**
-     * Maximum number of recent checks folded into the RCA evidence.
+     * Maximum number of checks folded into the RCA evidence.
+     *
+     * Split evenly across the two ends of the incident once this many or more
+     * sit inside the window; see {@see self::evidenceChecks()}. At exactly this
+     * many the two ends tile the window and the split is a no-op, which is why
+     * the branch there tests for fewer rather than for more.
      */
     private const MAX_CHECKS = 20;
 
@@ -191,24 +196,113 @@ class IncidentAnalysisService
 
         $monitorIds = $this->affectedMonitorIds($incident);
 
-        $checks = MonitorCheck::query()
+        return $this->buildPayload($incident, $this->evidenceChecks($incident, $monitorIds), $monitorIds);
+    }
+
+    /**
+     * The checks that are evidence for this incident, newest first.
+     *
+     * Two rules, and each one was a defect measured on production.
+     *
+     * The window CLOSES when the incident does. It used to carry a lower bound
+     * only, which with `orderByDesc` and a cap of twenty means "the newest
+     * twenty this monitor has" for every read after the incident resolves. An
+     * incident that ran from 05:20 to 05:22 was analysed at 21:00 from twenty
+     * checks recorded between 20:39 and 20:59, all of them healthy, and not one
+     * of the twelve that span the outage. It also re-spent a budget unit on
+     * every reader, because the evidence fingerprint keys the store and evidence
+     * that moves every minute is a key that moves every minute.
+     *
+     * The two siblings already closed theirs, which is what makes this the
+     * missed one rather than an open question:
+     * {@see IncidentDraftService::composePayload()} bounds its checks at
+     * `resolved_at`, and {@see self::triggeringMetric()} bounds its readings an
+     * hour past it. This one takes the tighter of the two, because a check is
+     * the thing that resolves the incident and the grace period there is for a
+     * reading whose `recorded_at` can trail the check that produced it.
+     *
+     * The selection takes BOTH ENDS once the window holds the cap or more.
+     * {@see self::CHECK_LOOKBACK_CHECKS} exists to reach back past `started_at`
+     * for the consecutive failures that tripped the threshold, and taking the
+     * newest twenty threw that lookback away for every incident longer than the
+     * cap: 26 of 142 on production, the longest carrying 2028 checks. The onset
+     * says what broke and the tail says how it came back, so the evidence is
+     * half of each rather than one end twice.
+     *
+     * The array stays descending in `checked_at` across the join, so the
+     * fingerprint keeps reading a recovery differently from an onset
+     * ({@see IncidentAnalysisPayload::evidenceFingerprint()}). Getting the
+     * TOTAL order right takes a deliberately mirrored tiebreaker; see below.
+     *
+     * One consequence worth knowing, because it is new. The lower bound used to
+     * be inert on any incident with more than twenty checks, since the newest
+     * twenty never reached back that far. It now SELECTS the onset half, so
+     * {@see self::evidenceFrom()} feeds the fingerprint: editing a monitor's
+     * check interval, or a plan change moving
+     * {@see Monitor::effectiveCheckIntervalSec()}, shifts which rows the onset
+     * half returns and re-asks the model once for every resolved incident on
+     * that monitor.
+     *
+     * @param  list<string>  $monitorIds
+     * @return Collection<int, MonitorCheck>
+     */
+    protected function evidenceChecks(Incident $incident, array $monitorIds): Collection
+    {
+        $window = MonitorCheck::query()
             ->whereIn('monitor_id', $monitorIds)
             ->where('checked_at', '>=', $this->evidenceFrom($incident))
-            // A tiebreaker, not decoration. `checked_at` alone is not a total
-            // order here: this product writes one row per REGION per tick, so a
-            // three-region monitor ties three ways every minute, and PostgreSQL
-            // answers a tie in whatever order the scan produced. The check
-            // SEQUENCE is evidence (an `up` above a `down` is a recovery, the
-            // reverse is the failure starting), so it cannot be sorted away in
-            // the fingerprint; it has to be deterministic at the read instead, or
-            // the same evidence hashes twice and re-spends a budget unit.
+            ->when(
+                $incident->resolved_at !== null,
+                fn ($query) => $query->where('checked_at', '<=', $incident->resolved_at),
+            );
+
+        // A tiebreaker, not decoration. `checked_at` alone is not a total order
+        // here: this product writes one row per REGION per tick, so a
+        // three-region monitor ties three ways every minute, and PostgreSQL
+        // answers a tie in whatever order the scan produced. The check SEQUENCE
+        // is evidence (an `up` above a `down` is a recovery, the reverse is the
+        // failure starting), so it cannot be sorted away in the fingerprint; it
+        // has to be deterministic at the read instead, or the same evidence
+        // hashes twice and re-spends a budget unit.
+        $tail = $window->clone()
             ->orderByDesc('checked_at')
             ->orderBy('region')
             ->orderBy('id')
             ->limit(self::MAX_CHECKS)
             ->get();
 
-        return $this->buildPayload($incident, $checks, $monitorIds);
+        // Everything in the window already fits, so there are no two ends to
+        // choose between. This is the common case: 116 of 142.
+        if ($tail->count() < self::MAX_CHECKS) {
+            return $tail;
+        }
+
+        $half = intdiv(self::MAX_CHECKS, 2);
+
+        // The tiebreakers run DESCENDING here, which looks backwards next to the
+        // ascending `checked_at` beside them and is the whole point: `reverse()`
+        // flips every key, not just the first, so this is the only ordering
+        // whose reverse is the tail's exact total order.
+        //
+        // A tie group is what makes that matter. `checked_at` has no sub-second
+        // component (a probe result round-trips through
+        // `DateTimeImmutable::ATOM`) and one row is written per REGION per tick,
+        // so a multi-region monitor ties exactly on every check; production
+        // carries `(monitor, checked_at)` groups of three. With both queries
+        // ordering regions the same way, a tie group straddling the split hands
+        // its first member to BOTH ends: that check reaches the model twice and
+        // its tick-mates are dropped to make room for it, which is one
+        // observation cited under two handles and two verdicts missing from the
+        // fingerprint. `IncidentAnalysisWindowTest` pins it at 7 ticks x 3
+        // regions, the smallest input that puts the split inside a tie group.
+        $onset = $window->clone()
+            ->orderBy('checked_at')
+            ->orderByDesc('region')
+            ->orderByDesc('id')
+            ->limit($half)
+            ->get();
+
+        return $tail->take($half)->concat($onset->reverse())->values();
     }
 
     /**
