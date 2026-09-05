@@ -92,29 +92,88 @@ LANE=$((TOTAL_CORES / 2))
 # reaching the error below means it is absent from the main checkout too.
 require_local_siblings() {
     wants flutter || return 0
+
+    # A fork resolving every sibling from pub.dev is the CORRECT answer, not a
+    # mistake, and this repo is forked on purpose. The escape is opt-in so the
+    # default still protects the common case: a working tree whose overrides
+    # went missing and would otherwise certify the published packages.
+    if [ "${CHECK_ALLOW_HOSTED:-}" = "1" ]; then
+        [ -f pubspec_overrides.yaml ] || \
+            echo "check: CHECK_ALLOW_HOSTED=1, resolving every sibling from pub.dev"
+        return 0
+    fi
+
     [ -f pubspec_overrides.yaml ] || {
         echo "check: pubspec_overrides.yaml is absent, so every sibling would resolve from pub.dev" >&2
         echo "check: and this run would certify the published packages, not your working trees." >&2
         echo "check: copy it from the main checkout, or from the block in .claude/rules/flutter-app.md." >&2
+        echo "check: on a fork with no sibling checkouts, hosted IS correct: CHECK_ALLOW_HOSTED=1 bin/check" >&2
         exit 1
     }
 
     # The paths inside it are absolute, so a stale one points at a directory that
     # moved. pub reports that as a resolution failure with no hint of this file.
-    local missing
+    #
+    # Parsed with the standard library rather than PyYAML, and that is the whole
+    # point of doing it by hand. `import yaml` used to sit outside the try, so on
+    # any machine without PyYAML the ImportError left stdout empty, `missing`
+    # came back empty, and the guard PASSED. `set -u -o pipefail` carries no
+    # `-e`, so the failed substitution did not stop the run either: a stale file
+    # sailed through the one check written to catch it. Nothing in this repo
+    # declares PyYAML, so that was most machines.
+    #
+    # The shape here is fixed and machine-written (`  <name>:` then
+    # `    path: <abs>`), so two regexes cover it. Anything the parser cannot
+    # read is a hard failure now, never a silent pass.
+    local missing status
     missing="$(python3 - <<'PY'
-import sys, yaml
+import os, re, sys
+
 try:
-    data = yaml.safe_load(open('pubspec_overrides.yaml')) or {}
-except Exception as exc:                       # a malformed file is silently ignored by pub
-    print(f"unparseable: {exc}")
-    sys.exit(0)
-import os
-for name, spec in (data.get('dependency_overrides') or {}).items():
-    if isinstance(spec, dict) and 'path' in spec and not os.path.isdir(spec['path']):
-        print(f"{name} -> {spec['path']}")
+    lines = open('pubspec_overrides.yaml', encoding='utf-8').read().splitlines()
+except OSError as exc:
+    print(f"cannot read pubspec_overrides.yaml: {exc}", file=sys.stderr)
+    sys.exit(2)
+
+name_re = re.compile(r'^  ([A-Za-z_][A-Za-z0-9_]*):\s*(#.*)?$')
+path_re = re.compile(r'^    path:\s*(.+?)\s*$')
+
+inside, current = False, None
+for line in lines:
+    if not line.strip() or line.lstrip().startswith('#'):
+        continue
+    if not line.startswith(' '):
+        inside = line.startswith('dependency_overrides:')
+        current = None
+        continue
+    if not inside:
+        continue
+    matched = name_re.match(line)
+    if matched:
+        current = matched.group(1)
+        continue
+    # A single-line entry (`  file_picker: ^11.0.2`) matches neither regex.
+    # Clear the pending name on it, so a `path:` further down can never be
+    # attributed to the wrong package.
+    if not line.startswith('    '):
+        current = None
+        continue
+    matched = path_re.match(line)
+    if matched and current:
+        path = matched.group(1).strip('\'"')
+        if not os.path.isdir(path):
+            print(f"{current} -> {path}")
+        current = None
 PY
-)"
+)" && status=0 || status=$?
+
+    # A parser that fell over must not read as "nothing is stale".
+    if [ "$status" -ne 0 ]; then
+        echo "check: could not read pubspec_overrides.yaml (exit $status)" >&2
+        echo "check: fix the file, or set CHECK_ALLOW_HOSTED=1 to resolve from pub.dev instead." >&2
+        exit 1
+    fi
+
     [ -z "$missing" ] && return 0
 
     echo "check: pubspec_overrides.yaml points at paths that do not exist:" >&2

@@ -33,22 +33,48 @@ TARGET = ROOT / "docs" / "component-registry.md"
 
 
 def first_prose_line(lines: list[str], class_line: int) -> str:
-    """The first plain sentence of the doc block directly above a class declaration.
+    """The first plain SENTENCE of the doc block directly above a class declaration.
 
     Walks up through the `///` block and any annotations, then forward again, so the summary comes
     from the component's own words rather than from a description maintained beside it.
+
+    Joins the wrapped lines of that opening paragraph rather than taking only the first one. A doc
+    block wraps at the line length, so the first `///` line is a fragment far more often than it is
+    a sentence: this used to emit "The action row that closes a form: an optional Cancel and the
+    primary submit," with the comma still on it. The registry's one descriptive column is the
+    reason the file exists, and half a sentence does not describe anything.
+
+    Stops at the first full stop, at a blank `///`, or at a `///` list item, so a component whose
+    doc opens with a title line still yields the title and nothing more.
     """
     start = class_line - 1
     while start >= 0 and (lines[start].strip().startswith("///") or lines[start].strip().startswith("@")):
         start -= 1
+
+    collected: list[str] = []
     for line in lines[start + 1 : class_line]:
         text = line.strip()
-        if text.startswith("///") and len(text) > 6 and not text.startswith("/// #"):
-            body = text[4:].strip().replace("**", "")
+        if not text.startswith("///"):
+            continue
+        body = text[3:].strip().replace("**", "")
+
+        if not collected:
+            if not body or text.startswith("/// #"):
+                continue
             # Skip a bold-name heading such as `**StatusBadge**`, which repeats the class name.
-            if body and not re.fullmatch(r"[A-Z][A-Za-z]+", body):
-                return body
-    return ""
+            if re.fullmatch(r"[A-Z][A-Za-z]+", body):
+                continue
+            collected.append(body)
+        else:
+            # The paragraph ends at a blank line, a heading, or a list item.
+            if not body or body.startswith(("#", "-", "*", "1.")):
+                break
+            collected.append(body)
+
+        if collected[-1].endswith((".", "!", "?", ":")):
+            break
+
+    return " ".join(collected)
 
 
 def read_component(directory: Path) -> tuple[str, str, str, str, str, str] | None:
@@ -77,6 +103,21 @@ def read_component(directory: Path) -> tuple[str, str, str, str, str, str] | Non
         preview = f"**{len(previews)}**"
     exports = "yes" if (directory / "index.dart").exists() else "**NO**"
     return directory.name, name, variants, recipe, preview, exports, first_prose_line(lines, class_line)
+
+
+def cell(text: str) -> str:
+    """One markdown table cell: escaped, and never silently blank.
+
+    A `|` inside a doc line splits the row into extra cells and the table stops rendering from
+    there. `check_history_table` documents its own columns as `Time | Region | Status`, which is
+    exactly the shape that would do it the day that line becomes the opening sentence.
+
+    An empty description is a real gap rather than a formatting one, so it is rendered loud in the
+    same way a missing preview is: the table is the only place anyone would notice.
+    """
+    if not text:
+        return "**NO DOC**"
+    return text.replace("|", "\\|")
 
 
 def read_layout(path: Path) -> tuple[str, str, str]:
@@ -127,7 +168,7 @@ def render() -> str:
         "|---|---|---|---|---|---|---|",
     ]
     for folder, name, variants, recipe, preview, exports, doc in rows:
-        out.append(f"| `{folder}/` | `{name}` | {variants} | {recipe} | {preview} | {exports} | {doc} |")
+        out.append(f"| `{folder}/` | `{name}` | {variants} | {recipe} | {preview} | {exports} | {cell(doc)} |")
 
     out += [
         "",
@@ -145,7 +186,7 @@ def render() -> str:
         "|---|---|---|",
     ]
     for filename, classes, doc in layouts:
-        out.append(f"| `{filename}` | {classes} | {doc} |")
+        out.append(f"| `{filename}` | {classes} | {cell(doc)} |")
 
     out += [
         "",
