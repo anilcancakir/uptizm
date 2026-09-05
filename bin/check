@@ -123,79 +123,112 @@ require_local_siblings() {
     # declares PyYAML, so that was most machines.
     #
     # This file is HAND-written, so it carries whichever YAML style its author
-    # reached for. Both are covered: the block form (`  <name>:` then
-    # `    path: <abs>`) and the flow form (`  <name>: {path: <abs>}`), which is
-    # the one `.claude/rules/flutter-app.md` and `AGENTS.md` themselves write.
-    # An earlier version of this parser handled only the block form, so a
-    # flow-style stale path passed exactly the way the PyYAML gap did.
+    # reached for, and the history of this guard is three rounds of discovering
+    # one more style it did not read: PyYAML absent, then flow form
+    # (`  <name>: {path: <abs>}`, which is the form `AGENTS.md` itself writes),
+    # then four-space and tab indentation. Each fix was keyed to the shapes
+    # somebody had thought of, which is why each one found the next.
     #
-    # A `dependency_overrides` entry the parser cannot classify EXITS non-zero
-    # rather than being skipped, because a shape it does not know is the one
-    # thing that would let this go quiet a third time. A `git:` override is a
-    # legitimate entry with no path to check, so its nested keys are ignored
-    # rather than treated as unknown.
+    # So this walks the file by INDENT LEVEL rather than matching fixed-width
+    # line shapes: it tracks the open key stack, expands tabs, accepts a quoted
+    # key, and strips a trailing comment the same way in both forms. What it
+    # cares about is one thing, a `path:` belonging to an entry directly under
+    # `dependency_overrides`, at whatever indent the file happens to use.
+    #
+    # A line INSIDE `dependency_overrides` that is not a mapping entry exits
+    # non-zero rather than being skipped, because an unread shape is exactly how
+    # this went quiet three times. A `git:` override is a legitimate entry whose
+    # own `path:` is a sub-directory rather than a checkout, and it sits one
+    # level deeper, so it is correctly ignored rather than reported.
     local missing status
     missing="$(python3 - <<'PY'
 import os, re, sys
 
 try:
-    lines = open('pubspec_overrides.yaml', encoding='utf-8').read().splitlines()
+    raw = open('pubspec_overrides.yaml', encoding='utf-8').read()
 except OSError as exc:
     print(f"cannot read pubspec_overrides.yaml: {exc}", file=sys.stderr)
     sys.exit(2)
 
-block_re = re.compile(r'^  ([A-Za-z_][A-Za-z0-9_]*):\s*(#.*)?$')
-flow_re = re.compile(r'^  ([A-Za-z_][A-Za-z0-9_]*):\s*\{(.*)\}\s*(#.*)?$')
-scalar_re = re.compile(r'^  ([A-Za-z_][A-Za-z0-9_]*):\s*[^{\s#][^#]*(#.*)?$')
-path_re = re.compile(r'^    path:\s*(.+?)\s*$')
-flow_path_re = re.compile(r'(?:^|,)\s*path:\s*([^,]+)')
+KEY = r'(?:"[^"]+"|\'[^\']+\'|[A-Za-z_][A-Za-z0-9_]*)'
+entry_re = re.compile(rf'^({KEY}):\s*(.*)$')
+flow_path_re = re.compile(r'(?:^|[{,])\s*(?:"path"|\'path\'|path)\s*:\s*([^,}]+)')
 
-def report(name, raw):
-    path = raw.strip().strip('\'"')
-    if not os.path.isdir(path):
+
+def strip_comment(text: str) -> str:
+    """Drop a trailing ` # comment`, leaving a `#` that sits inside quotes alone."""
+    quote = None
+    for index, char in enumerate(text):
+        if quote:
+            if char == quote:
+                quote = None
+        elif char in '"\'':
+            quote = char
+        elif char == '#' and (index == 0 or text[index - 1] in ' \t'):
+            return text[:index]
+    return text
+
+
+def unquote(text: str) -> str:
+    text = text.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in '"\'':
+        return text[1:-1]
+    return text
+
+
+def report(name: str, value: str) -> None:
+    path = unquote(strip_comment(value).strip())
+    if path and not os.path.isdir(path):
         print(f"{name} -> {path}")
 
-inside, current = False, None
-for number, line in enumerate(lines, 1):
-    if not line.strip() or line.lstrip().startswith('#'):
-        continue
-    if not line.startswith(' '):
-        inside = line.startswith('dependency_overrides:')
-        current = None
-        continue
-    if not inside:
+
+# (indent, key) for every open mapping level, outermost first.
+stack: list[tuple[int, str]] = []
+
+for number, line in enumerate(raw.splitlines(), 1):
+    expanded = line.expandtabs(2)
+    if not expanded.strip() or expanded.lstrip().startswith('#'):
         continue
 
-    # Nested under an entry: only `path:` matters, and a `git:` block's own
-    # keys fall through here harmlessly.
-    if line.startswith('    '):
-        matched = path_re.match(line)
-        if matched and current:
-            report(current, matched.group(1))
-            current = None
+    indent = len(expanded) - len(expanded.lstrip(' '))
+    body = strip_comment(expanded.strip()).strip()
+    if not body:
         continue
 
-    matched = flow_re.match(line)
-    if matched:
-        current = None
-        inner = flow_path_re.search(matched.group(2))
-        if inner:
-            report(matched.group(1), inner.group(1))
+    while stack and indent <= stack[-1][0]:
+        stack.pop()
+
+    path_of = [key for _, key in stack]
+
+    matched = entry_re.match(body)
+    if not matched:
+        # Only a line inside dependency_overrides can block the run; anything
+        # else in the file is none of this guard's business.
+        if path_of[:1] == ['dependency_overrides']:
+            print(f"unrecognised dependency_overrides line {number}: {line.strip()}", file=sys.stderr)
+            sys.exit(3)
         continue
 
-    matched = block_re.match(line)
-    if matched:
-        current = matched.group(1)
+    key, value = unquote(matched.group(1)), matched.group(2).strip()
+
+    # A package entry sits directly under dependency_overrides.
+    if path_of == ['dependency_overrides']:
+        if value.startswith('{'):
+            inner = flow_path_re.search(value)
+            if inner:
+                report(key, inner.group(1))
+            continue
+        if not value:
+            stack.append((indent, key))
         continue
 
-    # A single-line version (`  file_picker: ^11.0.2`) declares no path. Clear
-    # the pending name so a later `path:` cannot be attributed to it.
-    if scalar_re.match(line):
-        current = None
+    # `path:` directly under a package entry, at whatever indent it uses.
+    if len(path_of) == 2 and path_of[0] == 'dependency_overrides' and key == 'path' and value:
+        report(path_of[1], value)
         continue
 
-    print(f"unrecognised dependency_overrides line {number}: {line.strip()}", file=sys.stderr)
-    sys.exit(3)
+    if not value:
+        stack.append((indent, key))
 PY
 )" && status=0 || status=$?
 
