@@ -1511,6 +1511,32 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // Mass assignment: `fill(fields, strict: true)` on the two write paths that
+  // carry raw USER input (create/save). A key the form sends that
+  // `Monitor.fillable` does not declare must throw rather than being dropped
+  // silently, which is exactly the defect class `Monitor.fillable`'s own
+  // docblock warns about (AI-assist mode and the escalation-policy pin were
+  // both lost this way before anyone noticed).
+  // ---------------------------------------------------------------------------
+
+  group('strict mass assignment on user-input writes', () {
+    test(
+      'create throws MassAssignmentException for a key outside Monitor.fillable',
+      () async {
+        final MonitorController controller = MonitorController.instance;
+
+        await expectLater(
+          controller.create(<String, dynamic>{
+            'name': 'Fresh',
+            'not_a_declared_field': 'x',
+          }),
+          throwsA(isA<MassAssignmentException>()),
+        );
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
   // resetForSession: clear the previous identity's inventory, then refetch.
   // ---------------------------------------------------------------------------
 

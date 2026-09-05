@@ -5,6 +5,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../models/scheduled_maintenance.dart';
+import '../support/field_errors.dart';
 import '../support/roster_page.dart';
 
 /// Controller behind scheduled maintenance windows: the write path and the
@@ -172,11 +173,12 @@ class MaintenanceController extends MagicController
   /// The subscriber announcement is NOT this client's concern: the backend
   /// claims it atomically on create, which is what makes it announce once.
   Future<Map<String, String>> create(Map<String, dynamic> fields) async {
-    final ScheduledMaintenance window = ScheduledMaintenance()..fill(fields);
+    final ScheduledMaintenance window = ScheduledMaintenance()
+      ..fill(fields, strict: true);
 
     final bool ok = await window.save();
     if (!ok) {
-      final Map<String, String>? fieldErrors = _fieldErrorsOrToast(window);
+      final Map<String, String>? fieldErrors = _resolveFieldErrors(window);
       if (fieldErrors != null) return fieldErrors;
       return const {};
     }
@@ -238,15 +240,10 @@ class MaintenanceController extends MagicController
   /// hands them to the form and stays put. Returns `null` for a non-field
   /// failure after surfacing the generic error toast and logging the cause, so
   /// the caller falls back to its empty-map contract. Mirrors
-  /// `IncidentController._fieldErrorsOrToast`.
-  Map<String, String>? _fieldErrorsOrToast(ScheduledMaintenance window) {
-    final Map<String, List<String>> errors = window.validationErrors;
-    if (errors.isNotEmpty) {
-      return {
-        for (final MapEntry<String, List<String>> entry in errors.entries)
-          entry.key: entry.value.first,
-      };
-    }
+  /// `IncidentController._resolveFieldErrors`.
+  Map<String, String>? _resolveFieldErrors(ScheduledMaintenance window) {
+    final Map<String, String> fieldErrors = fieldErrorsFromModel(window);
+    if (fieldErrors.isNotEmpty) return fieldErrors;
 
     Log.error(
       '[MaintenanceController.create] save returned false with no errors',

@@ -3,6 +3,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../models/escalation_policy.dart';
+import '../support/field_errors.dart';
 import '../support/roster_page.dart';
 import '../support/escalation_support.dart' show EscalationTargetType;
 
@@ -350,7 +351,7 @@ class EscalationController extends MagicController
 
     final bool ok = await policy.save();
     if (!ok) {
-      final Map<String, String>? fieldErrors = _fieldErrorsOrToast(policy);
+      final Map<String, String>? fieldErrors = _resolveFieldErrors(policy);
       if (fieldErrors != null) return fieldErrors;
       return const {};
     }
@@ -407,7 +408,7 @@ class EscalationController extends MagicController
 
     final bool ok = await policy.save();
     if (!ok) {
-      final Map<String, String>? fieldErrors = _fieldErrorsOrToast(policy);
+      final Map<String, String>? fieldErrors = _resolveFieldErrors(policy);
       if (fieldErrors != null) return fieldErrors;
       return const {};
     }
@@ -453,14 +454,9 @@ class EscalationController extends MagicController
   /// editor for inline display and stays put. Returns `null` for a non-field
   /// failure (a transport error / 500) after surfacing the generic error toast
   /// and logging the cause, so the caller falls back to its empty-map contract.
-  Map<String, String>? _fieldErrorsOrToast(EscalationPolicy policy) {
-    final Map<String, List<String>> errors = policy.validationErrors;
-    if (errors.isNotEmpty) {
-      return {
-        for (final MapEntry<String, List<String>> entry in errors.entries)
-          entry.key: entry.value.first,
-      };
-    }
+  Map<String, String>? _resolveFieldErrors(EscalationPolicy policy) {
+    final Map<String, String> fieldErrors = fieldErrorsFromModel(policy);
+    if (fieldErrors.isNotEmpty) return fieldErrors;
 
     Log.error('[EscalationController] save returned false with no field errors');
     _toastError(null);

@@ -3,6 +3,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../enums/channel_type.dart' show ChannelType;
+import '../support/field_errors.dart';
 
 /// Resolves the wire `channel_type` string into a [ChannelType].
 ///
@@ -298,7 +299,7 @@ class NotificationChannelController extends MagicController
         Log.error(
           '[NotificationChannelController.create] ${response.errorMessage}',
         );
-        return _fieldErrorsOrToast(response);
+        return _resolveFieldErrors(response);
       }
 
       await reload();
@@ -333,7 +334,7 @@ class NotificationChannelController extends MagicController
         Log.error(
           '[NotificationChannelController.update] $id: ${response.errorMessage}',
         );
-        return _fieldErrorsOrToast(response);
+        return _resolveFieldErrors(response);
       }
 
       await reload();
@@ -426,14 +427,9 @@ class NotificationChannelController extends MagicController
   /// field name) when the failed write carried the Laravel 422 shape via
   /// [MagicResponse.errors]. Returns an empty map for a non-field failure (a
   /// transport error / 500) after surfacing the generic error toast.
-  Map<String, String> _fieldErrorsOrToast(MagicResponse response) {
-    final Map<String, List<String>> errors = response.errors;
-    if (errors.isNotEmpty) {
-      return {
-        for (final MapEntry<String, List<String>> entry in errors.entries)
-          entry.key: entry.value.first,
-      };
-    }
+  Map<String, String> _resolveFieldErrors(MagicResponse response) {
+    final Map<String, String> fieldErrors = fieldErrorsFromResponse(response);
+    if (fieldErrors.isNotEmpty) return fieldErrors;
 
     _toastError(response.errorMessage);
     return const {};

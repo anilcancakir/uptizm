@@ -6,6 +6,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../models/status_page.dart';
+import '../support/field_errors.dart';
 import '../support/roster_page.dart';
 import '../enums/status_page_preview_status.dart'
     show StatusPagePreviewStatus;
@@ -452,7 +453,7 @@ class StatusPageController extends MagicController
 
     final bool ok = await page.save();
     if (!ok) {
-      final Map<String, String>? fieldErrors = _fieldErrorsOrToast(page);
+      final Map<String, String>? fieldErrors = _resolveFieldErrors(page);
       if (fieldErrors != null) return fieldErrors;
       return const {};
     }
@@ -482,7 +483,7 @@ class StatusPageController extends MagicController
 
     final bool ok = await page.save();
     if (!ok) {
-      final Map<String, String>? fieldErrors = _fieldErrorsOrToast(page);
+      final Map<String, String>? fieldErrors = _resolveFieldErrors(page);
       if (fieldErrors != null) return fieldErrors;
       return const {};
     }
@@ -558,14 +559,9 @@ class StatusPageController extends MagicController
   /// for inline display and stays put. Returns `null` for a non-field failure
   /// (a transport error / 500) after surfacing the generic error toast and
   /// logging the cause, so the caller falls back to its empty-map contract.
-  Map<String, String>? _fieldErrorsOrToast(StatusPage page) {
-    final Map<String, List<String>> errors = page.validationErrors;
-    if (errors.isNotEmpty) {
-      return {
-        for (final MapEntry<String, List<String>> entry in errors.entries)
-          entry.key: entry.value.first,
-      };
-    }
+  Map<String, String>? _resolveFieldErrors(StatusPage page) {
+    final Map<String, String> fieldErrors = fieldErrorsFromModel(page);
+    if (fieldErrors.isNotEmpty) return fieldErrors;
 
     Log.error('[StatusPageController] save returned false with no field errors');
     _toastError(null);
@@ -720,6 +716,11 @@ class StatusPageController extends MagicController
 
     if (data is! Map<String, dynamic>) return;
 
+    // Deliberately not strict here: this fills from the server's `show`
+    // resource, which carries `id`, `created_at`, `updated_at` and
+    // `preview_rendered_at`, none of them in `StatusPage.fillable`. Strict
+    // mode would throw on every read of this response instead of just this
+    // write path's user input.
     _replaceCachedPage(StatusPage()..fill(data));
   }
 
@@ -1063,7 +1064,7 @@ class StatusPageController extends MagicController
         // answered 404 with nothing in the UI able to change it.
         'is_public': draft.isPublic,
         'subscriptions_enabled': draft.subscriptionsEnabled,
-      });
+      }, strict: true);
     if (existing) {
       page.id = draft.id;
       page.exists = true;

@@ -1,9 +1,9 @@
 // Shared field-error mapping, replacing seven private near-duplicates.
 //
 // `monitor_controller.dart`, `monitor_metrics_controller.dart` and five other
-// controllers each carried their own private `_fieldErrorsOrToast`, one
+// controllers each carried their own private copy of this mapping, one shape
 // reading a `Model`'s `validationErrors` and one reading a `MagicResponse`'s
-// `errors`. The two copies had already drifted:
+// `errors`. The two shapes had already drifted:
 // `monitor_metrics_controller.dart` collapsed a dot-notation key with
 // `entry.key.split('.').first`, which reads the bulk metric endpoint's
 // `metrics.0.ok_values.0` as `metrics` and loses the field entirely. This

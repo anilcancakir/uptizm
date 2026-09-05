@@ -6,6 +6,7 @@ import 'package:magic_starter/magic_starter.dart';
 
 import 'entitlement_controller.dart';
 import '../models/monitor.dart';
+import '../support/field_errors.dart';
 import '../support/roster_page.dart';
 import '../support/monitor_types.dart'
     show
@@ -971,10 +972,10 @@ class MonitorController extends MagicController
   /// and returns `false` rather than throwing.
   Future<Map<String, String>> create([Map<String, dynamic>? fields]) async {
     if (fields != null) {
-      final Monitor monitor = Monitor()..fill(fields);
+      final Monitor monitor = Monitor()..fill(fields, strict: true);
       final bool ok = await monitor.save();
       if (!ok) {
-        final Map<String, String>? fieldErrors = _fieldErrorsOrToast(monitor);
+        final Map<String, String>? fieldErrors = _resolveFieldErrors(monitor);
         if (fieldErrors != null) return fieldErrors;
         return const {};
       }
@@ -1015,7 +1016,7 @@ class MonitorController extends MagicController
       final Monitor? monitor = await Monitor.find(id);
       if (monitor == null) return const {};
 
-      monitor.fill(fields);
+      monitor.fill(fields, strict: true);
 
       // An omitted `auth_config` has to stay omitted ON THE WIRE, and filling
       // alone does not achieve that. The monitor was re-fetched above, so it
@@ -1033,7 +1034,7 @@ class MonitorController extends MagicController
 
       final bool ok = await monitor.save();
       if (!ok) {
-        final Map<String, String>? fieldErrors = _fieldErrorsOrToast(monitor);
+        final Map<String, String>? fieldErrors = _resolveFieldErrors(monitor);
         if (fieldErrors != null) return fieldErrors;
         return const {};
       }
@@ -1052,14 +1053,9 @@ class MonitorController extends MagicController
   /// inline display and stays put. Returns `null` for a non-field failure (a
   /// transport error / 500) after surfacing the generic save-failed toast and
   /// logging the cause, so the caller falls back to its empty-map contract.
-  Map<String, String>? _fieldErrorsOrToast(Monitor monitor) {
-    final Map<String, List<String>> errors = monitor.validationErrors;
-    if (errors.isNotEmpty) {
-      return {
-        for (final MapEntry<String, List<String>> entry in errors.entries)
-          entry.key: entry.value.first,
-      };
-    }
+  Map<String, String>? _resolveFieldErrors(Monitor monitor) {
+    final Map<String, String> fieldErrors = fieldErrorsFromModel(monitor);
+    if (fieldErrors.isNotEmpty) return fieldErrors;
 
     Log.error('[MonitorController] save returned false with no field errors');
     Magic.error(

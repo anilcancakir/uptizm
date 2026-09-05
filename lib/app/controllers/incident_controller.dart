@@ -4,6 +4,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../models/incident.dart';
+import '../support/field_errors.dart';
 import '../support/roster_page.dart';
 import '../enums/ai_confidence.dart' show aiConfidenceFromWire;
 import '../enums/ai_degrade_reason.dart' show aiDegradeReasonFromWire;
@@ -1376,10 +1377,10 @@ class IncidentController extends MagicController
   /// `false` rather than throwing.
   Future<Map<String, String>> create([Map<String, dynamic>? fields]) async {
     if (fields != null) {
-      final Incident incident = Incident()..fill(fields);
+      final Incident incident = Incident()..fill(fields, strict: true);
       final bool ok = await incident.save();
       if (!ok) {
-        final Map<String, String>? fieldErrors = _fieldErrorsOrToast(incident);
+        final Map<String, String>? fieldErrors = _resolveFieldErrors(incident);
         if (fieldErrors != null) return fieldErrors;
         return const {};
       }
@@ -1414,14 +1415,9 @@ class IncidentController extends MagicController
   /// inline display and stays put. Returns `null` for a non-field failure (a
   /// transport error / 500) after surfacing the generic error toast and logging
   /// the cause, so the caller falls back to its empty-map contract.
-  Map<String, String>? _fieldErrorsOrToast(Incident incident) {
-    final Map<String, List<String>> errors = incident.validationErrors;
-    if (errors.isNotEmpty) {
-      return {
-        for (final MapEntry<String, List<String>> entry in errors.entries)
-          entry.key: entry.value.first,
-      };
-    }
+  Map<String, String>? _resolveFieldErrors(Incident incident) {
+    final Map<String, String> fieldErrors = fieldErrorsFromModel(incident);
+    if (fieldErrors.isNotEmpty) return fieldErrors;
 
     Log.error('[IncidentController.create] save returned false with no errors');
     Magic.error(

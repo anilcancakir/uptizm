@@ -365,7 +365,7 @@ class OnCallController extends MagicController
       ..fill(<String, dynamic>{
         'name': trans('uptizm.teams.oncall_default_schedule_name'),
         'timezone': DateManager.instance.timezoneName,
-      });
+      }, strict: true);
 
     final bool ok = await schedule.save();
     if (!ok) {

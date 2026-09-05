@@ -5,6 +5,7 @@ import 'package:magic_starter/magic_starter.dart';
 import '../../resources/views/monitors/monitor_form_support.dart'
     show AiMetricSeed;
 import '../../resources/views/monitors/monitor_metrics_support.dart';
+import '../support/field_errors.dart';
 
 // ---------------------------------------------------------------------------
 // Wire <-> form vocabulary maps.
@@ -377,7 +378,7 @@ class MonitorMetricsController extends MagicController
         Log.error(
           '[MonitorMetricsController.create] $monitorId: ${response.errorMessage}',
         );
-        return _fieldErrorsOrToast(response);
+        return _resolveFieldErrors(response);
       }
 
       await reload(monitorId);
@@ -414,7 +415,7 @@ class MonitorMetricsController extends MagicController
           '[MonitorMetricsController.update] $monitorId/$metricId: '
           '${response.errorMessage}',
         );
-        return _fieldErrorsOrToast(response);
+        return _resolveFieldErrors(response);
       }
 
       await reload(monitorId);
@@ -750,30 +751,16 @@ class MonitorMetricsController extends MagicController
   ///
   /// Returns the field errors (single message per field, keyed by the wire
   /// field name) when the failed write carried the Laravel 422 shape via
-  /// [MagicResponse.errors], so the caller hands them back to the form for
-  /// inline display and keeps the sheet open. Returns an empty map for a
-  /// non-field failure (a transport error / 500) after surfacing the generic
-  /// save-failed toast, so the caller closes the sheet on the empty-map
-  /// contract. Mirrors `monitor_controller.dart`'s `_fieldErrorsOrToast`,
-  /// reading [MagicResponse.errors] instead of a model's `validationErrors`.
-  ///
-  /// A dot-notation array-element key (e.g. `ok_values.1`, from the backend's
-  /// `field.*` list validation) is collapsed onto its owning field
-  /// (`ok_values`): the form renders one chip-list field per list, not one
-  /// field per element, so an element-level key has nowhere else to land.
-  /// When more than one element of the same list fails, the FIRST message
-  /// encountered wins, matching the single-message-per-field contract every
-  /// other field already has.
-  Map<String, String> _fieldErrorsOrToast(MagicResponse response) {
-    final Map<String, List<String>> errors = response.errors;
-    if (errors.isNotEmpty) {
-      final Map<String, String> fieldErrors = {};
-      for (final MapEntry<String, List<String>> entry in errors.entries) {
-        final String field = entry.key.split('.').first;
-        fieldErrors.putIfAbsent(field, () => entry.value.first);
-      }
-      return fieldErrors;
-    }
+  /// [MagicResponse.errors] (collapsed through [fieldErrorsFromResponse], so a
+  /// dot-notation array-element key like `ok_values.1` lands on its owning
+  /// field `ok_values` rather than being lost or read as a separate one), so
+  /// the caller hands them back to the form for inline display and keeps the
+  /// sheet open. Returns an empty map for a non-field failure (a transport
+  /// error / 500) after surfacing the generic save-failed toast, so the
+  /// caller closes the sheet on the empty-map contract.
+  Map<String, String> _resolveFieldErrors(MagicResponse response) {
+    final Map<String, String> fieldErrors = fieldErrorsFromResponse(response);
+    if (fieldErrors.isNotEmpty) return fieldErrors;
 
     _notifySaveFailed(response.errorMessage);
     return const {};
