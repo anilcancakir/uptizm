@@ -397,24 +397,37 @@ class OnCallController extends MagicController
     return true;
   }
 
-  /// Publishes a failed [schedule] save as either per-field validation errors
-  /// or a generic toast, and answers `false` either way.
+  /// Surfaces a failed [schedule] save to the operator and answers `false`.
   ///
-  /// Mirrors `MonitorController._publishFieldErrors`: `Model.save()` consumes
-  /// its own response internally, so there is no [MagicResponse] in scope for
-  /// `setErrorsFromResponse` to read, and [fieldErrorsFromModel] reading
-  /// `schedule.validationErrors` is the only way in.
+  /// This vertical does NOT follow the other seven's publish-and-stay-silent
+  /// shape, and the difference is forced rather than stylistic. Everywhere else
+  /// a field error is deliberately silent, because the form renders a slot per
+  /// field and the silence is what tells "stay and correct the flagged fields"
+  /// apart from "already toasted". Here there is no form and no slot: nothing
+  /// reads `getError` for an on-call field, and `on_call_schedule_view.dart`
+  /// does not even read the returned bool. Publishing onto [validationErrors]
+  /// and returning would leave the operator tapping a button that does nothing
+  /// and says nothing, which is exactly the failure the rest of this work
+  /// removed. So every failure toasts.
+  ///
+  /// A field-shaped 422 is the real case, not a hypothetical: the backend's
+  /// `timezone` rule is a Carbon-backed IANA lookup and can refuse the zone
+  /// [DateManager] resolved for this device. Its message is more useful than
+  /// the generic one, so it is what gets shown. [fieldErrorsFromModel] is the
+  /// only way in, because `Model.save()` consumes its own [MagicResponse]
+  /// internally and leaves no response for `setErrorsFromResponse` to read.
+  ///
+  /// Give this the other verticals' shape the day this screen grows a create
+  /// form with an error slot, and not before.
   bool _publishFieldErrors(OnCallSchedule schedule) {
     final Map<String, String> fieldErrors = fieldErrorsFromModel(schedule);
-    if (fieldErrors.isNotEmpty) {
-      validationErrors = fieldErrors;
-      refreshUI();
 
-      return false;
-    }
+    Log.error(
+      '[OnCallController.createSchedule] save() returned false: '
+      '${fieldErrors.isEmpty ? 'no field errors' : fieldErrors}',
+    );
+    _toastError(fieldErrors.isEmpty ? null : fieldErrors.values.first);
 
-    Log.error('[OnCallController.createSchedule] save() returned false');
-    _toastError(null);
     return false;
   }
 
