@@ -17,6 +17,7 @@ import '../../../app/models/monitor.dart';
 import '../../../app/models/status_page.dart';
 import '../../../app/support/submits_once.dart';
 import '../../../ui/components/ai_confidence_badge/index.dart';
+import '../../../ui/components/switch_row/index.dart';
 import '../../../ui/components/region_picker/region_picker.dart';
 
 /// The incident kind: a real incident, or a scheduled maintenance window.
@@ -866,7 +867,7 @@ class _IncidentCreateViewState
     return WDiv(
       className: 'flex flex-col gap-1.5 border-t border-color-border pt-5',
       children: [
-        _buildSwitchRow(
+        SwitchRow(
           label: trans('uptizm.incidents.form_notify_label'),
           value: _notify,
           onChanged: (value) => setState(() => _notify = value),
@@ -912,23 +913,6 @@ class _IncidentCreateViewState
                 : trans('uptizm.incidents.submit_open'),
           ),
         ),
-      ],
-    );
-  }
-
-  /// Builds a labelled switch row: the [Switch] toggle followed by its text
-  /// label. Mirrors the `monitor_form.dart` switch-row helper (the Dart [Switch]
-  /// is toggle-only, so the label renders beside it).
-  Widget _buildSwitchRow({
-    required String label,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-  }) {
-    return WDiv(
-      className: 'flex flex-row items-center gap-3',
-      children: [
-        MSSwitch(value: value, onChanged: onChanged, semanticLabel: label),
-        WText(label, className: 'min-w-0 text-sm text-fg'),
       ],
     );
   }

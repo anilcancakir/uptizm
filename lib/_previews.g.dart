@@ -33,6 +33,7 @@ import 'ui/components/status_badge/status_badge.preview.dart';
 import 'ui/components/status_dot/status_dot.preview.dart';
 import 'ui/components/status_page_preview/status_page_preview.preview.dart';
 import 'ui/components/string_value_list/string_value_list.preview.dart';
+import 'ui/components/switch_row/switch_row.preview.dart';
 import 'ui/components/uptime_bar/uptime_bar.preview.dart';
 
 List<PreviewEntry> previewEntries() {
@@ -181,6 +182,11 @@ List<PreviewEntry> previewEntries() {
       label: 'StringValueList',
       slug: 'string_value_list',
       builder: (_) => const StringValueListPreview(),
+    ),
+    PreviewEntry(
+      label: 'SwitchRow',
+      slug: 'switch_row',
+      builder: (_) => const SwitchRowPreview(),
     ),
     PreviewEntry(
       label: 'UptimeBar',

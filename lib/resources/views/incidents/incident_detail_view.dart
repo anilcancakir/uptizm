@@ -21,6 +21,7 @@ import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/incident_timeline/index.dart'
     show IncidentTimeline;
 import '../../../ui/components/status_badge/index.dart';
+import '../../../ui/components/switch_row/index.dart';
 import 'incident_form_support.dart';
 
 /// **The Incident Detail screen.**
@@ -1367,19 +1368,10 @@ class _IncidentDetailViewState
 
   /// Builds the publish [Switch] row: the toggle followed by its label.
   Widget _buildPublishSwitch() {
-    final String label = trans(
-      'uptizm.incidents.detail_composer_publish_label',
-    );
-    return WDiv(
-      className: 'flex flex-row items-center gap-3 min-w-0',
-      children: [
-        MSSwitch(
-          value: _publish,
-          onChanged: (value) => setState(() => _publish = value),
-          semanticLabel: label,
-        ),
-        WText(label, className: 'min-w-0 text-sm text-fg'),
-      ],
+    return SwitchRow(
+      label: trans('uptizm.incidents.detail_composer_publish_label'),
+      value: _publish,
+      onChanged: (bool value) => setState(() => _publish = value),
     );
   }
 

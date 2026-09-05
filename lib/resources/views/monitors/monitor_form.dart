@@ -11,6 +11,7 @@ import '../../../app/mocks/monitors.dart';
 import '../../../app/models/escalation_policy.dart';
 import '../../../app/support/submits_once.dart';
 import '../../../ui/components/form_actions/index.dart';
+import '../../../ui/components/switch_row/index.dart';
 import '../../../ui/components/key_value_editor/key_value_editor.dart';
 import '../../../ui/components/region_picker/region_picker.dart';
 
@@ -916,7 +917,7 @@ class _MonitorFormState extends State<MonitorForm>
     return MSFormField(
       label: trans('uptizm.monitors.form_ai_auto_updates_label'),
       hint: trans('uptizm.monitors.form_ai_auto_updates_hint'),
-      child: _buildSwitchRow(
+      child: SwitchRow(
         label: trans('uptizm.monitors.form_ai_auto_updates_switch'),
         value: _aiAutoUpdates,
         onChanged: (value) => setState(() => _aiAutoUpdates = value),
@@ -943,12 +944,12 @@ class _MonitorFormState extends State<MonitorForm>
             ),
           ],
         ),
-        _buildSwitchRow(
+        SwitchRow(
           label: trans('uptizm.monitors.form_alert_down'),
           value: _notifyDown,
           onChanged: (value) => setState(() => _notifyDown = value),
         ),
-        _buildSwitchRow(
+        SwitchRow(
           label: trans('uptizm.monitors.form_alert_recover'),
           value: _notifyRecover,
           onChanged: (value) => setState(() => _notifyRecover = value),
@@ -1023,7 +1024,7 @@ class _MonitorFormState extends State<MonitorForm>
     return WDiv(
       className: 'flex flex-col gap-1.5 border-t border-color-border pt-5',
       children: [
-        _buildSwitchRow(
+        SwitchRow(
           label: trans('uptizm.monitors.form_advanced_label'),
           value: _advanced,
           onChanged: (value) => setState(() => _advanced = value),
@@ -1115,7 +1116,7 @@ class _MonitorFormState extends State<MonitorForm>
         WDiv(
           className: 'flex flex-col gap-1.5',
           children: [
-            _buildSwitchRow(
+            SwitchRow(
               label: trans('uptizm.monitors.form_follow_redirects_label'),
               value: _followRedirects,
               onChanged: (value) => setState(() => _followRedirects = value),
@@ -1391,23 +1392,6 @@ class _MonitorFormState extends State<MonitorForm>
   // ---------------------------------------------------------------------------
   // Small helpers.
   // ---------------------------------------------------------------------------
-
-  /// Builds a labelled switch row: the [Switch] toggle followed by its text
-  /// label. The Dart [Switch] is toggle-only, so the label is rendered beside
-  /// it (the React `Switch` carried an inline `label` prop).
-  Widget _buildSwitchRow({
-    required String label,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-  }) {
-    return WDiv(
-      className: 'flex flex-row items-center gap-3',
-      children: [
-        MSSwitch(value: value, onChanged: onChanged, semanticLabel: label),
-        WText(label, className: 'min-w-0 text-sm text-fg'),
-      ],
-    );
-  }
 
   /// Returns the zero-based index of [value] in [options], or 0 when absent.
   int _indexOfValue(List<MetricOption> options, String value) {

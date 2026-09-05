@@ -10,6 +10,7 @@ import '../../../app/enums/ai_confidence.dart';
 import '../../../app/support/monitor_types.dart'
     show AnalyzeFailure, AnalyzeRunProgress, AnalyzeStepState;
 import '../../../ui/components/ai_confidence_badge/index.dart';
+import '../../../ui/components/switch_row/index.dart';
 import '../../../app/controllers/entitlement_controller.dart';
 
 /// The setup mode: AI-assisted or manual hand configuration.
@@ -556,22 +557,13 @@ class _MonitorCreateViewState
     return WDiv(
       className: 'mt-5 flex flex-col gap-3',
       children: [
-        WDiv(
-          className: 'flex flex-row items-center gap-3',
-          children: [
-            MSSwitch(
-              value: _authDisclosureOpen,
-              onChanged: (value) => setState(() {
-                _authDisclosureOpen = value;
-                _credentialErrors = const <String, String>{};
-              }),
-              semanticLabel: trans('uptizm.monitors.create_ai_auth_toggle'),
-            ),
-            WText(
-              trans('uptizm.monitors.create_ai_auth_toggle'),
-              className: 'min-w-0 text-sm text-fg',
-            ),
-          ],
+        SwitchRow(
+          label: trans('uptizm.monitors.create_ai_auth_toggle'),
+          value: _authDisclosureOpen,
+          onChanged: (bool value) => setState(() {
+            _authDisclosureOpen = value;
+            _credentialErrors = const <String, String>{};
+          }),
         ),
         if (_authDisclosureOpen)
           WText(
