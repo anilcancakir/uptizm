@@ -52,9 +52,10 @@ with regions, an incident with a lifecycle, an error budget with a window.
 | `status_dot/` | `StatusDot` | StatusDotSize | yes | yes | yes | A small solid circle visualizing a monitoring [StatusKey]. |
 | `status_page_preview/` | `StatusPagePreview` | - | yes | yes | yes | The public status page, rendered in-app. |
 | `string_value_list/` | `StringValueList` | StringValueListTone | yes | yes | yes | Controlled editor for a short list of distinct strings. |
+| `switch_row/` | `SwitchRow` | - | yes | yes | yes | A labelled toggle: an [MSSwitch] with its text label beside it. |
 | `uptime_bar/` | `UptimeBar` | UptimeBarSize | yes | yes | yes | The 90-Day Uptime Timeline Bar |
 
-26 components. A bold cell is a rule violation rather than a note:
+27 components. A bold cell is a rule violation rather than a note:
 `.claude/rules/design.md` requires exactly one preview per component and an `index.dart`
 that exports the class and its recipe but never the preview.
 

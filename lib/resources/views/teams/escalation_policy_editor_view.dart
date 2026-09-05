@@ -6,6 +6,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../ui/components/form_actions/index.dart';
+import '../../../ui/components/switch_row/index.dart';
 import '../../../app/controllers/escalation_controller.dart';
 import '../../../app/models/escalation_policy.dart';
 import '../../../app/support/team_types.dart' show TeamResponder;
@@ -638,35 +639,18 @@ class _EscalationPolicyEditorViewState
       child: WDiv(
         className: 'flex flex-col gap-3',
         children: <Widget>[
-          _buildSwitchRow(
+          SwitchRow(
             label: trans('uptizm.teams.escalation_editor_repeat_label'),
             value: _repeatLastStep,
             onChanged: (bool value) => setState(() => _repeatLastStep = value),
           ),
-          _buildSwitchRow(
+          SwitchRow(
             label: trans('uptizm.teams.escalation_editor_default_label'),
             value: _isDefault,
             onChanged: (bool value) => setState(() => _isDefault = value),
           ),
         ],
       ),
-    );
-  }
-
-  /// Builds a labelled switch row: the [Switch] toggle followed by its text
-  /// label (the Dart [Switch] is toggle-only, so the label renders beside it,
-  /// mirroring status_page_editor_view's switch-row helper).
-  Widget _buildSwitchRow({
-    required String label,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-  }) {
-    return WDiv(
-      className: 'flex flex-row items-center gap-3',
-      children: <Widget>[
-        MSSwitch(value: value, onChanged: onChanged, semanticLabel: label),
-        WText(label, className: 'min-w-0 text-sm text-fg'),
-      ],
     );
   }
 }

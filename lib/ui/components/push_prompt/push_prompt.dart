@@ -184,6 +184,21 @@ class PushPrompt extends StatelessWidget {
   /// Driven by [action], because that is the only input that knows what a tap
   /// could accomplish. [reachability] appears once, to tell the two states with
   /// nothing to offer apart: a subscribed device and a build with no push.
+  /// The className every action row in this card carries.
+  ///
+  /// `wrap`, not `flex-row`: the request state offers two buttons, and on a
+  /// phone "Anlık bildirimleri aç" beside "Şimdi değil" is wider than the card,
+  /// so a row overflowed it by 2.2 pixels (measured 2026-09-06 at 390pt). A
+  /// wrap flows the second button onto its own line instead. Turkish labels run
+  /// longer than the English ones that first fit, which is why this was
+  /// invisible until the interface was read in Turkish.
+  ///
+  /// The single-button states share it deliberately: the same long-label
+  /// pressure applies to one button in a narrow card, and a second token here
+  /// would be a second thing to get wrong. `FormActions` reached the same
+  /// answer for the same reason; see its recipe.
+  static const String _actionsClassName = 'wrap items-center gap-4';
+
   List<Widget> _buildBody() {
     return switch (action) {
       PushPromptAction.none when reachability == PushReachability.on => [
@@ -198,7 +213,7 @@ class PushPrompt extends StatelessWidget {
         _buildTitle(trans('uptizm.push_prompt.blocked_title')),
         _buildLine(trans('uptizm.push_prompt.blocked_body_settings')),
         WDiv(
-          className: 'flex flex-row items-center gap-4',
+          className: _actionsClassName,
           children: [_buildEnable()],
         ),
       ],
@@ -214,7 +229,7 @@ class PushPrompt extends StatelessWidget {
       PushPromptAction.request when declined => [
         _buildLine(trans('uptizm.push_prompt.declined_body')),
         WDiv(
-          className: 'flex flex-row items-center gap-4',
+          className: _actionsClassName,
           children: [_buildEnable()],
         ),
       ],
@@ -222,7 +237,7 @@ class PushPrompt extends StatelessWidget {
         _buildTitle(trans('uptizm.push_prompt.ask_title')),
         _buildLine(trans('uptizm.push_prompt.ask_body')),
         WDiv(
-          className: 'flex flex-row items-center gap-4',
+          className: _actionsClassName,
           children: [_buildEnable(), _buildDecline()],
         ),
       ],

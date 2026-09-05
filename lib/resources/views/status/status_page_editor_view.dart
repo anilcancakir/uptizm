@@ -21,6 +21,7 @@ import '../../../app/models/monitor.dart';
 import '../../../app/models/status_page.dart';
 import '../../../ui/components/form_actions/index.dart';
 import '../../../ui/components/ai_insight/index.dart';
+import '../../../ui/components/switch_row/index.dart';
 import '../../../ui/components/region_picker/region_picker.dart';
 import '../../../ui/components/status_page_preview/index.dart';
 
@@ -1213,7 +1214,7 @@ class _StatusPageEditorViewState
                 trans('uptizm.status.editor_section_visibility'),
                 hint: trans('uptizm.status.editor_section_visibility_hint'),
               ),
-              _buildSwitchRow(
+              SwitchRow(
                 label: trans('uptizm.status.editor_form_is_public_label'),
                 value: _isPublic,
                 onChanged: (bool value) {
@@ -1264,7 +1265,7 @@ class _StatusPageEditorViewState
             trans('uptizm.status.editor_section_subscriptions'),
             hint: trans('uptizm.status.editor_section_subscriptions_hint'),
           ),
-          _buildSwitchRow(
+          SwitchRow(
             label: trans('uptizm.status.editor_form_allow_subscriptions_label'),
             value: _subscriptionsEnabled,
             onChanged: (bool value) =>
@@ -1727,26 +1728,4 @@ class _StatusPageEditorViewState
     );
   }
 
-  /// Builds a labelled switch row: the [Switch] toggle followed by its text
-  /// label (the Dart [Switch] is toggle-only, so the label renders beside it,
-  /// mirroring the monitor_form / incident_create switch-row helpers).
-  Widget _buildSwitchRow({
-    required String label,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-  }) {
-    return WDiv(
-      className: 'flex flex-row items-center gap-3',
-      children: <Widget>[
-        MSSwitch(value: value, onChanged: onChanged, semanticLabel: label),
-        // `flex-1`, not `min-w-0` alone: the switch is a fixed 44pt and the
-        // label is unbounded, so a Row sized them both to their natural width
-        // and overflowed on a phone. `min-w-0` does nothing without a flex
-        // wrapper to shrink INTO. Measured at 402pt on this form's own
-        // subscriptions row, and Turkish labels are longer than the English
-        // ones that first fit.
-        WText(label, className: 'flex-1 min-w-0 text-sm text-fg'),
-      ],
-    );
-  }
 }
