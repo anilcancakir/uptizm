@@ -177,8 +177,13 @@ class _TeamsViewsLangLoader implements TranslationLoader {
       'uptizm.teams.escalation_editor_create_button': 'Create policy',
       'uptizm.teams.escalation_editor_name_label': 'Name',
       'uptizm.teams.escalation_editor_name_placeholder': 'Critical path',
-      'uptizm.teams.form_name_error_required': 'Name is required.',
       'uptizm.teams.form_targets_error_required': 'Add a target.',
+      // Escalation name validation now runs through magic's own `Required`/
+      // `Max` rules (EscalationController._createRules), so the inline error
+      // resolves through the shared `validation.*`/`attributes.*` catalogue
+      // rather than a dedicated `uptizm.teams.form_name_error_required` key.
+      'validation.required': 'The :attribute field is required.',
+      'attributes.name': 'Name',
       'uptizm.teams.escalation_editor_desc_label': 'Description',
       'uptizm.teams.escalation_editor_desc_placeholder': 'Aggressive paging.',
       'uptizm.teams.escalation_editor_ladder_header': 'Escalation ladder',
@@ -465,8 +470,8 @@ void main() {
         await tester.pump();
 
         // Tap Create with the blank create defaults (empty name, one rung with
-        // no targets): the client-side required check must block before any
-        // round trip.
+        // no targets): EscalationController.create's own `Required()` rule
+        // must block before any round trip.
         await tester.tap(
           find.text(trans('uptizm.teams.escalation_editor_create_button')),
         );
@@ -474,7 +479,7 @@ void main() {
 
         expect(tester.takeException(), isNull);
         expect(
-          find.text(trans('uptizm.teams.form_name_error_required')),
+          find.text('The Name field is required.'),
           findsOneWidget,
           reason: 'A blank name must surface its inline required error',
         );

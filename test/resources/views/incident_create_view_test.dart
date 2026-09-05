@@ -5,6 +5,7 @@ import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/controllers/entitlement_controller.dart';
 import 'package:uptizm/app/controllers/incident_controller.dart';
+import 'package:uptizm/app/controllers/maintenance_controller.dart';
 import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/app/controllers/status_page_controller.dart';
 import 'package:magic_payments/magic_payments.dart'
@@ -78,6 +79,24 @@ class _IncidentCreateLangLoader implements TranslationLoader {
     return {
       'common.error_occurred': 'Something went wrong.',
       'common.done': 'Done',
+      // The framework's own validation message, not one of this file's own
+      // keys: `IncidentController`/`MaintenanceController._createRules` now
+      // route a blank required field through the shared `Required()` rule
+      // rather than a form-local check, matching `monitor_form_test.dart`'s
+      // stub for the same rule.
+      'validation.required': 'The :attribute field is required.',
+      // The framework's `Max` message, exercised by the first-update
+      // Max(2000) regression tests below.
+      'validation.max.string':
+          'The :attribute may not be greater than :max characters.',
+      // The shipped catalogue's own display names (`assets/lang/en.json`'s
+      // `attributes.title`/`attributes.status_page_id`/`attributes.message`/
+      // `attributes.description`), so the fallback humanized attribute name
+      // is not what the assertions below pin.
+      'attributes.title': 'Title',
+      'attributes.status_page_id': 'Status page',
+      'attributes.message': 'First update',
+      'attributes.description': 'Description',
       'uptizm.monitors.check_col_time': 'Time',
       'uptizm.incidents.form_prefill_title': 'Investigating :monitor',
       'uptizm.incidents.back': 'Incidents',
@@ -553,10 +572,19 @@ void main() {
       );
       await tester.pump();
 
+      // Select a monitor, so the client-only "at least one affected monitor"
+      // policy check (which runs and returns BEFORE the write, see
+      // `_onSubmit`) is not what blocks this submit: the title is.
+      await tester.tap(find.text(monitorFixtures.first.name ?? ''));
+      await tester.pump();
+
       await submit(tester);
 
       expect(
-        find.text(trans('uptizm.incidents.form_title_error_required')),
+        // `MaintenanceController._createRules`'s `Required()` on `title` is
+        // what refuses this now, via the framework's own validation message
+        // (`attributes.title` is set in the shipped catalogue to "Title").
+        find.text('The Title field is required.'),
         findsOneWidget,
         reason: 'a blank title must surface inline before any round trip',
       );
@@ -619,7 +647,12 @@ void main() {
       await submit(tester);
 
       expect(
-        find.text(trans('uptizm.incidents.form_status_page_error_required')),
+        // `MaintenanceController._createRules`'s `Required()` on
+        // `status_page_id` is what refuses the omitted key now (the same
+        // rule that used to answer with this exact sentence from the SERVER,
+        // per the comment above); `attributes.status_page_id` is set in the
+        // shipped catalogue to "Status page".
+        find.text('The Status page field is required.'),
         findsOneWidget,
         reason: 'the missing page surfaces in its own inline slot',
       );
@@ -627,6 +660,56 @@ void main() {
         (r) => r.method == 'POST' && r.url == '/scheduled-maintenances',
       );
     });
+
+    testWidgets(
+      'entering maintenance mode clears a previous visit\'s validation '
+      'errors before the first submit',
+      (tester) async {
+        // What the explicit `MaintenanceController.instance.clearErrors()`
+        // call in `_enterMaintenanceMode` buys: this view is
+        // `MagicStatefulView<IncidentController>`, so the framework's
+        // per-mount error clear never reaches `MaintenanceController`, a
+        // SECOND controller. Without the explicit call, a failed maintenance
+        // submit from an earlier visit would paint its errors again the
+        // moment the operator switches back into maintenance mode, before
+        // typing anything.
+        Http.fake();
+        registerRoutes();
+        MonitorController.instance.seedForTest(monitorFixtures);
+        addTearDown(() => MonitorController.instance.seedForTest(const []));
+        StatusPageController.instance.seedForTest(<StatusPage>[_publicPage]);
+        addTearDown(() => StatusPageController.instance.seedForTest(const []));
+
+        await tester.binding.setSurfaceSize(const Size(1280, 3200));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        // Dirty the controller as an EARLIER failed submit would have left it,
+        // before this view ever mounts.
+        MaintenanceController.instance.validationErrors = {
+          'title': 'The Title field is required.',
+        };
+
+        await tester.pumpWidget(wrap(const IncidentCreateView()));
+        await tester.pump();
+
+        await tester.tap(
+          find.text(trans('uptizm.incidents.form_kind_maintenance')),
+        );
+        await tester.pump();
+
+        expect(
+          MaintenanceController.instance.validationErrors,
+          isEmpty,
+          reason: 'entering maintenance mode must clear a prior visit\'s '
+              'errors before the operator has typed anything',
+        );
+        expect(
+          find.text('The Title field is required.'),
+          findsNothing,
+          reason: 'the stale message must not repaint under the Title field',
+        );
+      },
+    );
 
     testWidgets('the picked status page is the one the window is posted on', (
       tester,
@@ -768,5 +851,138 @@ void main() {
 
       expect(find.text('Uptizm AI analyzes this incident.'), findsOneWidget);
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // The one textarea, two wire keys: a Max(2000) violation must paint
+  // ---------------------------------------------------------------------------
+
+  group('IncidentCreateView first-update Max(2000)', () {
+    /// The regression this pins: `_firstUpdateKey` travels under `message`
+    /// (incident) or `description` (maintenance), and the textarea used to
+    /// render NO error slot at all, so an over-length draft made the submit
+    /// button do nothing (no inline message, no toast, no request). Both
+    /// modes are asserted because they write through different keys and a
+    /// pass on one proves nothing about the other.
+    testWidgets(
+      'an over-length first update blocks the incident round trip and paints '
+      'the Max message',
+      (tester) async {
+        final fake = Http.fake();
+
+        MonitorController.instance.seedForTest(monitorFixtures);
+        addTearDown(() => MonitorController.instance.seedForTest(const []));
+
+        await tester.binding.setSurfaceSize(const Size(1280, 3200));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        await tester.pumpWidget(wrap(const IncidentCreateView()));
+        await tester.pump();
+
+        await tester.enterText(
+          find.widgetWithText(
+            MSInput,
+            trans('uptizm.incidents.form_title_placeholder_incident'),
+          ),
+          'Checkout returning 503s',
+        );
+        await tester.pump();
+
+        await tester.tap(find.text(monitorFixtures.first.name ?? ''));
+        await tester.pump();
+
+        await tester.enterText(
+          find.widgetWithText(
+            MSTextarea,
+            trans('uptizm.incidents.form_first_update_placeholder_incident'),
+          ),
+          List<String>.filled(2001, 'a').join(),
+        );
+        await tester.pump();
+
+        final Finder button = find.widgetWithText(
+          MSButton,
+          trans('uptizm.incidents.submit_open'),
+        );
+        await tester.ensureVisible(button);
+        await tester.pump();
+        await tester.tap(button);
+        await tester.pump();
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.text(
+            'The First update may not be greater than 2000 characters.',
+          ),
+          findsOneWidget,
+          reason: 'a 2001-character first update must surface the Max(2000) '
+              'message under its own slot, not a silent no-op button',
+        );
+        fake.assertNotSent((r) => r.method == 'POST' && r.url == '/incidents');
+      },
+    );
+
+    testWidgets(
+      'an over-length first update blocks the maintenance round trip and '
+      'paints the Max message',
+      (tester) async {
+        final fake = Http.fake();
+        registerRoutes();
+
+        MonitorController.instance.seedForTest(monitorFixtures);
+        addTearDown(() => MonitorController.instance.seedForTest(const []));
+        StatusPageController.instance.seedForTest(<StatusPage>[_publicPage]);
+        addTearDown(() => StatusPageController.instance.seedForTest(const []));
+
+        await tester.binding.setSurfaceSize(const Size(1280, 3200));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        await tester.pumpWidget(wrap(const IncidentCreateView()));
+        await tester.pump();
+
+        await tester.tap(
+          find.text(trans('uptizm.incidents.form_kind_maintenance')),
+        );
+        await tester.pump();
+
+        await tester.enterText(
+          find.widgetWithText(
+            MSInput,
+            trans('uptizm.incidents.form_title_placeholder_maintenance'),
+          ),
+          'Database upgrade',
+        );
+        await tester.pump();
+
+        await tester.tap(find.text('Checkout service'));
+        await tester.pump();
+
+        await tester.enterText(
+          find.widgetWithText(
+            MSTextarea,
+            trans(
+              'uptizm.incidents.form_first_update_placeholder_maintenance',
+            ),
+          ),
+          List<String>.filled(2001, 'a').join(),
+        );
+        await tester.pump();
+
+        await submit(tester);
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.text('The Description may not be greater than 2000 characters.'),
+          findsOneWidget,
+          reason: 'a 2001-character first update must surface the Max(2000) '
+              'message under its own slot in maintenance mode too, under a '
+              'different wire key from the incident kind',
+        );
+        fake.assertNotSent(
+          (r) => r.method == 'POST' && r.url == '/scheduled-maintenances',
+        );
+      },
+    );
   });
 }

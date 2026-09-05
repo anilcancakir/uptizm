@@ -3,9 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/app/controllers/status_page_controller.dart';
 import 'package:uptizm/app/support/status_page_types.dart' show Subscriber;
 import 'package:uptizm/app/mocks/status_pages.dart';
+import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/app/models/status_page.dart';
 import 'package:uptizm/resources/views/status/status_page_editor_view.dart';
 import 'package:uptizm/resources/views/status/status_page_preview_view.dart';
@@ -507,6 +509,61 @@ void main() {
       );
     });
 
+    // -------------------------------------------------------------------------
+    // The seed listener pin. `initState` registers `_seedOnceResolved` as a
+    // listener on the controller (`:221`) so a direct load can reseed once
+    // the roster lands, and its callback (`:263-271`) calls
+    // `setState(() => _seedFrom(resolved))`. Moving `save`/`create` onto the
+    // framework's `validate()` adds notification edges into the submit path
+    // (an unconditional `refreshUI()` on entry, another on a client refusal,
+    // a third on a server field refusal), so this pins that a failed write
+    // still leaves whatever the operator already typed on screen: nobody has
+    // demonstrated the listener overwrites it, this test exists so that if it
+    // ever starts, it is caught here rather than shipped.
+    // -------------------------------------------------------------------------
+    testWidgets(
+      "a failed save leaves the operator's typed draft unchanged, with the "
+      'seed listener still attached',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        // The show read (mount refetch) succeeds so the editor resolves into
+        // edit mode normally; only the PUT write fails, with no field errors,
+        // so the refusal takes the generic-toast branch.
+        Http.fake((r) {
+          if (r.method == 'PUT' && r.url.contains('status-pages/acme')) {
+            return Http.response({'message': 'down'}, 500);
+          }
+          return Http.response(<String, dynamic>{}, 200);
+        });
+
+        await tester.pumpWidget(
+          wrap(
+            const StatusPageEditorView(id: 'acme'),
+            size: const Size(1280, 4000),
+          ),
+        );
+        await tester.pump();
+
+        const String typed = 'Acme Status Renamed By Operator';
+        await tester.enterText(find.byType(MSInput).first, typed);
+        await tester.pump();
+
+        await tester.tap(find.text(trans('uptizm.status.editor_form_save')));
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.text(typed),
+          findsWidgets,
+          reason:
+              "a failed write must not let the seed listener's setState "
+              'overwrite what the operator typed',
+        );
+      },
+    );
+
     testWidgets('edit mode prefills the header with the fixture name', (
       tester,
     ) async {
@@ -551,9 +608,17 @@ void main() {
     });
 
     testWidgets(
-      'create mode: saving with a blank name shows an inline error and skips '
-      'the write',
+      'create mode: saving with no components assigned shows the inline '
+      'error and skips the write',
       (tester) async {
+        // Components is the one check that stayed local (see
+        // `StatusPageEditorView._checkComponents`): monitor membership is a
+        // pivot sub-resource `StoreStatusPageRequest` never validates, so
+        // there is no backend rule for the controller to mirror. It gates
+        // BEFORE the controller's own `name`/`slug` rules ever run, mirroring
+        // `MonitorForm`'s target/credential gate ahead of `onSubmit`, so a
+        // blank create-mode submit (name, slug AND components all empty)
+        // shows this error and this error alone.
         await tester.binding.setSurfaceSize(const Size(1280, 4000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -564,8 +629,6 @@ void main() {
         );
         await tester.pump();
 
-        // Tap Create with the blank create defaults (empty name/slug/monitors):
-        // the client-side required check must block before any round trip.
         await tester.tap(
           find.text(trans('uptizm.status.editor_form_create_page')),
         );
@@ -573,11 +636,58 @@ void main() {
 
         expect(tester.takeException(), isNull);
         expect(
-          find.text(trans('uptizm.status.form_name_error_required')),
+          find.text(trans('uptizm.status.form_components_error_required')),
           findsOneWidget,
-          reason: 'A blank name must surface its inline required error',
+          reason: 'no component assigned must surface its inline required error',
         );
         // No round trip: the blank submit never reached the write endpoint.
+        fake.assertNotSent(
+          (r) =>
+              (r.method == 'POST' || r.method == 'PUT') &&
+              r.url.contains('status-pages'),
+        );
+      },
+    );
+
+    testWidgets(
+      'create mode: with a component assigned, saving with a blank name '
+      'refuses locally through the rule `StoreStatusPageRequest` mirrors, '
+      'with nothing sent',
+      (tester) async {
+        // Assigning a component first is what isolates the `name`/`slug`
+        // rules the controller now mirrors from `StoreStatusPageRequest`
+        // (`Required()` on `StatusPageController._createRules`) from the
+        // client-only components check above, which would otherwise gate
+        // first and never let `controller.create` run at all.
+        await tester.binding.setSurfaceSize(const Size(1280, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        MonitorController.instance.seedForTest(<Monitor>[
+          Monitor.fromMap(<String, dynamic>{'id': 'api', 'name': 'API'}),
+        ]);
+        final FakeNetworkDriver fake = Http.fake();
+
+        await tester.pumpWidget(
+          wrap(const StatusPageEditorView(), size: const Size(1280, 4000)),
+        );
+        await tester.pump();
+
+        await tester.tap(find.text('API'));
+        await tester.pump();
+
+        await tester.tap(
+          find.text(trans('uptizm.status.editor_form_create_page')),
+        );
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        // No translation is stubbed for `validation.required` here (that
+        // catalogue entry is out of this step's file scope, see the report's
+        // `### Missing translation keys`), so the raw message key renders
+        // verbatim; that verbatim text is exactly what proves the refusal
+        // reached the `name`/`slug` fields rather than being silently
+        // swallowed. Both fail, so it shows twice.
+        expect(find.text('validation.required'), findsNWidgets(2));
         fake.assertNotSent(
           (r) =>
               (r.method == 'POST' || r.method == 'PUT') &&

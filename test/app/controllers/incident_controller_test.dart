@@ -595,6 +595,25 @@ void main() {
         fake.assertSent((r) => r.method == 'GET' && r.url == '/incidents');
         MagicRouter.reset();
       });
+
+      test('a blank title is refused here, and nothing is sent', () async {
+        // The client-side half of the validation contract:
+        // `IncidentController._createRules` mirrors `StoreIncidentRequest`'s
+        // `title` => `Required()`, so a blank title never reaches the network
+        // and the rejection lands where the create form reads it.
+        final fake = Http.fake();
+        controller = Magic.findOrPut(IncidentController.new);
+
+        final bool ok = await controller.create({
+          'monitor_id': 'm1',
+          'severity': 'critical',
+          'title': '',
+        });
+
+        expect(ok, isFalse, reason: 'a refused write did not happen');
+        expect(controller.hasError('title'), isTrue);
+        fake.assertNothingSent();
+      });
     });
   });
 

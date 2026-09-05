@@ -170,6 +170,66 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // The client-side rules: validate() runs before any request. A blank
+  // required field is refused for free; a well-formed one reaches the network.
+  // ---------------------------------------------------------------------------
+
+  group('_createRules', () {
+    test('a blank label/key refuses before any request is sent', () async {
+      final FakeNetworkDriver fake = Http.fake();
+      final MonitorMetricsController controller = MonitorMetricsController.instance;
+
+      final bool ok = await controller.create('api', kEmptyMetricForm);
+
+      expect(ok, isFalse);
+      expect(controller.hasError('label'), isTrue);
+      expect(controller.hasError('key'), isTrue);
+      fake.assertNothingSent();
+    });
+
+    test('a well-formed form reaches the network', () async {
+      final FakeNetworkDriver fake = Http.fake((request) {
+        if (request.method == 'POST') return Http.response({'data': {}}, 201);
+        return Http.response({'data': []});
+      });
+      final MonitorMetricsController controller = MonitorMetricsController.instance;
+      final MetricForm form = kEmptyMetricForm.copyWith(
+        label: 'Memory usage',
+        key: 'memory_usage',
+      );
+
+      final bool ok = await controller.create('api', form);
+
+      expect(ok, isTrue);
+      fake.assertSent((r) => r.method == 'POST');
+    });
+  });
+
+  group('_updateRules', () {
+    test(
+      'a blank label/key does NOT block an update: every field is sometimes',
+      () async {
+        // Mirrors monitor_controller.dart's own `_updateRules` precedent: the
+        // backend's `UpdateMonitorMetricRequest` marks every field
+        // `sometimes|required`, so the required half is dropped rather than
+        // approximated, and a blank field reaches the request instead of being
+        // refused for a partial payload the server explicitly accepts.
+        final FakeNetworkDriver fake = Http.fake((request) {
+          if (request.method == 'PUT') return Http.response({'data': {}});
+          return Http.response({'data': []});
+        });
+        final MonitorMetricsController controller =
+            MonitorMetricsController.instance;
+
+        final bool ok = await controller.update('api', 'm1', kEmptyMetricForm);
+
+        expect(ok, isTrue);
+        fake.assertSent((r) => r.method == 'PUT');
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
   // String-band wire round trip (Step 12): decode, type-gated encode, and the
   // dot-notation 422 mapping.
   // ---------------------------------------------------------------------------
@@ -278,14 +338,54 @@ void main() {
         }, 422),
       });
       final MonitorMetricsController controller = MonitorMetricsController.instance;
-
-      final Map<String, String> result = await controller.create(
-        'api',
-        kEmptyMetricForm,
+      final MetricForm form = kEmptyMetricForm.copyWith(
+        label: 'Health status',
+        key: 'health_status',
+        type: 'string',
       );
 
-      expect(result, equals({'ok_values': 'The ok_values.1 field is invalid.'}));
+      final bool ok = await controller.create('api', form);
+
+      expect(ok, isFalse);
+      expect(
+        controller.getError('ok_values'),
+        equals('The ok_values.1 field is invalid.'),
+      );
     });
+
+    // The QA scenario this step's briefing names verbatim: a 422 carrying the
+    // BULK-shaped key `metrics.0.ok_values.0` (the multi-row shape
+    // `StoreMonitorRequest` reports on, not this single-metric endpoint's own
+    // shape) still has to collapse onto `ok_values` and never onto `metrics`,
+    // which is exactly the bug `_collapseKey`'s docblock in `field_errors.dart`
+    // records: a plain `.split('.').first` used to read this as `metrics` and
+    // lose the field entirely.
+    test(
+      'a 422 carrying metrics.0.ok_values.0 leaves hasError(ok_values) true, not metrics',
+      () async {
+        Http.fake({
+          'monitors/api/metrics': Http.response({
+            'message': 'The ok values.0 field is invalid.',
+            'errors': {
+              'metrics.0.ok_values.0': ['The ok_values.0 field is invalid.'],
+            },
+          }, 422),
+        });
+        final MonitorMetricsController controller =
+            MonitorMetricsController.instance;
+        final MetricForm form = kEmptyMetricForm.copyWith(
+          label: 'Health status',
+          key: 'health_status',
+          type: 'string',
+        );
+
+        final bool ok = await controller.create('api', form);
+
+        expect(ok, isFalse);
+        expect(controller.hasError('ok_values'), isTrue);
+        expect(controller.hasError('metrics'), isFalse);
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -323,9 +423,9 @@ void main() {
         critical: '95',
       );
 
-      final Map<String, String> result = await controller.create('api', form);
+      final bool ok = await controller.create('api', form);
 
-      expect(result, isEmpty);
+      expect(ok, isTrue);
       fake.assertSent(
         (r) => r.method == 'POST' && r.url == '/monitors/api/metrics',
       );
@@ -353,31 +453,35 @@ void main() {
         }, 422),
       });
       final MonitorMetricsController controller = MonitorMetricsController.instance;
-
-      final Map<String, String> result = await controller.create(
-        'api',
-        kEmptyMetricForm,
+      final MetricForm form = kEmptyMetricForm.copyWith(
+        label: 'Memory usage',
+        key: 'memory_usage',
       );
 
-      expect(result, equals({'key': 'The key has already been taken.'}));
+      final bool ok = await controller.create('api', form);
+
+      expect(ok, isFalse);
+      expect(controller.getError('key'), equals('The key has already been taken.'));
       expect(controller.metricsFor('api'), isEmpty);
     });
 
     test(
-      'returns an empty map on a non-field failure and does not reload',
+      'returns false with no field errors on a non-field failure, and does not reload',
       () async {
         Http.fake({
           'monitors/api/metrics': Http.response({'message': 'Server error'}, 500),
         });
         final MonitorMetricsController controller =
             MonitorMetricsController.instance;
-
-        final Map<String, String> result = await controller.create(
-          'api',
-          kEmptyMetricForm,
+        final MetricForm form = kEmptyMetricForm.copyWith(
+          label: 'Memory usage',
+          key: 'memory_usage',
         );
 
-        expect(result, isEmpty);
+        final bool ok = await controller.create('api', form);
+
+        expect(ok, isFalse);
+        expect(controller.hasErrors, isFalse);
         expect(controller.metricsFor('api'), isEmpty);
       },
     );
@@ -401,13 +505,13 @@ void main() {
         key: 'memory_usage',
       );
 
-      final Map<String, String> result = await controller.update(
+      final bool ok = await controller.update(
         'api',
         'm1',
         form,
       );
 
-      expect(result, isEmpty);
+      expect(ok, isTrue);
       fake.assertSent(
         (r) => r.method == 'PUT' && r.url == '/monitors/api/metrics/m1',
       );
@@ -424,13 +528,17 @@ void main() {
       });
       final MonitorMetricsController controller = MonitorMetricsController.instance;
 
-      final Map<String, String> result = await controller.update(
+      final bool ok = await controller.update(
         'api',
         'm1',
         kEmptyMetricForm,
       );
 
-      expect(result, equals({'label': 'The label field is required.'}));
+      expect(ok, isFalse);
+      expect(
+        controller.getError('label'),
+        equals('The label field is required.'),
+      );
     });
   });
 

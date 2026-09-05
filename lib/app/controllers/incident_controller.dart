@@ -1359,32 +1359,91 @@ class IncidentController extends MagicController
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // The write path's client-side rules.
+  // ---------------------------------------------------------------------------
+
+  /// The `severity` wire vocabulary (the backend `IncidentSeverity` enum
+  /// values). There is no Dart mirror of that enum (see
+  /// `.claude/rules/flutter-app.md`), so the values are named here rather
+  /// than read off a Dart enum's `.values`, the way [_impactValues] is.
+  static const List<String> _severityValues = <String>['critical', 'warn', 'info'];
+
+  /// The `impact` wire vocabulary (the backend `IncidentImpact` enum values).
+  /// Wider than the client's own three-token `IncidentImpact` (see
+  /// `impactToWire` in `lib/app/enums/incident_impact.dart`): this rule
+  /// mirrors the BACKEND enum's four tiers, not the client's three.
+  static const List<String> _impactValues = <String>[
+    'none',
+    'minor',
+    'major',
+    'critical',
+  ];
+
+  /// The client-side mirror of `StoreIncidentRequest::rules()`
+  /// (`POST /incidents`).
+  ///
+  /// Only the rules magic ships EXACTLY are here. An approximation would
+  /// refuse a payload the server accepts, so each of these is deliberately
+  /// absent:
+  ///
+  ///  - `monitor_id`'s `bail` + `IdFormat::rules()` (`string`/`uuid` or
+  ///    `integer`, depending on `magic-starter.use_uuids`) + `Rule::exists`:
+  ///    magic has no type rule for a bare id shape, and every [AsyncRule]
+  ///    (including [Unique]) is skipped SILENTLY by the synchronous
+  ///    [validate], so a rule here would read as enforced and enforce
+  ///    nothing.
+  ///  - `title`'s `string` and `message`'s `nullable|string`: magic has no
+  ///    type rules; [Max] measures whatever type it is handed, and
+  ///    `_buildCreateFields` always sends a String here.
+  ///  - `notify`'s `sometimes|boolean`: magic has no boolean rule, and the
+  ///    form's switch never sends anything else.
+  ///
+  /// A fresh map per call rather than a shared constant, matching
+  /// `monitor_controller.dart`'s `_createRules`: [Min]/[Max] remember the
+  /// value type they last measured and `message()` reads it back, so one
+  /// shared instance would let one submit's type pick another's message.
+  Map<String, List<Rule>> get _createRules => <String, List<Rule>>{
+    'monitor_id': [Required()],
+    'severity': [Required(), In<String>(_severityValues)],
+    'title': [Required(), Max(200)],
+    'message': [Max(2000)],
+    'impact': [In<String>(_impactValues)],
+  };
+
   /// Creates a manual incident and returns to the incidents list.
   ///
   /// [fields] is the raw create-form field map (`monitor_id`, `severity`,
-  /// `title`, `message`); omitted, this stays navigation-only exactly as
-  /// before (Cancel takes this path). When present, it mass-assigns the fields
-  /// into a fresh [Incident] and persists it through the ORM (`POST
-  /// /incidents`), then reloads the inventory before navigating.
+  /// `title`, an optional `message`, `notify`, `impact`); omitted, this stays
+  /// navigation-only exactly as before (Cancel takes this path). When
+  /// present, it is checked against [_createRules] BEFORE anything is sent,
+  /// then mass-assigned into a fresh [Incident] and persisted through the ORM
+  /// (`POST /incidents`), then the inventory reloads before navigating.
   ///
-  /// Returns the backend per-field validation errors (single message per field,
-  /// keyed by the wire field name: `title`, `monitor_id`, `severity`,
-  /// `message`) so the form can render a server 422 inline; an empty map means
-  /// success (or a navigation-only call). A `false` save that carries field
-  /// errors ([Incident.validationErrors]) STAYS on the form with no toast so the
-  /// user corrects the flagged fields; a `false` save with NO field errors (a
-  /// transport error / 500) keeps the generic error toast and returns an empty
-  /// map. [Incident.save] absorbs transport failures internally and returns
-  /// `false` rather than throwing.
-  Future<Map<String, String>> create([Map<String, dynamic>? fields]) async {
+  /// Answers whether the incident was written, following
+  /// `MonitorController.create`'s contract: the per-field detail does NOT
+  /// travel in the return value. It is published in [validationErrors] and
+  /// the create form reads it back through [hasError] / [getError]. So
+  /// `false` with a populated [validationErrors] means "stay on the form and
+  /// correct the flagged fields", and `false` with an EMPTY one means the
+  /// generic save-failed toast has already fired. A navigation-only call
+  /// answers `true`.
+  ///
+  /// [Incident.save] absorbs transport failures internally and returns
+  /// `false` rather than throwing; a `false` that carries the Laravel 422
+  /// shape on [Incident.validationErrors] is republished here.
+  Future<bool> create([Map<String, dynamic>? fields]) async {
     if (fields != null) {
+      try {
+        validate(fields, _createRules);
+      } on ValidationException {
+        return false;
+      }
+
       final Incident incident = Incident()..fill(fields, strict: true);
       final bool ok = await incident.save();
-      if (!ok) {
-        final Map<String, String>? fieldErrors = _resolveFieldErrors(incident);
-        if (fieldErrors != null) return fieldErrors;
-        return const {};
-      }
+      if (!ok) return _publishFieldErrors(incident);
+
       await reload();
 
       // Land on the incident, not on the list.
@@ -1400,31 +1459,39 @@ class IncidentController extends MagicController
       if (id.isNotEmpty) {
         MagicRoute.to('/incidents/$id');
 
-        return const {};
+        return true;
       }
     }
     MagicRoute.to('/incidents');
-    return const {};
+
+    return true;
   }
 
-  /// Resolves a failed [incident] save into either its per-field validation
-  /// errors or a generic toast.
+  /// Publishes a failed [incident] save as either per-field validation errors
+  /// or a generic toast, and answers `false` either way.
   ///
-  /// Returns the field errors (single message per field, keyed by the wire
-  /// field name) when the failed save carried the Laravel 422 shape via
-  /// [Incident.validationErrors], so the caller hands them back to the form for
-  /// inline display and stays put. Returns `null` for a non-field failure (a
-  /// transport error / 500) after surfacing the generic error toast and logging
-  /// the cause, so the caller falls back to its empty-map contract.
-  Map<String, String>? _resolveFieldErrors(Incident incident) {
+  /// Mirrors `MonitorController._publishFieldErrors`: the 422 is read off
+  /// [Incident.validationErrors] rather than a [MagicResponse], because
+  /// `Model.save()` consumes its own response internally and hands back a
+  /// bare bool. A failure carrying NO field errors is a transport error or a
+  /// 500, so it gets the generic toast and leaves [validationErrors] empty,
+  /// which is the signal the form uses to tell "stay and correct" apart from
+  /// "already told".
+  bool _publishFieldErrors(Incident incident) {
     final Map<String, String> fieldErrors = fieldErrorsFromModel(incident);
-    if (fieldErrors.isNotEmpty) return fieldErrors;
+    if (fieldErrors.isNotEmpty) {
+      validationErrors = fieldErrors;
+      refreshUI();
+
+      return false;
+    }
 
     Log.error('[IncidentController.create] save returned false with no errors');
     Magic.error(
       trans('common.error_occurred'),
       trans('common.error_occurred'),
     );
-    return null;
+
+    return false;
   }
 }

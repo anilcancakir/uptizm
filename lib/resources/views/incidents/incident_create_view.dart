@@ -77,9 +77,17 @@ enum _IncidentKind {
 /// window's `status_page_id`/`title`/`description`/`starts_at`/`ends_at`/
 /// `monitor_ids` (see [_buildMaintenanceFields]); the backend announces it to
 /// the page's confirmed subscribers and holds paging for the attached monitors
-/// while it is open. Both navigate to the incidents list on success and paint a
-/// server 422 into the matching inline error slot. Cancel always just navigates
-/// back.
+/// while it is open. Both controllers validate client-side against their own
+/// `_createRules` before either write, and both navigate to the incidents list
+/// on success; a rejection (client- or server-side) paints straight from
+/// whichever controller the current kind uses ([_activeValidator]) into the
+/// matching inline error slot. Cancel always just navigates back.
+///
+/// Because this view is `MagicStatefulView<IncidentController>`, the
+/// framework clears only [IncidentController]'s errors on mount;
+/// [MaintenanceController] is a second controller it never touches, so
+/// [_enterMaintenanceMode] clears it explicitly every time the view enters
+/// maintenance mode.
 ///
 /// ### Example
 /// ```dart
@@ -126,22 +134,23 @@ class _IncidentCreateViewState
   /// The incident title (React `title`).
   late String _title;
 
-  /// Inline validation error for the Title field, or null when it is valid.
-  ///
-  /// Set on submit when the required title is blank (a check the client can
-  /// make before any round trip), and by a server 422 that rejects `title`.
-  /// Cleared when the user edits the field.
-  String? _titleError;
-
   /// The selected affected-monitor ids (React `affected`).
   late List<String> _affected;
 
-  /// Inline validation error for the Affected-monitors field, or null when it
-  /// is valid.
+  /// Inline validation error for the Affected-monitors field in MAINTENANCE
+  /// mode only, or null when it is valid.
   ///
-  /// Set on submit when no monitor is selected (the backend requires a
-  /// `monitor_id`, and [_buildCreateFields] reads `_affected.first`), and by a
-  /// server 422 that rejects `monitor_id`. Cleared when the selection changes.
+  /// The one check on this screen no magic `Rule` can state: the maintenance
+  /// endpoint's `monitor_ids` is `sometimes` (it accepts a window with none),
+  /// but such a window suppresses no alert and renders no component on the
+  /// status page, so the form keeps requiring one anyway. Set on submit when
+  /// no monitor is selected; cleared when the selection changes or the view
+  /// re-enters maintenance mode (see [_enterMaintenanceMode]).
+  ///
+  /// The INCIDENT kind needs no local field here: `monitor_id` is genuinely
+  /// `required` server-side, so `IncidentController._createRules` already
+  /// refuses a null selection and [_affectedFieldError] reads that refusal
+  /// straight off the controller.
   String? _affectedError;
 
   /// The operator-side severity token (React `severity`, default `critical`).
@@ -161,22 +170,8 @@ class _IncidentCreateViewState
   /// session pinned to UTC.
   late DateTime _startsAt;
 
-  /// Inline validation error for the Starts field, or null when it is valid.
-  ///
-  /// Server-side only: the field cannot be blank (see [_startsAt]), so there is
-  /// no client-side check to run, and the backend is the only thing that can
-  /// reject a window's start.
-  String? _startsAtError;
-
   /// The maintenance-window end, as a LOCAL [DateTime] (React `endsAt`).
   late DateTime _endsAt;
-
-  /// Inline validation error for the Ends field, or null when it is valid.
-  ///
-  /// Painted by the backend's `after:starts_at` rejection, which is the one
-  /// window rule the client does not duplicate: the server owns it and its
-  /// message already names the constraint.
-  String? _endsAtError;
 
   /// The status page a maintenance window is announced on, or null when the
   /// roster has not landed yet or the team owns no page at all.
@@ -190,9 +185,6 @@ class _IncidentCreateViewState
   /// decides which public page the window renders on and which subscribers are
   /// mailed), so the operator makes it.
   String? _statusPageId;
-
-  /// Inline validation error for the Status-page field, or null when valid.
-  String? _statusPageError;
 
   /// The team's status pages, projected live from the roster the same way
   /// [_monitorOptions] projects monitors.
@@ -255,8 +247,7 @@ class _IncidentCreateViewState
     //     announce planned work. Anything other than `maintenance` (including
     //     an absent param) keeps the incident default.
     if (MagicRouter.instance.queryParameters['kind'] == 'maintenance') {
-      _kind = _IncidentKind.maintenance;
-      _impact = 'info';
+      _enterMaintenanceMode();
     }
 
     // 3. Seed the form. With a resolved suggestion, prefill title/affected/
@@ -353,10 +344,60 @@ class _IncidentCreateViewState
   /// reads as `info`, a real incident as `down` (React `handleKind`).
   void _handleKind(_IncidentKind next) {
     setState(() {
-      _kind = next;
-      _impact = next == _IncidentKind.maintenance ? 'info' : 'down';
+      if (next == _IncidentKind.maintenance) {
+        _enterMaintenanceMode();
+      } else {
+        _kind = next;
+        _impact = 'down';
+      }
     });
   }
+
+  /// Enters maintenance mode: pins the kind and the status-page impact, and
+  /// clears [MaintenanceController]'s errors from an earlier visit.
+  ///
+  /// This view is `MagicStatefulView<IncidentController>`, so the framework's
+  /// per-mount error clear (`MagicStatefulViewState._clearValidationErrors`)
+  /// only ever touches [IncidentController]; [MaintenanceController] is a
+  /// SECOND controller the framework never resets. Without this call, a
+  /// failed maintenance submit painted its errors again the moment the
+  /// operator switched back into maintenance mode, before typing anything.
+  /// Called both here (a direct `?kind=maintenance` deep link) and from
+  /// [_handleKind] (an in-session switch).
+  void _enterMaintenanceMode() {
+    _kind = _IncidentKind.maintenance;
+    _impact = 'info';
+    _affectedError = null;
+    MaintenanceController.instance.clearErrors();
+  }
+
+  /// The validation-carrying controller for the CURRENT kind, so the Title
+  /// field (rendered for both kinds) reads and clears its error off whichever
+  /// backend write this submit will use. A read hard-wired to one controller
+  /// would show nothing in the other kind's failure.
+  ValidatesRequests get _activeValidator =>
+      _isMaintenance ? MaintenanceController.instance : controller;
+
+  /// The Affected-monitors field's error: the local [_affectedError] policy
+  /// check in maintenance mode (falling back to a server rejection of the
+  /// `monitor_ids` pivot, collapsed from any `monitor_ids.<n>` wire key by
+  /// `fieldErrorsFromModel`), or the incident kind's own `monitor_id`
+  /// rejection straight off [controller].
+  String? get _affectedFieldError => _isMaintenance
+      ? (_affectedError ?? MaintenanceController.instance.getError('monitor_ids'))
+      : controller.getError('monitor_id');
+
+  /// The wire key the First-update textarea travels under, which differs by
+  /// kind: `StoreIncidentRequest` names it `message`, and
+  /// `StoreScheduledMaintenanceRequest` names the same prose `description`.
+  /// One textarea, two keys, so its slot has to read and clear under the key
+  /// belonging to the kind this submit will write through.
+  ///
+  /// Without this the `Max(2000)` on either rule refuses the submit with
+  /// nothing on screen: a field error is deliberately silent (that is what
+  /// tells "stay and correct" apart from "already toasted"), so a rule whose
+  /// field renders no slot makes the button do nothing at all.
+  String get _firstUpdateKey => _isMaintenance ? 'description' : 'message';
 
   /// Leaves the create flow for the incidents list (React `navigate`).
   void _done() {
@@ -546,15 +587,21 @@ class _IncidentCreateViewState
   }
 
   /// Builds the required Title field, with the placeholder switching on kind.
+  ///
+  /// Reads and clears its error off [_activeValidator]: `title` is
+  /// genuinely `required` in BOTH `StoreIncidentRequest` and
+  /// `StoreScheduledMaintenanceRequest`, so the mirroring `Required()` rule on
+  /// whichever controller the current kind writes through is what refuses a
+  /// blank submit, not a local field.
   Widget _buildTitleField() {
     return MSFormField(
       label: trans('uptizm.incidents.form_title_label'),
-      error: _titleError,
+      error: _activeValidator.getError('title'),
       child: MSInput(
         value: _title,
         onChanged: (value) => setState(() {
           _title = value;
-          _titleError = null;
+          _activeValidator.clearFieldError('title');
         }),
         placeholder: _isMaintenance
             ? trans('uptizm.incidents.form_title_placeholder_maintenance')
@@ -571,7 +618,7 @@ class _IncidentCreateViewState
     return MSFormField(
       label: trans('uptizm.incidents.form_affected_label'),
       hint: trans('uptizm.incidents.form_affected_hint'),
-      error: _affectedError,
+      error: _affectedFieldError,
       // An empty roster renders a SENTENCE, not an empty grid.
       //
       // `RegionPicker` draws one tile per option, so with no options it drew
@@ -590,7 +637,14 @@ class _IncidentCreateViewState
               value: _affected,
               onChanged: (next) => setState(() {
                 _affected = next;
-                _affectedError = null;
+                if (_isMaintenance) {
+                  _affectedError = null;
+                  MaintenanceController.instance.clearFieldError(
+                    'monitor_ids',
+                  );
+                } else {
+                  controller.clearFieldError('monitor_id');
+                }
               }),
             )
           : WText(
@@ -610,9 +664,10 @@ class _IncidentCreateViewState
   /// confirmed subscribers are mailed. So the field is shown even when the team
   /// owns exactly one page, because "which page" is never a detail.
   ///
-  /// With no page at all, the select is replaced by the reason and the remedy.
-  /// The submit is blocked by [_validateClientSide] in that state rather than
-  /// posting a request the backend is guaranteed to reject.
+  /// With no page at all, the select is replaced by the reason and the remedy;
+  /// a submit attempted in that state still never reaches the network, because
+  /// [MaintenanceController]'s own `Required()` rule on `status_page_id`
+  /// refuses the omitted key before any request is built.
   Widget _buildStatusPageField() {
     final List<StatusPage> roster = _statusPageOptions;
 
@@ -621,7 +676,7 @@ class _IncidentCreateViewState
       hint: roster.isEmpty
           ? null
           : trans('uptizm.incidents.form_status_page_hint'),
-      error: _statusPageError,
+      error: MaintenanceController.instance.getError('status_page_id'),
       child: roster.isEmpty
           ? WText(
               trans('uptizm.incidents.form_status_page_empty'),
@@ -641,7 +696,9 @@ class _IncidentCreateViewState
                 if (value == null) return;
                 setState(() {
                   _statusPageId = value;
-                  _statusPageError = null;
+                  MaintenanceController.instance.clearFieldError(
+                    'status_page_id',
+                  );
                 });
               },
             ),
@@ -655,39 +712,43 @@ class _IncidentCreateViewState
   /// time of day and hands back a full local [DateTime], which is what a
   /// maintenance window needs and what the two free-text inputs that used to sit
   /// here could never guarantee.
+  ///
+  /// Both errors read off [MaintenanceController] directly rather than
+  /// [_activeValidator]: these two fields render ONLY in maintenance mode, so
+  /// there is no other controller they could ever need to read.
   Widget _buildScheduleFields() {
     return WDiv(
       className: 'grid grid-cols-1 sm:grid-cols-2 gap-5',
       children: [
         MSFormField(
           label: trans('uptizm.incidents.form_starts_label'),
-          error: _startsAtError,
+          error: MaintenanceController.instance.getError('starts_at'),
           child: _buildWindowPicker(
             slot: 'starts',
             label: trans('uptizm.incidents.form_starts_label'),
             value: _startsAt,
-            hasError: _startsAtError != null,
+            hasError: MaintenanceController.instance.hasError('starts_at'),
             onChanged: (value) => setState(() {
               _startsAt = value;
-              _startsAtError = null;
+              MaintenanceController.instance.clearFieldError('starts_at');
             }),
           ),
         ),
         MSFormField(
           label: trans('uptizm.incidents.form_ends_label'),
-          error: _endsAtError,
+          error: MaintenanceController.instance.getError('ends_at'),
           child: _buildWindowPicker(
             slot: 'ends',
             label: trans('uptizm.incidents.form_ends_label'),
             value: _endsAt,
-            hasError: _endsAtError != null,
+            hasError: MaintenanceController.instance.hasError('ends_at'),
             // The end bound cannot precede the start bound, so the picker
             // refuses those days outright rather than letting the operator
             // submit into the backend's `after:starts_at` rejection.
             minDate: _startsAt,
             onChanged: (value) => setState(() {
               _endsAt = value;
-              _endsAtError = null;
+              MaintenanceController.instance.clearFieldError('ends_at');
             }),
           ),
         ),
@@ -783,9 +844,13 @@ class _IncidentCreateViewState
     return MSFormField(
       label: trans('uptizm.incidents.form_first_update_label'),
       hint: trans('uptizm.incidents.form_first_update_hint'),
+      error: _activeValidator.getError(_firstUpdateKey),
       child: MSTextarea(
         value: _message,
-        onChanged: (value) => setState(() => _message = value),
+        onChanged: (value) => setState(() {
+          _message = value;
+          _activeValidator.clearFieldError(_firstUpdateKey);
+        }),
         placeholder: _isMaintenance
             ? trans(
                 'uptizm.incidents.form_first_update_placeholder_maintenance',
@@ -874,122 +939,56 @@ class _IncidentCreateViewState
     return index < 0 ? 0 : index;
   }
 
-  /// Submits the form: runs the client-side required checks first, then threads
-  /// the real field values into the write that matches the kind, so either
-  /// `POST /incidents` ([IncidentController.create]) or
-  /// `POST /scheduled-maintenances` ([MaintenanceController.create]) fires.
+  /// Submits the form: threads the real field values into the write that
+  /// matches the kind, so either `POST /incidents`
+  /// ([IncidentController.create]) or `POST /scheduled-maintenances`
+  /// ([MaintenanceController.create]) fires. Both now validate client-side
+  /// against their own `_createRules` BEFORE any round trip, so a blank
+  /// `title` (or, for maintenance, a missing `status_page_id`) never reaches
+  /// the network; the rejection lands on [validationErrors] and the field
+  /// builders above read it back through [_activeValidator] / the individual
+  /// controllers.
   ///
-  /// A blank required field surfaces inline via [_validateClientSide] without a
-  /// round trip. Only when the client checks pass does it await the write; a
-  /// non-empty result (a server 422) is a field-error map keyed by the posted
-  /// wire field names, which [_applyServerErrors] paints under the matching
-  /// fields. A returned key the form owns no slot for is surfaced as the generic
-  /// error toast. `status_page_id` is no longer one of those: the form collects
-  /// it in a labelled field and refuses to submit without it, because relying on
-  /// the server here produced "The status page id field is required" under an
-  /// unexpected-error toast, about a field the operator had never seen.
+  /// The one check neither controller's rules can state stays here: the
+  /// maintenance endpoint accepts a window with no affected monitors, but
+  /// such a window suppresses no alert and renders no component on the
+  /// status page, so this still blocks the submit outright before calling
+  /// [_submitMaintenance] at all. The incident kind needs no such gate:
+  /// `monitor_id` is genuinely `required` server-side (see
+  /// [_buildCreateFields]), so `IncidentController.create`'s own validation
+  /// refuses a blank selection in the SAME call as a blank title.
+  ///
+  /// A `false` result repaints the view so the freshly populated
+  /// [validationErrors] show; a non-field failure has already surfaced its
+  /// own generic toast from inside the controller.
   Future<void> _onSubmit() async {
-    if (!_validateClientSide()) return;
+    if (_isMaintenance) {
+      final String? affectedError = _affected.isEmpty
+          ? trans('uptizm.incidents.form_affected_error_required')
+          : null;
+      setState(() => _affectedError = affectedError);
+      if (affectedError != null) return;
+    }
 
-    final Map<String, String> serverErrors = _isMaintenance
+    final bool ok = _isMaintenance
         ? await _submitMaintenance()
         : await controller.create(_buildCreateFields());
-    if (!mounted || serverErrors.isEmpty) return;
 
-    final Map<String, String> unmapped = _applyServerErrors(serverErrors);
-    if (unmapped.isNotEmpty) {
-      Magic.error(
-        trans('common.error_occurred'),
-        unmapped.values.first,
-      );
-    }
-  }
+    if (!mounted || ok) return;
 
-  /// Runs every client-side required check, painting each field's inline error
-  /// slot, and returns whether the form may be submitted.
-  ///
-  /// Checks the required title and at least one affected monitor; both are
-  /// checks the client can make before any round trip (and the affected check
-  /// guards [_buildCreateFields]'s `_affected.first` read). Both slots are
-  /// always written (a passing check clears its slot) so a previously shown
-  /// error never lingers after a corrected resubmit.
-  ///
-  /// Both kinds run the same two checks. The maintenance endpoint would in fact
-  /// accept a window with no `monitor_ids`, but such a window suppresses no
-  /// alert and renders no component on the status page, so the form keeps
-  /// requiring one. The window bounds need no check at all: they are seeded and
-  /// picked, never blank ([_startsAt]).
-  bool _validateClientSide() {
-    final String? titleError = _title.trim().isEmpty
-        ? trans('uptizm.incidents.form_title_error_required')
-        : null;
-    final String? affectedError = _affected.isEmpty
-        ? trans('uptizm.incidents.form_affected_error_required')
-        : null;
-
-    // Maintenance only: the window needs a page to be announced on. Checked
-    // here so a team with no status page is told what to do BEFORE filling the
-    // form in, instead of hearing "The status page id field is required" from
-    // the server about a field that used to be invisible.
-    final String? statusPageError = _isMaintenance && _statusPageId == null
-        ? trans('uptizm.incidents.form_status_page_error_required')
-        : null;
-
-    setState(() {
-      _titleError = titleError;
-      _affectedError = affectedError;
-      _statusPageError = statusPageError;
-    });
-
-    return titleError == null &&
-        affectedError == null &&
-        statusPageError == null;
-  }
-
-  /// Routes a backend 422 field-error map (keyed by the wire field names the
-  /// form posts) into the inline error slots, returning the entries that map to
-  /// no known field so the caller can surface them another way.
-  ///
-  /// Both kinds' wire names are handled: `monitor_id` (incident) and
-  /// `monitor_ids`, including its per-entry `monitor_ids.0` form (maintenance),
-  /// share the affected-monitors slot, and the two window bounds have their own.
-  Map<String, String> _applyServerErrors(Map<String, String> errors) {
-    final Map<String, String> unmapped = {};
-    setState(() {
-      for (final MapEntry<String, String> entry in errors.entries) {
-        switch (entry.key) {
-          case 'title':
-            _titleError = entry.value;
-          case 'monitor_id':
-            _affectedError = entry.value;
-          case 'starts_at':
-            _startsAtError = entry.value;
-          case 'ends_at':
-            _endsAtError = entry.value;
-          case 'status_page_id':
-            _statusPageError = entry.value;
-          case final String key when key.startsWith('monitor_ids'):
-            _affectedError = entry.value;
-          default:
-            unmapped[entry.key] = entry.value;
-        }
-      }
-    });
-    return unmapped;
+    setState(() {});
   }
 
   /// Persists the maintenance window through [MaintenanceController.create],
   /// resolving the status page it is announced on first.
   ///
-  /// Returns the same field-error map contract [_onSubmit] expects. With no
-  /// status page resolvable at all, the `status_page_id` key is simply left out
-  /// and the backend's own required-field 422 is what the operator sees: the one
-  /// thing this path must never do is what it did before, which is report
-  /// success for a window nothing wrote.
   /// Posts the window on the page the operator picked in
-  /// [_buildStatusPageField], which [_validateClientSide] has already proved
-  /// non-null.
-  Future<Map<String, String>> _submitMaintenance() async {
+  /// [_buildStatusPageField], or omits `status_page_id` entirely when the
+  /// team owns no page at all; [MaintenanceController]'s own `Required()`
+  /// rule is what refuses that omission before any request is built, the one
+  /// thing this path must never do again being what it did before: report
+  /// success for a window nothing wrote.
+  Future<bool> _submitMaintenance() async {
     return MaintenanceController.instance.create(
       _buildMaintenanceFields(_statusPageId),
     );
@@ -1029,13 +1028,19 @@ class _IncidentCreateViewState
 
   /// Builds the `POST /incidents` field map (`StoreIncidentRequest`):
   /// `monitor_id` from the first selected affected monitor (the backend
-  /// accepts a single monitor per incident; [_validateClientSide] guarantees
-  /// [_affected] is non-empty here), `severity` mapped to the backend enum
-  /// value via [_severityForBackend], the trimmed `title`, and an optional
-  /// trimmed `message`.
+  /// accepts a single monitor per incident), `severity` mapped to the backend
+  /// enum value via [_severityForBackend], the trimmed `title`, and an
+  /// optional trimmed `message`.
+  ///
+  /// `null` when nothing is selected, rather than the `.first` this used to
+  /// read unconditionally: `IncidentController._createRules`'s `Required()`
+  /// on `monitor_id` is what refuses that now, and its message lands on
+  /// `controller.getError('monitor_id')`, the same slot the Affected field
+  /// already reads (see [_affectedFieldError]). Reading `.first` on an empty
+  /// [_affected] would throw before validation ever ran.
   Map<String, dynamic> _buildCreateFields() {
     final Map<String, dynamic> fields = <String, dynamic>{
-      'monitor_id': _affected.first,
+      'monitor_id': _affected.isEmpty ? null : _affected.first,
       'severity': _severityForBackend(_severity),
       'title': _title.trim(),
       // Both of these were collected and discarded. The switch promised to

@@ -178,26 +178,32 @@ class _StatusPageEditorViewState
   /// (React `aiApplied`).
   bool _aiApplied = false;
 
-  /// Inline validation error for the Name field, or null when it is valid. Set
-  /// on save when the required name is blank, and by a server 422 that rejects
-  /// `name`. Cleared when the name is edited.
-  String? _nameError;
-
-  /// Inline validation error for the Slug field, or null when it is valid. Set
-  /// on save when the required slug is blank (the backend requires a slug), and
-  /// by a server 422 that rejects `slug`. Cleared when the name auto-fills the
-  /// slug or the slug is edited.
-  String? _slugError;
-
-  /// The server's reason for refusing the visibility choice, painted under the
-  /// control. The backend rejects only the PRIVATE direction, and only when the
-  /// team's plan does not include private pages.
-  String? _isPublicError;
-
   /// Inline validation error for the Components picker, or null when it is
   /// valid. Set on save when no monitor is assigned (a page needs at least one
   /// public component). Cleared when the assigned-monitor selection changes.
+  ///
+  /// The one field-level check that stays local rather than moving onto
+  /// [StatusPageController]'s rule map: monitor membership is a pivot
+  /// sub-resource `StoreStatusPageRequest` never validates (see
+  /// [StatusPageController._syncComponents]), so there is no backend rule to
+  /// mirror and magic ships no "at least one" rule for a list anyway.
   String? _componentsError;
+
+  /// Every wire field with its own inline error slot below, painted from
+  /// [StatusPageController.validationErrors] via `getError`.
+  ///
+  /// [_revealUnmappedError] reads this to decide what is left over: a refusal
+  /// naming a key outside this set (e.g. the plan-limit error on `plan`) has
+  /// no slot to land in and is toasted instead.
+  static const Set<String> _ownedFields = <String>{
+    'name',
+    'slug',
+    'domain_mode',
+    'brand_color',
+    'logo_text',
+    'description',
+    'is_public',
+  };
 
   /// The domain-mode segmented-control options, in [DomainMode] order.
   static const List<DomainMode> _domainModes = <DomainMode>[
@@ -280,8 +286,6 @@ class _StatusPageEditorViewState
   /// controller's cached model.
   void _seedFrom(StatusPage? existing) {
     _aiApplied = false;
-    _nameError = null;
-    _slugError = null;
     _componentsError = null;
     if (existing == null) {
       _isEdit = false;
@@ -394,12 +398,12 @@ class _StatusPageEditorViewState
   /// Handles a name edit: updates the name and, until the slug is manually
   /// edited, keeps the slug auto-synced from the name (React `onName`).
   void _onNameChanged(String value) {
+    controller.clearFieldError('name');
     setState(() {
       _name = value;
-      _nameError = null;
       if (!_slugEdited) {
+        controller.clearFieldError('slug');
         _slug = _slugify(value);
-        _slugError = null;
       }
     });
   }
@@ -407,10 +411,10 @@ class _StatusPageEditorViewState
   /// Handles a slug edit: latches [_slugEdited] and stores the slugified value
   /// (React `onChange` on the slug input).
   void _onSlugChanged(String value) {
+    controller.clearFieldError('slug');
     setState(() {
       _slugEdited = true;
       _slug = _slugify(value);
-      _slugError = null;
     });
   }
 
@@ -436,77 +440,63 @@ class _StatusPageEditorViewState
 
   /// Commits the draft via the controller and returns to the list on success.
   ///
-  /// Runs the client-side required checks first (name, slug, and at least one
-  /// assigned component), painting each field's inline error without a round
-  /// trip. Only when they pass does it await the matching controller write
-  /// (create vs. edit); a non-empty result (a server 422) is a field-error map
-  /// keyed by the posted wire field names, which [_applyServerErrors] paints
-  /// under the matching fields. A returned key the editor owns no slot for is
-  /// surfaced as the generic error toast.
+  /// Runs the one client-side check magic ships no rule for (at least one
+  /// assigned component) first, painting its inline error without a round
+  /// trip. Only when it passes does it await the matching controller write
+  /// (create vs. edit): [StatusPageController.save]/[create] run the
+  /// framework's own validation against the posted wire fields before ever
+  /// reaching the network, and a server 422 lands the same way. Either
+  /// refusal publishes into [StatusPageController.validationErrors], which
+  /// every owned field's slot reads back through `getError`; a `false` result
+  /// hands whatever is left over (a key this editor owns no slot for) to
+  /// [_revealUnmappedError].
   Future<void> _save() async {
-    if (!_validateClientSide()) return;
+    if (!_checkComponents()) return;
 
-    final Map<String, String> serverErrors = _isEdit
+    final bool written = _isEdit
         ? await controller.save(_draftPage)
         : await controller.create(_draftPage);
-    if (!mounted || serverErrors.isEmpty) return;
+    if (!mounted || written) return;
 
-    final Map<String, String> unmapped = _applyServerErrors(serverErrors);
-    if (unmapped.isNotEmpty) {
-      Magic.error(
-        trans('uptizm.status.list_error_load_title'),
-        unmapped.values.first,
-      );
-    }
+    _revealUnmappedError();
   }
 
-  /// Runs every client-side required check, painting each field's inline error
-  /// slot, and returns whether the draft may be saved.
+  /// Runs the components check, painting its inline error slot, and returns
+  /// whether the draft may be submitted.
   ///
-  /// Checks the required name and slug (both backend-required) and that at
-  /// least one component is assigned. Every slot is always written (a passing
-  /// check clears its slot) so a previously shown error never lingers after a
-  /// corrected resubmit.
-  bool _validateClientSide() {
-    final String? nameError = _name.trim().isEmpty
-        ? trans('uptizm.status.form_name_error_required')
-        : null;
-    final String? slugError = _slug.trim().isEmpty
-        ? trans('uptizm.status.form_slug_error_required')
-        : null;
+  /// Always writes the slot (a passing check clears it) so a previously shown
+  /// error never lingers after a corrected resubmit.
+  bool _checkComponents() {
     final String? componentsError = _monitorIds.isEmpty
         ? trans('uptizm.status.form_components_error_required')
         : null;
 
-    setState(() {
-      _nameError = nameError;
-      _slugError = slugError;
-      _componentsError = componentsError;
-    });
+    setState(() => _componentsError = componentsError);
 
-    return nameError == null && slugError == null && componentsError == null;
+    return componentsError == null;
   }
 
-  /// Routes a backend 422 field-error map (keyed by the wire field names the
-  /// editor posts) into the inline error slots, returning the entries that map
-  /// to no known field so the caller can surface them another way.
-  Map<String, String> _applyServerErrors(Map<String, String> errors) {
-    final Map<String, String> unmapped = {};
-    setState(() {
-      for (final MapEntry<String, String> entry in errors.entries) {
-        switch (entry.key) {
-          case 'name':
-            _nameError = entry.value;
-          case 'slug':
-            _slugError = entry.value;
-          case 'is_public':
-            _isPublicError = entry.value;
-          default:
-            unmapped[entry.key] = entry.value;
-        }
-      }
-    });
-    return unmapped;
+  /// Surfaces whatever a refused write's [StatusPageController.validationErrors]
+  /// carries that no owned field ([_ownedFields]) already renders inline.
+  ///
+  /// An EMPTY result here means the failure was not a per-field one (a
+  /// transport error or a 500), and the controller has already surfaced its
+  /// own toast for it, so this deliberately says nothing. The plan-limit
+  /// refusal (keyed `plan`) is the case this exists for: it names no field on
+  /// this form, so it has to reach the operator as a toast instead.
+  void _revealUnmappedError() {
+    final Iterable<String> unmapped = controller.validationErrors.entries
+        .where(
+          (MapEntry<String, String> entry) =>
+              !_ownedFields.contains(entry.key),
+        )
+        .map((MapEntry<String, String> entry) => entry.value);
+    if (unmapped.isEmpty) return;
+
+    Magic.error(
+      trans('uptizm.status.list_error_load_title'),
+      unmapped.first,
+    );
   }
 
   /// Navigates to the public preview of the saved page (edit mode only).
@@ -767,7 +757,17 @@ class _StatusPageEditorViewState
         WDiv(
           className: 'lg:flex-1 min-w-0 w-full flex flex-col gap-6',
           children: <Widget>[
-            ..._buildConfigColumn(),
+            // Every rule-backed field below reads its error through
+            // `controller.getError`, so a refusal has to repaint this whole
+            // stack; one ListenableBuilder on the controller covers all of
+            // them rather than one per field.
+            ListenableBuilder(
+              listenable: controller,
+              builder: (context, _) => WDiv(
+                className: 'flex flex-col gap-6',
+                children: _buildConfigColumn(),
+              ),
+            ),
             // The submit closes the FIELDS, not the page. Below `lg` the
             // preview pane stacks under this column, so a footer placed after
             // the whole body left Save under a preview image the user had to
@@ -891,7 +891,7 @@ class _StatusPageEditorViewState
   Widget _buildNameField() {
     return MSFormField(
       label: trans('uptizm.status.editor_form_name_label'),
-      error: _nameError,
+      error: controller.getError('name'),
       child: MSInput(
         value: _name,
         onChanged: _onNameChanged,
@@ -905,11 +905,14 @@ class _StatusPageEditorViewState
   Widget _buildDomainModeField() {
     return MSFormField(
       label: trans('uptizm.status.editor_form_how_served_label'),
+      error: controller.getError('domain_mode'),
       child: MSSegmentedControl<String>(
         options: _domainModes.map((DomainMode m) => m.label).toList(),
         selectedIndex: _domainModes.indexOf(_domainMode),
-        onChanged: (int index) =>
-            setState(() => _domainMode = _domainModes[index]),
+        onChanged: (int index) {
+          controller.clearFieldError('domain_mode');
+          setState(() => _domainMode = _domainModes[index]);
+        },
       ),
     );
   }
@@ -920,7 +923,7 @@ class _StatusPageEditorViewState
     return MSFormField(
       label: trans('uptizm.status.editor_form_slug_label'),
       hint: pageUrl(_draftPage),
-      error: _slugError,
+      error: controller.getError('slug'),
       child: MSInput(
         value: _slug,
         onChanged: _onSlugChanged,
@@ -939,6 +942,7 @@ class _StatusPageEditorViewState
   Widget _buildBrandColorField() {
     return MSFormField(
       label: trans('uptizm.status.editor_form_brand_color_label'),
+      error: controller.getError('brand_color'),
       child: WDiv(
         className: 'flex flex-row wrap gap-2',
         children: <Widget>[
@@ -969,7 +973,10 @@ class _StatusPageEditorViewState
       semanticLabel: trans('uptizm.a11y.select_brand_color', {
         'color': _hexOf(swatch),
       }),
-      onTap: () => setState(() => _brandColor = swatch),
+      onTap: () {
+        controller.clearFieldError('brand_color');
+        setState(() => _brandColor = swatch);
+      },
       child: WDiv(
         className: selected
             ? 'rounded-full border-2 border-primary p-0.5'
@@ -1050,12 +1057,16 @@ class _StatusPageEditorViewState
           MSFormField(
             label: trans('uptizm.status.editor_form_logo_text_label'),
             hint: trans('uptizm.status.editor_form_logo_text_hint'),
+            error: controller.getError('logo_text'),
             child: MSInput(
               value: _logoText,
-              onChanged: (String value) => setState(
-                () => _logoText =
-                    value.length > 2 ? value.substring(0, 2) : value,
-              ),
+              onChanged: (String value) {
+                controller.clearFieldError('logo_text');
+                setState(
+                  () => _logoText =
+                      value.length > 2 ? value.substring(0, 2) : value,
+                );
+              },
               className: 'max-w-20',
             ),
           ),
@@ -1134,9 +1145,13 @@ class _StatusPageEditorViewState
   Widget _buildDescriptionField() {
     return MSFormField(
       label: trans('uptizm.status.editor_form_description_label'),
+      error: controller.getError('description'),
       child: MSTextarea(
         value: _description,
-        onChanged: (String value) => setState(() => _description = value),
+        onChanged: (String value) {
+          controller.clearFieldError('description');
+          setState(() => _description = value);
+        },
         placeholder: trans('uptizm.status.editor_form_description_placeholder'),
       ),
     );
@@ -1205,15 +1220,13 @@ class _StatusPageEditorViewState
                   // Refuse the private direction rather than accepting it and
                   // letting the save fail: the nudge below already says why.
                   if (!value && !mayGoPrivate) return;
-                  setState(() {
-                    _isPublic = value;
-                    _isPublicError = null;
-                  });
+                  controller.clearFieldError('is_public');
+                  setState(() => _isPublic = value);
                 },
               ),
-              if (_isPublicError != null)
+              if (controller.getError('is_public') != null)
                 WText(
-                  _isPublicError!,
+                  controller.getError('is_public')!,
                   className: 'text-xs text-down',
                 ),
               if (!mayGoPrivate)

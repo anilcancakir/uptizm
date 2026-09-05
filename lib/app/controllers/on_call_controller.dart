@@ -2,6 +2,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../models/on_call_schedule.dart';
+import '../support/field_errors.dart';
 import '../support/team_types.dart'
     show
         OnCallOverrideWindow,
@@ -362,6 +363,22 @@ class OnCallController extends MagicController
   ///
   /// The timezone is the one [DateManager] resolved for this device at boot, so
   /// the created schedule is anchored where the operator actually is.
+  ///
+  /// This is the one write in the app with NO client-side rule map, and the
+  /// absence is deliberate. Every other vertical mirrors its Laravel
+  /// `FormRequest` because an operator types into a form and a rule catches a
+  /// mistake before the round trip. Here there is no form at all: the empty
+  /// state's button calls this with no arguments (see
+  /// `on_call_schedule_view.dart`), `name` is always the translated default
+  /// and `timezone` always the device's own zone. A mirror of
+  /// `StoreOnCallScheduleRequest` would be a rule that cannot fire, provable
+  /// only by faking the translator, so it would read as enforcement and
+  /// enforce nothing. Add the rules together with the field, if a create form
+  /// ever lands here.
+  ///
+  /// The SERVER half is real and stays: a 422 (a zone the backend's IANA
+  /// lookup refuses, a name a future form makes editable) is republished
+  /// through [_publishFieldErrors].
   Future<bool> createSchedule() async {
     final OnCallSchedule schedule = OnCallSchedule()
       ..fill(<String, dynamic>{
@@ -370,11 +387,7 @@ class OnCallController extends MagicController
       }, strict: true);
 
     final bool ok = await schedule.save();
-    if (!ok) {
-      Log.error('[OnCallController.createSchedule] save() returned false');
-      _toastError(null);
-      return false;
-    }
+    if (!ok) return _publishFieldErrors(schedule);
 
     await reload();
     Magic.success(
@@ -382,6 +395,27 @@ class OnCallController extends MagicController
       schedule.name ?? '',
     );
     return true;
+  }
+
+  /// Publishes a failed [schedule] save as either per-field validation errors
+  /// or a generic toast, and answers `false` either way.
+  ///
+  /// Mirrors `MonitorController._publishFieldErrors`: `Model.save()` consumes
+  /// its own response internally, so there is no [MagicResponse] in scope for
+  /// `setErrorsFromResponse` to read, and [fieldErrorsFromModel] reading
+  /// `schedule.validationErrors` is the only way in.
+  bool _publishFieldErrors(OnCallSchedule schedule) {
+    final Map<String, String> fieldErrors = fieldErrorsFromModel(schedule);
+    if (fieldErrors.isNotEmpty) {
+      validationErrors = fieldErrors;
+      refreshUI();
+
+      return false;
+    }
+
+    Log.error('[OnCallController.createSchedule] save() returned false');
+    _toastError(null);
+    return false;
   }
 
   /// Adds [member] to the end of the ring via

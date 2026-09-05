@@ -12,10 +12,14 @@ import '../support/roster_page.dart';
 /// roster the Incidents screen's Maintenance tab renders.
 ///
 /// [create] persists the window the incident-create form composes under its
-/// maintenance kind (`POST /scheduled-maintenances`) and returns the backend's
-/// per-field validation errors so the form can paint a 422 inline. It follows
-/// `IncidentController.create`'s shape (ORM `save()`, bool-checked, field errors
-/// handed back, generic toast for a non-field failure).
+/// maintenance kind (`POST /scheduled-maintenances`), validating client-side
+/// against [_createRules] first. It follows `MonitorController.create`'s
+/// contract: `Future<bool>`, with the per-field detail published on
+/// [validationErrors] (via [ValidatesRequests]) for the create view's
+/// `hasError`/`getError` reads rather than in the return value. Because the
+/// create view is `MagicStatefulView<IncidentController>`, the framework's
+/// per-mount error clear never reaches this controller; the view calls
+/// [clearErrors] explicitly whenever it enters maintenance mode.
 ///
 /// The read side ([windows], [load], [delete]) exists because without it a
 /// window could be created and never seen again: the backend's index, show,
@@ -150,40 +154,87 @@ class MaintenanceController extends MagicController
     refreshUI();
   }
 
+  // ---------------------------------------------------------------------------
+  // The write path's client-side rules.
+  // ---------------------------------------------------------------------------
+
+  /// The client-side mirror of `StoreScheduledMaintenanceRequest::rules()`
+  /// (`POST /scheduled-maintenances`).
+  ///
+  /// Only the rules magic ships EXACTLY are here. Deliberately absent:
+  ///
+  ///  - `status_page_id`'s `bail` + `IdFormat::rules()` (`string`/`uuid` or
+  ///    `integer`) + `Rule::exists`: same reasoning as
+  ///    `IncidentController._createRules`'s `monitor_id` — magic has no type
+  ///    rule for a bare id shape, and every [AsyncRule] (including [Unique])
+  ///    is skipped SILENTLY by the synchronous [validate].
+  ///  - `title`'s `string` and `description`'s `nullable|string`: magic has
+  ///    no type rules; [Max] measures whatever type it is handed, and both
+  ///    fields always arrive here as a String.
+  ///  - `suppress_alerts`'s `sometimes|boolean`: magic has no boolean rule,
+  ///    and no field in the create form ever sets it.
+  ///  - `starts_at`/`ends_at`'s `date`: magic has no date rule. Both are
+  ///    seeded to a real [DateTime] the moment the view mounts, so
+  ///    [Required] is a redundant-but-honest mirror of a shape the picker
+  ///    already guarantees, kept for the rare direct call this class's own
+  ///    tests make with a raw map.
+  ///  - `ends_at`'s `after:starts_at`: the one window rule this client does
+  ///    NOT approximate. A naive local comparison could reject a window the
+  ///    server's own UTC one accepts.
+  ///  - `monitor_ids` (`sometimes|array`) and `monitor_ids.*` (`Rule::exists`
+  ///    per element): no magic type rule for an array, and the same silently
+  ///    skipped [AsyncRule] concern as `status_page_id`. The create view's
+  ///    own "select at least one monitor" policy is STRICTER than this
+  ///    endpoint (which accepts zero), so it stays a view-local check rather
+  ///    than living here: it is not a rule this endpoint enforces at all.
+  Map<String, List<Rule>> get _createRules => <String, List<Rule>>{
+    'status_page_id': [Required()],
+    'title': [Required(), Max(200)],
+    'description': [Max(2000)],
+    'starts_at': [Required()],
+    'ends_at': [Required()],
+  };
+
   /// Creates a maintenance window and opens the Maintenance tab.
   ///
   /// [fields] is the create form's wire-field map, matching
   /// `StoreScheduledMaintenanceRequest`: `status_page_id`, `title`, an optional
   /// `description`, the UTC ISO-8601 `starts_at` / `ends_at` bounds, and the
-  /// `monitor_ids` pivot list. It mass-assigns them into a fresh
-  /// [ScheduledMaintenance] and persists through the ORM.
+  /// `monitor_ids` pivot list. It is checked against [_createRules] BEFORE
+  /// anything is sent, then mass-assigned into a fresh [ScheduledMaintenance]
+  /// and persisted through the ORM.
   ///
-  /// Returns the backend per-field validation errors (single message per field,
-  /// keyed by the wire field name) so the form can render a server 422 inline;
-  /// an empty map means success. A failed save carrying field errors
-  /// ([ScheduledMaintenance.validationErrors]) stays on the form with no toast
-  /// so the operator corrects the flagged fields; a failed save with NO field
-  /// errors (a transport error, a 500) surfaces the generic error toast and
-  /// returns an empty map. [ScheduledMaintenance.save] absorbs transport
-  /// failures internally and returns `false` rather than throwing.
+  /// Answers whether the window was written, following
+  /// `MonitorController.create`'s contract: the per-field detail does NOT
+  /// travel in the return value. It is published in [validationErrors] and
+  /// the create form reads it back through [hasError] / [getError]. So
+  /// `false` with a populated [validationErrors] means "stay on the form and
+  /// correct the flagged fields", and `false` with an EMPTY one means the
+  /// generic save-failed toast has already fired.
   ///
-  /// The roster is reloaded and the navigation lands on the Maintenance tab
-  /// rather than the incidents list. It used to land on `/incidents`, where the
-  /// default tab lists INCIDENTS: a window was created successfully and the
-  /// operator was shown "No incidents yet".
+  /// [ScheduledMaintenance.save] absorbs transport failures internally and
+  /// returns `false` rather than throwing; a `false` that carries the Laravel
+  /// 422 shape on [ScheduledMaintenance.validationErrors] is republished here.
+  ///
+  /// On success, the roster is reloaded and the navigation lands on the
+  /// Maintenance tab rather than the incidents list. It used to land on
+  /// `/incidents`, where the default tab lists INCIDENTS: a window was
+  /// created successfully and the operator was shown "No incidents yet".
   ///
   /// The subscriber announcement is NOT this client's concern: the backend
   /// claims it atomically on create, which is what makes it announce once.
-  Future<Map<String, String>> create(Map<String, dynamic> fields) async {
+  Future<bool> create(Map<String, dynamic> fields) async {
+    try {
+      validate(fields, _createRules);
+    } on ValidationException {
+      return false;
+    }
+
     final ScheduledMaintenance window = ScheduledMaintenance()
       ..fill(fields, strict: true);
 
     final bool ok = await window.save();
-    if (!ok) {
-      final Map<String, String>? fieldErrors = _resolveFieldErrors(window);
-      if (fieldErrors != null) return fieldErrors;
-      return const {};
-    }
+    if (!ok) return _publishFieldErrors(window);
 
     await load();
 
@@ -192,7 +243,7 @@ class MaintenanceController extends MagicController
     // the map it was dropped from.
     Magic.success(trans('uptizm.incidents.submit_schedule'), window.title);
     MagicRoute.to('/incidents', query: const {'tab': 'maintenance'});
-    return const {};
+    return true;
   }
 
   /// Deletes the window [id] and refreshes the roster.
@@ -234,18 +285,22 @@ class MaintenanceController extends MagicController
     await load();
   }
 
-  /// Resolves a failed [window] save into either its per-field validation
-  /// errors or a generic toast.
+  /// Publishes a failed [window] save as either per-field validation errors
+  /// or a generic toast, and answers `false` either way.
   ///
-  /// Returns the field errors (single message per field, keyed by the wire field
-  /// name) when the failed save carried the Laravel 422 shape, so the caller
-  /// hands them to the form and stays put. Returns `null` for a non-field
-  /// failure after surfacing the generic error toast and logging the cause, so
-  /// the caller falls back to its empty-map contract. Mirrors
-  /// `IncidentController._resolveFieldErrors`.
-  Map<String, String>? _resolveFieldErrors(ScheduledMaintenance window) {
+  /// Mirrors `IncidentController._publishFieldErrors` / `MonitorController.
+  /// _publishFieldErrors`: a failure carrying field errors lands on
+  /// [validationErrors] for the form's `hasError`/`getError` to read; a
+  /// failure carrying NONE (a transport error, a 500) surfaces the generic
+  /// toast instead and logs the cause.
+  bool _publishFieldErrors(ScheduledMaintenance window) {
     final Map<String, String> fieldErrors = fieldErrorsFromModel(window);
-    if (fieldErrors.isNotEmpty) return fieldErrors;
+    if (fieldErrors.isNotEmpty) {
+      validationErrors = fieldErrors;
+      refreshUI();
+
+      return false;
+    }
 
     Log.error(
       '[MaintenanceController.create] save returned false with no errors',
@@ -254,6 +309,7 @@ class MaintenanceController extends MagicController
       trans('common.error_occurred'),
       trans('common.error_occurred'),
     );
-    return null;
+
+    return false;
   }
 }

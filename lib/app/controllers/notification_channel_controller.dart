@@ -110,13 +110,26 @@ class NotificationChannelRecord {
 /// That same index response also carries `meta.push_provisioned`, published as
 /// [pushProvisioned], so a view surfaces the honest push heads-up off this one
 /// request instead of fetching the flag itself.
-/// [create]/[update] return the backend per-field validation errors (single
-/// message per field, keyed by the wire field name, e.g. `credentials.token`)
-/// so the view can render a server 422 inline, reading them from
-/// [MagicResponse.errors] (mirroring `MonitorMetricsController`'s contract).
-/// [delete] and [sendTest] are bool-checked write actions with an honest
-/// toast: a failed test-send (Slack `{ok:false}` / webhook non-2xx, surfaced
-/// by the backend as a 502) is reported as a failure, never a false success.
+/// [create]/[update] do NOT validate client-side themselves: the caller
+/// ([NotificationChannelsView]) runs `validate()` against its own
+/// per-`ChannelType` [Rule] switch before either is ever invoked (the
+/// backend's `required_if:channel_type,...` has no magic equivalent, so the
+/// exhaustive switch stays where the type is already known, see the view's
+/// class docblock). What [create]/[update] own is the SERVER half: on a
+/// failed write, [_publishFieldErrors] namespaces the returned field errors
+/// `<type>.<wire_key>` (e.g. `slack.credentials.token`,
+/// `teams.credentials.url`) via [_namespace] and publishes them onto the
+/// inherited [validationErrors], so a client rejection and a server 422 land
+/// under the identical shape the view reads via [getError]. The namespace
+/// exists because [NotificationChannelsView] holds one draft PER
+/// [ChannelType] open at once, and `credentials.url` is the wire key for
+/// both the webhook and Teams card. Every write action here (including
+/// [delete] and [sendTest]) answers a bare `Future<bool>`: `true` means
+/// written, `false` with a populated [validationErrors] means the server
+/// named fields to correct, and `false` with an empty [validationErrors]
+/// means a non-field failure already raised its own toast. A failed
+/// test-send (Slack `{ok:false}` / webhook non-2xx, surfaced by the backend
+/// as a 502) is reported as a failure, never a false success.
 class NotificationChannelController extends MagicController
     with ValidatesRequests
     implements SessionScopedController {
@@ -285,13 +298,24 @@ class NotificationChannelController extends MagicController
   /// and reloads the roster on success.
   ///
   /// [fields] is the raw create-form field map (`name`, `channel_type`,
-  /// `credentials`, `is_enabled`, `severity`). Returns the backend per-field
-  /// validation errors (single message per field, keyed by the wire field
-  /// name: `name`, `channel_type`, `credentials.token`, `credentials.url`,
-  /// `credentials.secret`, `severity`) so the view can render a server 422
-  /// inline; an empty map means success. A non-field failure (a transport
-  /// error / 500) surfaces the generic error toast and returns an empty map.
-  Future<Map<String, String>> create(Map<String, dynamic> fields) async {
+  /// `credentials`, `is_enabled`, `severity`). The credential-shape client
+  /// validation (required-on-first-connect, per-field length bounds) runs
+  /// BEFORE this is called: [NotificationChannelsView]'s own `ChannelType`
+  /// switch owns it, because the backend's per-type `required_if` has no
+  /// magic [Rule] equivalent (see the view's class docblock). This method's
+  /// only job on failure is to [_namespace] whatever the SERVER rejects, so
+  /// a client- and a server-rejected field publish under the identical
+  /// `<type>.<wire_key>` shape.
+  ///
+  /// Answers whether the channel was written. The per-field detail does not
+  /// travel in the return value: it is published in [validationErrors] and
+  /// the view reads it back through [getError]. So `false` with a populated
+  /// [validationErrors] means "stay on the form and correct the flagged
+  /// fields", and `false` with an EMPTY one means the generic error toast has
+  /// already fired (a transport error / 500).
+  Future<bool> create(Map<String, dynamic> fields) async {
+    final ChannelType type = _typeFromWire(fields['channel_type'] as String?);
+
     try {
       final response = await Http.post(
         '/notification-channels',
@@ -301,16 +325,16 @@ class NotificationChannelController extends MagicController
         Log.error(
           '[NotificationChannelController.create] ${response.errorMessage}',
         );
-        return _resolveFieldErrors(response);
+        return _publishFieldErrors(type, response);
       }
 
       await reload();
       _notifySuccess('uptizm.teams.channels_connect_button', fields);
-      return const {};
+      return true;
     } catch (error) {
       Log.error('[NotificationChannelController.create] failed: $error');
       _toastError(null);
-      return const {};
+      return false;
     }
   }
 
@@ -321,12 +345,16 @@ class NotificationChannelController extends MagicController
   /// partial `credentials` object REPLACES the whole stored blob
   /// server-side, so a caller editing credentials must send the full
   /// `credentials` shape; omitting the key entirely, as a severity/enabled-
-  /// only toggle does, leaves the stored credentials untouched). Returns the
-  /// backend per-field validation errors, mirroring [create]'s contract.
-  Future<Map<String, String>> update(
+  /// only toggle does, leaves the stored credentials untouched). Client
+  /// validation happens the same way as [create]'s (the caller's job, see
+  /// that docblock); this method only [_namespace]s a server rejection.
+  /// Answers whether the channel was written, mirroring [create]'s contract.
+  Future<bool> update(
     String id,
     Map<String, dynamic> fields,
   ) async {
+    final ChannelType type = _typeFromWire(fields['channel_type'] as String?);
+
     try {
       final response = await Http.put(
         '/notification-channels/$id',
@@ -336,16 +364,16 @@ class NotificationChannelController extends MagicController
         Log.error(
           '[NotificationChannelController.update] $id: ${response.errorMessage}',
         );
-        return _resolveFieldErrors(response);
+        return _publishFieldErrors(type, response);
       }
 
       await reload();
       _notifySuccess('uptizm.teams.channels_save_button', fields);
-      return const {};
+      return true;
     } catch (error) {
       Log.error('[NotificationChannelController.update] $id failed: $error');
       _toastError(null);
-      return const {};
+      return false;
     }
   }
 
@@ -422,19 +450,31 @@ class NotificationChannelController extends MagicController
     Magic.success(trans(buttonKey), (fields['name'] as String?) ?? '');
   }
 
-  /// Resolves a failed write [response] into either its per-field validation
-  /// errors or a generic toast.
+  /// Publishes a failed write [response] as either per-field validation
+  /// errors or a generic toast, and answers `false` either way.
   ///
-  /// Returns the field errors (single message per field, keyed by the wire
-  /// field name) when the failed write carried the Laravel 422 shape via
-  /// [MagicResponse.errors]. Returns an empty map for a non-field failure (a
-  /// transport error / 500) after surfacing the generic error toast.
-  Map<String, String> _resolveFieldErrors(MagicResponse response) {
+  /// Namespaces the field errors under [type] (single message per field,
+  /// keyed `<type>.<wire_key>`, e.g. `webhook.credentials.url`) via
+  /// [_namespace] when the failed write carried the Laravel 422 shape via
+  /// [MagicResponse.errors], and assigns them to the inherited
+  /// [validationErrors] so the view's [getError] reads them. A failure
+  /// carrying NO field errors is a transport error or a 500, so it gets the
+  /// generic toast and leaves [validationErrors] empty, which is the signal
+  /// [NotificationChannelsView] uses to tell "stay and correct" apart from
+  /// "already told".
+  bool _publishFieldErrors(
+    ChannelType type,
+    MagicResponse response,
+  ) {
     final Map<String, String> fieldErrors = fieldErrorsFromResponse(response);
-    if (fieldErrors.isNotEmpty) return fieldErrors;
+    if (fieldErrors.isNotEmpty) {
+      validationErrors = _namespace(type, fieldErrors);
+      refreshUI();
+      return false;
+    }
 
     _toastError(response.errorMessage);
-    return const {};
+    return false;
   }
 
   /// Surfaces a generic write-failure toast, reusing the app-wide
@@ -446,5 +486,45 @@ class NotificationChannelController extends MagicController
       trans('common.error_occurred'),
       detail ?? trans('common.error_occurred'),
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Namespacing: this vertical's second forced exception. See
+  // `notification_channels_view.dart`'s class docblock for the first (the
+  // exhaustive `ChannelType` rule switch, which lives in the view since it is
+  // the caller that already knows the type and holds no server round trip in
+  // between).
+  // ---------------------------------------------------------------------------
+
+  /// Prefixes every key of [raw] with `<type>.`, so a client rejection (the
+  /// view's own `validate()` call, before this method is ever reached) and a
+  /// server 422 ([_resolveFieldErrors]) publish under the identical
+  /// namespaced shape [NotificationChannelsView] reads via [getError].
+  ///
+  /// Needed because [NotificationChannelsView] holds one draft PER
+  /// [ChannelType] open at once, and `credentials.url` is the wire key for
+  /// BOTH the webhook and Teams card: an unnamespaced key could not say
+  /// which card's error a failure was.
+  Map<String, String> _namespace(ChannelType type, Map<String, String> raw) {
+    final String prefix = type.name;
+
+    return <String, String>{
+      for (final MapEntry<String, String> entry in raw.entries)
+        '$prefix.${entry.key}': entry.value,
+    };
+  }
+
+  /// Records a client-side validation failure [message] directly under the
+  /// already-namespaced [field] (e.g. `teams.credentials.url`), for a check
+  /// no magic [Rule] can express.
+  ///
+  /// [NotificationChannelsView] is the one caller: magic ships no `Url`
+  /// rule, and approximating one with [In] would refuse every valid value,
+  /// so its webhook/Teams URL-shape check runs in the view and publishes
+  /// here rather than through a [Rule]. Mirrors [clearFieldError]'s
+  /// single-field granularity in reverse.
+  void setFieldError(String field, String message) {
+    validationErrors[field] = message;
+    refreshUI();
   }
 }

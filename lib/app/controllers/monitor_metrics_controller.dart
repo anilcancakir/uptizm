@@ -353,81 +353,203 @@ class MonitorMetricsController extends MagicController
   }
 
   // ---------------------------------------------------------------------------
+  // The write path's client-side rules.
+  // ---------------------------------------------------------------------------
+
+  /// The `type` wire vocabulary. Unlike `source`/`unit`, the backend
+  /// `MetricType` enum values (`numeric`, `status`, `string`) are identical to
+  /// the form's own [MetricForm.type] tokens, so no translation table sits
+  /// between the two.
+  static const List<String> _metricTypeValues = ['numeric', 'status', 'string'];
+
+  /// The `source` wire vocabulary, read off the module-level translation map
+  /// this file already keeps (`_sourceToWire`'s values) rather than retyped, so
+  /// the rule and the encoder that produces the value it checks cannot drift.
+  static final List<String> _metricSourceValues = _sourceToWire.values.toList();
+
+  /// The `unit` wire vocabulary, same reasoning as [_metricSourceValues].
+  static final List<String> _metricUnitValues = _unitToWire.values.toList();
+
+  /// The `threshold_direction` wire vocabulary. Mirrors the backend
+  /// `ThresholdDirection` enum, which has no Dart counterpart.
+  static const List<String> _thresholdDirectionValues = ['high_bad', 'low_bad'];
+
+  /// The `unmatched_band` wire vocabulary. Mirrors the backend `MetricBand`
+  /// enum.
+  static const List<String> _metricBandValues = ['ok', 'warn', 'critical'];
+
+  /// The client-side mirror of `StoreMonitorMetricRequest::metricFieldRules()`
+  /// plus its own `key` rule (`POST /monitors/:id/metrics`), validated against
+  /// the WIRE payload [_toWirePayload] produces, not the form's own vocabulary.
+  ///
+  /// Only the rules magic ships EXACTLY are here; the rest is deliberately
+  /// absent, mirroring `monitor_controller.dart`'s `_createRules` docblock:
+  ///
+  ///  - `group_name` / `display_order`: never sent by this vertical at all
+  ///    (`_toWirePayload` omits both; `display_order` is [reorder]'s field), so
+  ///    there is nothing here to validate.
+  ///  - `extraction_path`'s denied-header-name closure: a cross-field rule keyed
+  ///    on the sibling `source`, and magic has no closure/custom-rule mechanism
+  ///    to state it. Server-only.
+  ///  - `key`'s regex format (`^[a-z][a-z0-9_]*$`): magic ships no regex rule.
+  ///    The form keeps its own live format check (`kKeyRe`), the same footing as
+  ///    `monitor_form.dart`'s target-shape check.
+  ///  - `key`'s `Rule::unique`: an [AsyncRule], skipped SILENTLY by the
+  ///    synchronous [validate]; mirroring it would read as enforced and enforce
+  ///    nothing, the same reasoning `monitor_controller.dart` gives for
+  ///    `escalation_policy_id`.
+  ///  - `warn_bound` / `critical_bound`'s `numeric`: magic has no
+  ///    numeric/integer rule at all.
+  ///  - the three value lists' PER-ELEMENT rules (`ok_values.*` min/max/blank
+  ///    closure): [In] type-checks the WHOLE value, so no top-level rule can
+  ///    address a list ELEMENT; the whole-list `sometimes|array|max:50` DOES
+  ///    map to [Max], which counts a List's own length.
+  ///  - the two cross-field closures on the value lists (within-list duplicate,
+  ///    cross-list overlap) and `withValidator()`'s bound-ordering and
+  ///    unmatched-band-needs-a-list checks: none is a single-field rule magic
+  ///    can state, so they stay client-side on `MonitorMetricForm`, the same
+  ///    footing as that form's own docblock describes.
+  ///
+  /// A fresh map per call, not a shared constant, for the same reason
+  /// `monitor_controller.dart`'s rule getters are: [Min]/[Max] remember the
+  /// value type they last measured.
+  Map<String, List<Rule>> get _createRules => <String, List<Rule>>{
+    'label': [Required(), Max(120)],
+    'key': [Required(), Max(40)],
+    'type': [Required(), In<String>(_metricTypeValues)],
+    'source': [In<String>(_metricSourceValues)],
+    'extraction_path': [Max(500)],
+    'unit': [In<String>(_metricUnitValues)],
+    'threshold_direction': [In<String>(_thresholdDirectionValues)],
+    'ok_values': [Max(50)],
+    'warn_values': [Max(50)],
+    'critical_values': [Max(50)],
+    'unmatched_band': [In<String>(_metricBandValues)],
+  };
+
+  /// The client-side mirror of `UpdateMonitorMetricRequest::rules()`
+  /// (`PUT /monitors/:id/metrics/:metricId`).
+  ///
+  /// Every field on that request is `sometimes|required` (see
+  /// `StoreMonitorMetricRequest::metricRules(partial: true)`), so the
+  /// `required` half is DROPPED here rather than approximated, mirroring
+  /// `monitor_controller.dart`'s own `_updateRules` precedent: a bare
+  /// [Required] would refuse the partial payload the server explicitly accepts.
+  /// [Max]/[In] pass on `null`, which is exactly `sometimes` semantics for a
+  /// rule that only measures a value it was given.
+  Map<String, List<Rule>> get _updateRules => <String, List<Rule>>{
+    'label': [Max(120)],
+    'key': [Max(40)],
+    'type': [In<String>(_metricTypeValues)],
+    'source': [In<String>(_metricSourceValues)],
+    'extraction_path': [Max(500)],
+    'unit': [In<String>(_metricUnitValues)],
+    'threshold_direction': [In<String>(_thresholdDirectionValues)],
+    'ok_values': [Max(50)],
+    'warn_values': [Max(50)],
+    'critical_values': [Max(50)],
+    'unmatched_band': [In<String>(_metricBandValues)],
+  };
+
+  // ---------------------------------------------------------------------------
   // Business actions
   // ---------------------------------------------------------------------------
 
   /// Creates a custom metric on [monitorId] via `POST /monitors/:id/metrics`
   /// and reloads the catalog on success.
   ///
-  /// Returns the backend per-field validation errors (single message per field,
-  /// keyed by the wire field name the form posts: `label`, `key`,
-  /// `extraction_path`, `warn_bound`, `critical_bound`, ...) so the metric form
-  /// can render a server 422 inline; an empty map means success (the caller
-  /// closes the sheet). A 422 that carries field errors STAYS on the form with
-  /// no toast so the user corrects the flagged fields; a non-field failure (a
-  /// transport error / 500) keeps the generic save-failed toast and returns an
-  /// empty map. Mirrors `monitor_controller.dart`'s [create] contract, reading
-  /// the errors from [MagicResponse.errors] (this write path is raw `Http.post`,
-  /// not an ORM `Model.save()`, so there is no `model.validationErrors`; both
-  /// resolve the same Laravel 422 shape).
-  Future<Map<String, String>> create(String monitorId, MetricForm form) async {
+  /// Answers whether the metric was written, on the contract
+  /// `monitor_controller.dart`'s `create`/`save` establish: the per-field
+  /// detail of a refusal does NOT travel in the return value any more. It is
+  /// published in [validationErrors], and the form reads it back through
+  /// [hasError] / [getError]. So `false` with a populated [validationErrors]
+  /// means "stay open and correct the flagged fields", and `false` with an
+  /// EMPTY one means the generic save-failed toast has already fired.
+  ///
+  /// [form] is checked against [_createRules] BEFORE anything is sent, so a
+  /// payload whose answer is already known never becomes a request.
+  ///
+  /// This vertical writes raw HTTP rather than an ORM `Model.save()`, so a
+  /// failed write's field detail is read from the [MagicResponse] itself via
+  /// [_publishFieldErrors], which collapses a dot-notation element key (e.g.
+  /// `ok_values.1`) onto its owning field through
+  /// `field_errors.dart`'s [fieldErrorsFromResponse] rather than
+  /// [setErrorsFromResponse] (magic's own helper stores the wire key VERBATIM,
+  /// which would leave a bulk-shaped key like `metrics.0.ok_values.0`
+  /// uncollapsed).
+  Future<bool> create(String monitorId, MetricForm form) async {
+    final Map<String, dynamic> payload = _toWirePayload(form);
+
+    try {
+      validate(payload, _createRules);
+    } on ValidationException {
+      return false;
+    }
+
     try {
       final response = await Http.post(
         '/monitors/$monitorId/metrics',
-        data: _toWirePayload(form),
+        data: payload,
       );
       if (!response.successful) {
         Log.error(
           '[MonitorMetricsController.create] $monitorId: ${response.errorMessage}',
         );
-        return _resolveFieldErrors(response);
+        return _publishFieldErrors(response);
       }
 
       await reload(monitorId);
-      return const {};
+      return true;
     } catch (error) {
       Log.error(
         '[MonitorMetricsController.create] $monitorId failed: $error',
       );
       _notifySaveFailed(null);
-      return const {};
+      return false;
     }
   }
 
   /// Updates the custom metric [metricId] on [monitorId] via `PUT
   /// /monitors/:id/metrics/:metricId` and reloads the catalog on success.
   ///
-  /// Shares the metric form (and therefore its [create] return contract): the
-  /// same [MonitorMetricForm] backs both create and edit, so this returns the
-  /// backend per-field validation errors (empty map on success) too, giving an
-  /// edited metric the same inline-422 handling as a created one instead of a
-  /// lossy `bool`-to-map adapter.
-  Future<Map<String, String>> update(
+  /// Shares the metric form (and therefore [create]'s return contract): the
+  /// same [MonitorMetricForm] backs both create and edit, so this answers
+  /// whether the metric was written on the same terms, checking [form] against
+  /// [_updateRules] before anything is sent.
+  Future<bool> update(
     String monitorId,
     String metricId,
     MetricForm form,
   ) async {
+    final Map<String, dynamic> payload = _toWirePayload(form);
+
+    try {
+      validate(payload, _updateRules);
+    } on ValidationException {
+      return false;
+    }
+
     try {
       final response = await Http.put(
         '/monitors/$monitorId/metrics/$metricId',
-        data: _toWirePayload(form),
+        data: payload,
       );
       if (!response.successful) {
         Log.error(
           '[MonitorMetricsController.update] $monitorId/$metricId: '
           '${response.errorMessage}',
         );
-        return _resolveFieldErrors(response);
+        return _publishFieldErrors(response);
       }
 
       await reload(monitorId);
-      return const {};
+      return true;
     } catch (error) {
       Log.error(
         '[MonitorMetricsController.update] $monitorId/$metricId failed: $error',
       );
       _notifySaveFailed(null);
-      return const {};
+      return false;
     }
   }
 
@@ -748,24 +870,30 @@ class MonitorMetricsController extends MagicController
     return payload;
   }
 
-  /// Resolves a failed metric write [response] into either its per-field
-  /// validation errors or a generic toast.
+  /// Publishes a failed metric write [response] as either per-field validation
+  /// errors or a generic toast, and answers `false` either way.
   ///
-  /// Returns the field errors (single message per field, keyed by the wire
-  /// field name) when the failed write carried the Laravel 422 shape via
-  /// [MagicResponse.errors] (collapsed through [fieldErrorsFromResponse], so a
-  /// dot-notation array-element key like `ok_values.1` lands on its owning
-  /// field `ok_values` rather than being lost or read as a separate one), so
-  /// the caller hands them back to the form for inline display and keeps the
-  /// sheet open. Returns an empty map for a non-field failure (a transport
-  /// error / 500) after surfacing the generic save-failed toast, so the
-  /// caller closes the sheet on the empty-map contract.
-  Map<String, String> _resolveFieldErrors(MagicResponse response) {
+  /// Mirrors `monitor_controller.dart`'s `_publishFieldErrors`, reading the
+  /// 422 from a [MagicResponse] rather than a model's `validationErrors`: this
+  /// write path is raw `Http.post`/`Http.put`, not an ORM `Model.save()`, so
+  /// there is no model to ask. [fieldErrorsFromResponse] collapses a
+  /// dot-notation array-element key like `ok_values.1` onto its owning field
+  /// `ok_values` rather than losing it or reading it as a separate one.
+  ///
+  /// A failure carrying NO field errors is a transport error or a 500, so it
+  /// gets the generic toast and leaves [validationErrors] empty, which is the
+  /// signal the form uses to tell "stay and correct" apart from "already told".
+  bool _publishFieldErrors(MagicResponse response) {
     final Map<String, String> fieldErrors = fieldErrorsFromResponse(response);
-    if (fieldErrors.isNotEmpty) return fieldErrors;
+    if (fieldErrors.isNotEmpty) {
+      validationErrors = fieldErrors;
+      refreshUI();
+
+      return false;
+    }
 
     _notifySaveFailed(response.errorMessage);
-    return const {};
+    return false;
   }
 
   /// Surfaces the shared "couldn't save" toast (reusing the monitors

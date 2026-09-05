@@ -26,6 +26,18 @@ void main() {
     Magic.flush();
   });
 
+  /// A complete `StoreScheduledMaintenanceRequest`-shaped payload, so a test
+  /// exercising a SERVER-only rejection is not itself refused by
+  /// `MaintenanceController._createRules` before the request is ever built.
+  Map<String, dynamic> validPayload([Map<String, dynamic>? overrides]) => {
+    'status_page_id': 'page-1',
+    'title': 'Database upgrade',
+    'starts_at': '2026-09-10T00:00:00Z',
+    'ends_at': '2026-09-10T02:00:00Z',
+    'monitor_ids': ['checkout'],
+    ...?overrides,
+  };
+
   group('create', () {
     test(
       'POSTs /scheduled-maintenances with the given fields and reloads',
@@ -43,16 +55,11 @@ void main() {
         MagicRoute.page('/incidents', () => const SizedBox());
         MagicRouter.instance.routerConfig;
 
-        final Map<String, String> errors = await MaintenanceController.instance
-            .create({
-              'status_page_id': 'page-1',
-              'title': 'Database upgrade',
-              'starts_at': '2026-09-10T00:00:00Z',
-              'ends_at': '2026-09-10T02:00:00Z',
-              'monitor_ids': ['checkout'],
-            });
+        final bool ok = await MaintenanceController.instance.create(
+          validPayload(),
+        );
 
-        expect(errors, isEmpty);
+        expect(ok, isTrue);
         fake.assertSent(
           (r) =>
               r.method == 'POST' &&
@@ -67,27 +74,58 @@ void main() {
       },
     );
 
+    test('a blank title is refused here, and nothing is sent', () async {
+      // The client-side half of the validation contract:
+      // `_createRules` mirrors `StoreScheduledMaintenanceRequest`'s `title`
+      // => `Required()`, so a blank title never reaches the network.
+      final fake = Http.fake();
+
+      final bool ok = await MaintenanceController.instance.create(
+        validPayload({'title': ''}),
+      );
+
+      expect(ok, isFalse, reason: 'a refused write did not happen');
+      expect(MaintenanceController.instance.hasError('title'), isTrue);
+      fake.assertNothingSent();
+    });
+
     test(
-      'a 422 with field errors returns them keyed by wire field name',
+      'a 422 on a wire key this client does not mirror (monitor_ids.0) lands '
+      'on the collapsed field, keyed by wire field name',
       () async {
+        // `monitor_ids.*`'s `Rule::exists` is deliberately absent from
+        // `_createRules` (an AsyncRule would be silently skipped anyway), so
+        // a payload naming a monitor outside the team reaches the network and
+        // is refused there. This is what proves a wire key still survives to
+        // the form: `fieldErrorsFromModel` collapses the dot-numeric
+        // `monitor_ids.0` down onto `monitor_ids`, the same key
+        // `IncidentCreateView` reads for the Affected field in maintenance
+        // mode.
         Http.fake({
           'scheduled-maintenances': Http.response({
             'message': 'The given data was invalid.',
             'errors': {
-              'title': ['The title field is required.'],
+              'monitor_ids.0': ['The selected monitor_ids.0 is invalid.'],
             },
           }, 422),
         });
 
-        final Map<String, String> errors = await MaintenanceController.instance
-            .create({'status_page_id': 'page-1'});
+        final bool ok = await MaintenanceController.instance.create(
+          validPayload({
+            'monitor_ids': ['not-on-this-team'],
+          }),
+        );
 
-        expect(errors, equals({'title': 'The title field is required.'}));
+        expect(ok, isFalse);
+        expect(
+          MaintenanceController.instance.getError('monitor_ids'),
+          equals('The selected monitor_ids.0 is invalid.'),
+        );
       },
     );
 
     test(
-      'a non-field failure (500) returns an empty map, not a thrown error',
+      'a non-field failure (500) answers false without throwing',
       () async {
         Http.fake({
           'scheduled-maintenances': Http.response(
@@ -96,10 +134,12 @@ void main() {
           ),
         });
 
-        final Map<String, String> errors = await MaintenanceController.instance
-            .create({'status_page_id': 'page-1', 'title': 'Database upgrade'});
+        final bool ok = await MaintenanceController.instance.create(
+          validPayload(),
+        );
 
-        expect(errors, isEmpty);
+        expect(ok, isFalse);
+        expect(MaintenanceController.instance.hasErrors, isFalse);
       },
     );
   });

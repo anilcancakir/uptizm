@@ -275,7 +275,7 @@ void main() {
       final NotificationChannelController controller =
           NotificationChannelController.instance;
 
-      final Map<String, String> result = await controller.create({
+      final bool ok = await controller.create({
         'name': 'Slack',
         'channel_type': 'slack',
         'credentials': {'token': 'xoxb-secret', 'channel': '#incidents'},
@@ -283,7 +283,7 @@ void main() {
         'severity': 'all',
       });
 
-      expect(result, isEmpty);
+      expect(ok, isTrue);
       fake.assertSent(
         (r) => r.method == 'POST' && r.url == '/notification-channels',
       );
@@ -300,7 +300,8 @@ void main() {
     });
 
     test(
-      'maps a 422 credentials.token field error inline and does not hydrate',
+      'maps a 422 credentials.token field error inline, namespaced under '
+      'the channel type, and does not hydrate',
       () async {
         Http.fake({
           'notification-channels': Http.response({
@@ -315,16 +316,18 @@ void main() {
         final NotificationChannelController controller =
             NotificationChannelController.instance;
 
-        final Map<String, String> result = await controller.create({
+        final bool ok = await controller.create({
           'name': 'Slack',
           'channel_type': 'slack',
           'credentials': {'token': ''},
         });
 
+        expect(ok, isFalse);
         expect(
-          result,
+          controller.validationErrors,
           equals({
-            'credentials.token': 'The credentials.token field is required.',
+            'slack.credentials.token':
+                'The credentials.token field is required.',
           }),
         );
         expect(controller.channels, isEmpty);
@@ -332,7 +335,8 @@ void main() {
     );
 
     test(
-      'returns an empty map on a non-field failure and does not hydrate',
+      'returns false with no field errors on a non-field failure and does '
+      'not hydrate',
       () async {
         Http.fake({
           'notification-channels': Http.response({
@@ -342,13 +346,39 @@ void main() {
         final NotificationChannelController controller =
             NotificationChannelController.instance;
 
-        final Map<String, String> result = await controller.create({
+        final bool ok = await controller.create({
           'name': 'Slack',
           'channel_type': 'slack',
         });
 
-        expect(result, isEmpty);
+        expect(ok, isFalse);
+        expect(controller.validationErrors, isEmpty);
         expect(controller.channels, isEmpty);
+      },
+    );
+
+    test(
+      'returns false with EMPTY validationErrors on a caught transport '
+      'failure, distinct from a 422 which populates it',
+      () async {
+        // The branch the old `Future<Map<String, String>>` contract could not
+        // express: both a caught exception and a successful write used to
+        // `return const {}`, so the caller could not tell "nothing wrong,
+        // already told" apart from "there is nothing to correct because it
+        // actually worked". `Http.unfake()` with no driver bound throws
+        // inside `create`'s own try/catch, exercising the `catch` branch
+        // rather than the `!response.successful` one.
+        Http.unfake();
+        final NotificationChannelController controller =
+            NotificationChannelController.instance;
+
+        final bool ok = await controller.create({
+          'name': 'Slack',
+          'channel_type': 'slack',
+        });
+
+        expect(ok, isFalse);
+        expect(controller.validationErrors, isEmpty);
       },
     );
   });
@@ -380,12 +410,13 @@ void main() {
       final NotificationChannelController controller =
           NotificationChannelController.instance;
 
-      final Map<String, String> result = await controller.update('nc1', {
+      final bool ok = await controller.update('nc1', {
+        'channel_type': 'slack',
         'is_enabled': false,
         'severity': 'critical',
       });
 
-      expect(result, isEmpty);
+      expect(ok, isTrue);
       fake.assertSent(
         (r) =>
             r.method == 'PUT' && r.url == '/notification-channels/nc1',
@@ -396,31 +427,38 @@ void main() {
       );
     });
 
-    test('maps a 422 credentials.url field error inline on a failed update', () async {
-      Http.fake({
-        'notification-channels/nc2': Http.response({
-          'message': 'The credentials.url field must be a valid URL.',
-          'errors': {
-            'credentials.url': [
-              'The credentials.url field must be a valid URL.',
-            ],
-          },
-        }, 422),
-      });
-      final NotificationChannelController controller =
-          NotificationChannelController.instance;
+    test(
+      'maps a 422 credentials.url field error inline on a failed update, '
+      'namespaced under the channel type',
+      () async {
+        Http.fake({
+          'notification-channels/nc2': Http.response({
+            'message': 'The credentials.url field must be a valid URL.',
+            'errors': {
+              'credentials.url': [
+                'The credentials.url field must be a valid URL.',
+              ],
+            },
+          }, 422),
+        });
+        final NotificationChannelController controller =
+            NotificationChannelController.instance;
 
-      final Map<String, String> result = await controller.update('nc2', {
-        'credentials': {'url': 'not-a-url'},
-      });
+        final bool ok = await controller.update('nc2', {
+          'channel_type': 'webhook',
+          'credentials': {'url': 'not-a-url'},
+        });
 
-      expect(
-        result,
-        equals({
-          'credentials.url': 'The credentials.url field must be a valid URL.',
-        }),
-      );
-    });
+        expect(ok, isFalse);
+        expect(
+          controller.validationErrors,
+          equals({
+            'webhook.credentials.url':
+                'The credentials.url field must be a valid URL.',
+          }),
+        );
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------
