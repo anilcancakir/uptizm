@@ -92,29 +92,44 @@ LANE=$((TOTAL_CORES / 2))
 # reaching the error below means it is absent from the main checkout too.
 require_local_siblings() {
     wants flutter || return 0
+
+    # A fork resolving every sibling from pub.dev is the CORRECT answer, not a
+    # mistake, and this repo is forked on purpose. The escape is opt-in so the
+    # default still protects the common case: a working tree whose overrides
+    # went missing and would otherwise certify the published packages.
+    if [ "${CHECK_ALLOW_HOSTED:-}" = "1" ]; then
+        [ -f pubspec_overrides.yaml ] || \
+            echo "check: CHECK_ALLOW_HOSTED=1, resolving every sibling from pub.dev"
+        return 0
+    fi
+
     [ -f pubspec_overrides.yaml ] || {
         echo "check: pubspec_overrides.yaml is absent, so every sibling would resolve from pub.dev" >&2
         echo "check: and this run would certify the published packages, not your working trees." >&2
         echo "check: copy it from the main checkout, or from the block in .claude/rules/flutter-app.md." >&2
+        echo "check: on a fork with no sibling checkouts, hosted IS correct: CHECK_ALLOW_HOSTED=1 bin/check" >&2
         exit 1
     }
 
     # The paths inside it are absolute, so a stale one points at a directory that
     # moved. pub reports that as a resolution failure with no hint of this file.
-    local missing
-    missing="$(python3 - <<'PY'
-import sys, yaml
-try:
-    data = yaml.safe_load(open('pubspec_overrides.yaml')) or {}
-except Exception as exc:                       # a malformed file is silently ignored by pub
-    print(f"unparseable: {exc}")
-    sys.exit(0)
-import os
-for name, spec in (data.get('dependency_overrides') or {}).items():
-    if isinstance(spec, dict) and 'path' in spec and not os.path.isdir(spec['path']):
-        print(f"{name} -> {spec['path']}")
-PY
-)"
+    #
+    # `bin/parse-overrides.py` is a separate file rather than a heredoc here for
+    # one reason: it can be tested, and `bin/parse-overrides-test.py` is its
+    # table. This guard was wrong four times in a row (PyYAML absent, flow form,
+    # four-space and tab indent, a flow-form `git:` override), each fix keyed to
+    # the shapes somebody had thought of and each one finding the next, because
+    # hand-exercising was the only instrument. A shape costs one row now.
+    local missing status
+    missing="$(python3 bin/parse-overrides.py pubspec_overrides.yaml)" && status=0 || status=$?
+
+    # A parser that fell over must not read as "nothing is stale".
+    if [ "$status" -ne 0 ]; then
+        echo "check: could not read pubspec_overrides.yaml (exit $status)" >&2
+        echo "check: fix the file, or set CHECK_ALLOW_HOSTED=1 to resolve from pub.dev instead." >&2
+        exit 1
+    fi
+
     [ -z "$missing" ] && return 0
 
     echo "check: pubspec_overrides.yaml points at paths that do not exist:" >&2
@@ -274,6 +289,11 @@ run_lockfile() {
     fi
     echo "lockfile: hosted-only, no local paths"
 }
+# The overrides parser guards the guard. `require_local_siblings` above is the
+# only check whose failure mode is SILENCE (it reads a stale file and reports
+# nothing), and it was wrong four times in a row before it had a test. This runs
+# its shape table, so a fifth shape costs one row rather than another round.
+run_overrides_parser() { python3 bin/parse-overrides-test.py; }
 
 echo "check: ${SCOPES# } | $TOTAL_CORES cores, $LANE per suite$([ "$FAST" -eq 1 ] && echo ' | static only')"
 prepare
@@ -283,6 +303,7 @@ wants flutter && start "flutter-analyze" run_flutter_analyze
 wants flutter && start "design-tokens" run_design_tokens
 wants flutter && start "registry" run_registry
 wants flutter && start "lockfile" run_lockfile
+wants flutter && start "overrides-parser" run_overrides_parser
 wants backend && start "backend-pint" run_backend_pint
 wants worker && start "worker-typecheck" run_worker_typecheck
 

@@ -27,7 +27,7 @@ Code that breaks one of these is wrong however well it reads. Each is enforced s
 
 The client is built on the in-house stack, and using it correctly is most of writing idiomatic code here: `magic` (IoC container, ORM, auth, validation, routing over `go_router`), `magic_starter` (auth, profile, teams, notifications; override a screen through the view registry, never by forking it), `fluttersdk_wind` (styling through `className`, semantic tokens only), `magic_devtools` (the dev-only `/preview` catalog), and `fluttersdk_artisan`, `fluttersdk_dusk`, `fluttersdk_telescope` reached through `./bin/fsa`. Read their source freely; changing one is a PR in that repository under its own rules, never an edit from here.
 
-`pubspec.yaml` pins those twelve as hosted carets and a gitignored `pubspec_overrides.yaml` points them at the local checkouts with ABSOLUTE paths. That is why a green local run can be a red CI: locally you build against unreleased sibling code, and CI resolves from pub.dev. When CI reports an undefined symbol that reproduces nowhere, publish the sibling and bump the caret rather than reshaping this app. The paths are absolute because a relative `../magic` resolves to nothing from a worktree, and `bin/check` refuses to run when the file is missing or stale.
+`pubspec.yaml` pins those twelve as hosted carets and a gitignored `pubspec_overrides.yaml` points them at the local checkouts with ABSOLUTE paths. That is why a green local run can be a red CI: locally you build against unreleased sibling code, and CI resolves from pub.dev. When CI reports an undefined symbol that reproduces nowhere, publish the sibling and bump the caret rather than reshaping this app. The paths are absolute because a relative `../magic` resolves to nothing from a worktree, and `bin/check` refuses to run when the file is missing or stale. Outside this workspace there are no sibling checkouts and hosted resolution is the right answer, so `CHECK_ALLOW_HOSTED=1 bin/check` is the way through.
 
 ## One task, one worktree, one PR
 
@@ -43,7 +43,7 @@ Several agents work this repo at the same time, so isolation is the default and 
 
 ## Verifying a change
 
-`bin/check` is the gate: nine jobs fanned across cores, one summary line each, non-zero when any failed. `--fast` runs the static passes; `flutter`, `backend` or `worker` scopes it to one half. `docs/verification-loop.md` carries the invocations and what each job does and does not measure.
+`bin/check` is the gate: ten jobs fanned across cores, one summary line each, non-zero when any failed. `--fast` runs the static passes; `flutter`, `backend` or `worker` scopes it to one half. `docs/verification-loop.md` carries the invocations and what each job does and does not measure.
 
 One gate is NOT in `bin/check`: the `.github/` mirrors are checked by CI, so a stale mirror passes locally and blocks the merge there. Run `bin/sync-instructions` after editing this file or any rule, and `bin/sync-skills` after pulling a sibling package.
 

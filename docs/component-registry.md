@@ -28,14 +28,14 @@ with regions, an incident with a lifecycle, an error budget with a window.
 | Folder | Class | Variant enums | Recipe | Preview | index.dart | What it is |
 |---|---|---|---|---|---|---|
 | `ai_analysis_card/` | `AiAnalysisCard` | - | yes | yes | yes | Incident AI Analysis Panel |
-| `ai_confidence_badge/` | `AiConfidenceBadge` | - | yes | yes | yes | A soft pill badge visualizing the AI confidence level for an incident |
+| `ai_confidence_badge/` | `AiConfidenceBadge` | - | yes | yes | yes | A soft pill badge visualizing the AI confidence level for an incident analysis. |
 | `ai_inbox_item/` | `AiInboxItem` | - | yes | yes | yes | AI Inbox Row |
 | `ai_insight/` | `AiInsight` | - | yes | yes | yes | AI Insight — Inline Annotation |
 | `assistant/` | `Assistant` | AssistantRole | yes | yes | yes | The Floating Uptizm AI Assistant |
 | `check_history_table/` | `CheckHistoryTable` | - | yes | yes | yes | The Recent Checks History Table |
 | `component_status_row/` | `ComponentStatusRow` | - | yes | yes | yes | One component on a public status page. |
 | `date_range_picker/` | `DateRangePicker` | - | yes | yes | yes | Time-range picker for monitor charts. |
-| `form_actions/` | `FormActions` | - | yes | yes | yes | The action row that closes a form: an optional Cancel and the primary submit, |
+| `form_actions/` | `FormActions` | - | yes | yes | yes | The action row that closes a form: an optional Cancel and the primary submit, right-aligned at the bottom of the fields. |
 | `header_action/` | `HeaderAction` | - | yes | yes | yes | A page-header action that becomes an icon on a phone. |
 | `incident_card/` | `IncidentCard` | - | yes | yes | yes | Incident Summary Card |
 | `incident_timeline/` | `IncidentTimeline` | TimelineActor | yes | yes | yes | Incident Timeline |
@@ -69,8 +69,8 @@ is the one place they do not apply.
 | `app_layout.dart` | `AppLayout` | The Responsive Application Shell |
 | `bottom_nav.dart` | `BottomNav` | The Mobile Bottom Tab Bar |
 | `mobile_top_bar.dart` | `MobileTopBar` | Computes uppercase avatar initials from a display [name]. |
-| `shell_account.dart` | - |  |
-| `shell_control_semantics.dart` | `ShellControlSemantics` | Wraps one of the shell's popover controls so assistive technology announces |
+| `shell_account.dart` | - | **NO DOC** |
+| `shell_control_semantics.dart` | `ShellControlSemantics` | Wraps one of the shell's popover controls so assistive technology announces it ONCE, and by name. |
 | `sidebar.dart` | `Sidebar` | The Desktop Sidebar |
 | `uptizm_hub_extras.dart` | `UptizmHubExtras` | Uptizm's injected settings-hub extras. |
 
