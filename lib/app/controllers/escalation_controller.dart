@@ -3,6 +3,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../models/escalation_policy.dart';
+import '../support/field_errors.dart';
 import '../support/roster_page.dart';
 import '../support/escalation_support.dart' show EscalationTargetType;
 
@@ -76,6 +77,7 @@ class EscalationStepWire {
 /// exactly one people-only step: `target_type: on_call` (the shared rotation,
 /// no `target_id`) or `target_type: user` (`target_id` = a team member id).
 class EscalationController extends MagicController
+    with ValidatesRequests
     implements SessionScopedController {
   /// Singleton accessor, registering the controller on first access.
   static EscalationController get instance =>
@@ -256,6 +258,7 @@ class EscalationController extends MagicController
     // Back to "not asked yet": the incoming identity must get a skeleton, not
     // the previous tenant's conclusion that there are no policies.
     _resolvedOnce = false;
+    clearErrors();
     refreshUI();
 
     await reload();
@@ -322,6 +325,42 @@ class EscalationController extends MagicController
   }
 
   // ---------------------------------------------------------------------------
+  // The write path's client-side rules.
+  // ---------------------------------------------------------------------------
+
+  /// The client-side mirror of `StoreEscalationPolicyRequest::rules()`
+  /// (`POST /escalation-policies`).
+  ///
+  /// Only `name` is expressible. The other two backend fields are
+  /// deliberately absent:
+  ///
+  ///  - `repeat_last_step` / `is_default` (`sometimes|boolean`): magic ships no
+  ///    `boolean` rule, so there is nothing here that could measure the type
+  ///    without refusing an absent key the server explicitly allows.
+  ///
+  /// A fresh map per call rather than a shared constant, because [Max] and
+  /// [Min] remember the value type they last measured and `message()` reads it
+  /// back; one shared instance would let one submit's type pick another's
+  /// message (mirrors `monitor_controller.dart`'s `_createRules`).
+  Map<String, List<Rule>> get _createRules => <String, List<Rule>>{
+    'name': [Required(), Max(200)],
+  };
+
+  /// The client-side mirror of `UpdateEscalationPolicyRequest::rules()`
+  /// (`PUT /escalation-policies/{id}`).
+  ///
+  /// `name` there is `sometimes|required`, and magic has no `sometimes`, so the
+  /// `required` half is dropped, mirroring `monitor_controller.dart`'s
+  /// `_updateRules`: a bare [Required] would refuse a partial payload the
+  /// server accepts. What is left is the bound, and [Max] passes on null,
+  /// which is exactly `sometimes` semantics for a rule that measures only a
+  /// value it was given. The two booleans are omitted for the same reason as
+  /// [_createRules].
+  Map<String, List<Rule>> get _updateRules => <String, List<Rule>>{
+    'name': [Max(200)],
+  };
+
+  // ---------------------------------------------------------------------------
   // Business actions: live writes against `api/v1/escalation-policies`.
   // ---------------------------------------------------------------------------
 
@@ -331,46 +370,55 @@ class EscalationController extends MagicController
   /// raw call per rung. On success, reloads the roster, surfaces a success
   /// toast, and returns to the list.
   ///
-  /// Returns the policy's backend per-field validation errors (single message
-  /// per field, keyed by the wire field name: `name`) so the editor can render
-  /// a server 422 inline; an empty map means success, a missing id, or a step
-  /// write failure (the latter two already toasted). A `false` policy save that
-  /// carries field errors STAYS on the form with no toast; a `false` save with
-  /// no field errors keeps the generic error toast and returns an empty map.
-  Future<Map<String, String>> create(
+  /// Answers whether the policy was written. The per-field detail does NOT
+  /// travel in the return value: it is published in [validationErrors] and the
+  /// editor reads it back through [getError]. So `false` with a populated
+  /// [validationErrors] means "stay on the form and correct the flagged
+  /// fields", and `false` with an EMPTY one means the generic save-failed toast
+  /// has already fired (a missing id after save, or a step write failure, both
+  /// of which already toasted their own cause).
+  ///
+  /// [name] is checked against [_createRules] BEFORE anything is sent, so a
+  /// blank name never becomes a request. [EscalationPolicy.save] absorbs
+  /// transport failures internally and returns `false` rather than throwing; a
+  /// `false` that carries the Laravel 422 shape on
+  /// [EscalationPolicy.validationErrors] is republished here.
+  Future<bool> create(
     String name,
     List<EscalationRungDraft> rungs, {
     bool repeatLastStep = false,
     bool isDefault = false,
   }) async {
+    try {
+      validate(<String, dynamic>{'name': name}, _createRules);
+    } on ValidationException {
+      return false;
+    }
+
     final EscalationPolicy policy = EscalationPolicy()
       ..name = name
       ..repeatLastStep = repeatLastStep
       ..isDefault = isDefault;
 
     final bool ok = await policy.save();
-    if (!ok) {
-      final Map<String, String>? fieldErrors = _fieldErrorsOrToast(policy);
-      if (fieldErrors != null) return fieldErrors;
-      return const {};
-    }
+    if (!ok) return _publishFieldErrors(policy);
 
     final String id = policy.id;
     if (id.isEmpty) {
       Log.error('[EscalationController.create] missing id after save()');
       _toastError(null);
-      return const {};
+      return false;
     }
 
     for (int i = 0; i < rungs.length; i++) {
       final bool stepOk = await _addStep(id, position: i, rung: rungs[i]);
-      if (!stepOk) return const {};
+      if (!stepOk) return false;
     }
 
     await reload();
     Magic.success(trans('uptizm.teams.escalation_editor_create_button'), name);
     MagicRoute.to('/teams/escalation');
-    return const {};
+    return true;
   }
 
   /// Saves the policy [id]'s [name] through the model's ORM `save()`
@@ -384,13 +432,13 @@ class EscalationController extends MagicController
   /// `PUT /escalation-policies/{id}/steps/reorder` call. On success, reloads
   /// the roster, surfaces a success toast, and returns to the list.
   ///
-  /// Returns the policy's backend per-field validation errors (single message
-  /// per field, keyed by the wire field name: `name`) so the editor can render
-  /// a server 422 inline; an empty map means success or a step write failure
-  /// (already toasted). A `false` policy save that carries field errors STAYS
-  /// on the form with no toast; a `false` save with no field errors keeps the
-  /// generic error toast and returns an empty map.
-  Future<Map<String, String>> save(
+  /// Answers whether the policy was written, on the same contract [create]
+  /// documents: the per-field detail lives in [validationErrors], not in the
+  /// return value.
+  ///
+  /// [name] is checked against [_updateRules] BEFORE the policy is even built,
+  /// so a payload whose answer is already known costs no request at all.
+  Future<bool> save(
     String id,
     String name,
     List<EscalationRungDraft> rungs,
@@ -398,6 +446,12 @@ class EscalationController extends MagicController
     bool repeatLastStep = false,
     bool isDefault = false,
   }) async {
+    try {
+      validate(<String, dynamic>{'name': name}, _updateRules);
+    } on ValidationException {
+      return false;
+    }
+
     final EscalationPolicy policy = EscalationPolicy()
       ..id = id
       ..name = name
@@ -406,11 +460,7 @@ class EscalationController extends MagicController
       ..exists = true;
 
     final bool ok = await policy.save();
-    if (!ok) {
-      final Map<String, String>? fieldErrors = _fieldErrorsOrToast(policy);
-      if (fieldErrors != null) return fieldErrors;
-      return const {};
-    }
+    if (!ok) return _publishFieldErrors(policy);
 
     final Set<String> keptIds = {
       for (final r in rungs)
@@ -419,7 +469,7 @@ class EscalationController extends MagicController
     for (final String stepId in originalStepIds) {
       if (keptIds.contains(stepId)) continue;
       final bool stepOk = await removeStep(id, stepId);
-      if (!stepOk) return const {};
+      if (!stepOk) return false;
     }
 
     final List<Map<String, dynamic>> reorderOrder = [];
@@ -427,7 +477,7 @@ class EscalationController extends MagicController
       final EscalationRungDraft rung = rungs[i];
       if (rung.id == null) {
         final bool stepOk = await _addStep(id, position: i, rung: rung);
-        if (!stepOk) return const {};
+        if (!stepOk) return false;
       } else {
         reorderOrder.add({'id': rung.id, 'position': i});
       }
@@ -435,36 +485,41 @@ class EscalationController extends MagicController
 
     if (reorderOrder.isNotEmpty) {
       final bool stepOk = await reorderSteps(id, reorderOrder);
-      if (!stepOk) return const {};
+      if (!stepOk) return false;
     }
 
     await reload();
     Magic.success(trans('uptizm.teams.escalation_editor_save_button'), name);
     MagicRoute.to('/teams/escalation');
-    return const {};
+    return true;
   }
 
-  /// Resolves a failed policy [policy] save into either its per-field
-  /// validation errors or a generic toast.
+  /// Publishes a failed [policy] save as either per-field validation errors or
+  /// a generic toast, and answers `false` either way.
   ///
-  /// Returns the field errors (single message per field, keyed by the wire
-  /// field name) when the failed save carried the Laravel 422 shape via
-  /// [EscalationPolicy.validationErrors], so the caller hands them back to the
-  /// editor for inline display and stays put. Returns `null` for a non-field
-  /// failure (a transport error / 500) after surfacing the generic error toast
-  /// and logging the cause, so the caller falls back to its empty-map contract.
-  Map<String, String>? _fieldErrorsOrToast(EscalationPolicy policy) {
-    final Map<String, List<String>> errors = policy.validationErrors;
-    if (errors.isNotEmpty) {
-      return {
-        for (final MapEntry<String, List<String>> entry in errors.entries)
-          entry.key: entry.value.first,
-      };
+  /// The 422 is read off [EscalationPolicy.validationErrors] rather than a
+  /// [MagicResponse], because there is no response object in scope to read:
+  /// `Model.save()` consumes its own response internally and hands back a bare
+  /// bool. Assigning [validationErrors] is what puts the messages where the
+  /// editor's `getError` reads them.
+  ///
+  /// A failure carrying NO field errors is a transport error or a 500, so it
+  /// gets the generic toast and leaves [validationErrors] empty, which is the
+  /// signal the editor uses to tell "stay and correct" apart from "already
+  /// told".
+  bool _publishFieldErrors(EscalationPolicy policy) {
+    final Map<String, String> fieldErrors = fieldErrorsFromModel(policy);
+    if (fieldErrors.isNotEmpty) {
+      validationErrors = fieldErrors;
+      refreshUI();
+
+      return false;
     }
 
     Log.error('[EscalationController] save returned false with no field errors');
     _toastError(null);
-    return null;
+
+    return false;
   }
 
   /// Deletes the policy [id] through the model's ORM `delete()`

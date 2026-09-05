@@ -6,6 +6,7 @@ import 'monitor_form_support.dart';
 import 'monitor_metrics_support.dart';
 import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/controllers/escalation_controller.dart';
+import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/mocks/monitors.dart';
 import '../../../app/models/escalation_policy.dart';
 import '../../../app/support/submits_once.dart';
@@ -28,6 +29,14 @@ import '../../../ui/components/region_picker/region_picker.dart';
 /// the cheapest plan that unlocks it (via [EntitlementController]:
 /// `minCheckIntervalSec` + `planNameUnlocking`). This mirrors the backend's own
 /// interval-floor 422 so a locked interval is nudged here, not on save.
+///
+/// Field validation is the framework's, not this widget's. The rules live on
+/// [MonitorController] (`_createRules` / `_updateRules`, mirrored off the
+/// backend's own `FormRequest`s), a refusal is published in
+/// `validationErrors`, and every `error:` slot below reads it back through
+/// `getError`. Two checks stay here because magic ships no rule that can state
+/// them: the type-dependent target shape (a regex on the backend) and the
+/// credential block's cross-field shape.
 ///
 /// No color is hardcoded: every tone flows through semantic alias keys, and no
 /// footer button carries `w-full` (a full-width button inside a `flex-row`
@@ -178,19 +187,17 @@ class MonitorForm extends StatefulWidget {
   /// Label for the primary submit button (e.g. "Create monitor").
   final String submitLabel;
 
-  /// Called when the user taps the primary submit button (once the client-side
-  /// required checks pass), with the field map assembled by
+  /// Called when the user taps the primary submit button (once the shape checks
+  /// this form still owns pass), with the field map assembled by
   /// [_MonitorFormState.buildFields] (the backend request shape). The caller
   /// decides whether that fires a create or a save.
   ///
-  /// Returns the backend field errors keyed by the wire field name the form
-  /// posted (`name`, `url`, `regions`, `check_interval_sec`, `method`,
-  /// `timeout_sec`, ...), single message per field, so a server 422 renders
-  /// inline under the matching field. An empty map means success (the caller
-  /// has already navigated away). Any returned key the form does not own is
-  /// surfaced as a generic failure toast.
-  final Future<Map<String, String>> Function(Map<String, dynamic> fields)
-  onSubmit;
+  /// Answers whether the monitor was WRITTEN, and nothing more: the per-field
+  /// detail of a refusal lives on [MonitorController.validationErrors], which
+  /// every field below reads through `getError`. So `false` means "stay here",
+  /// and whether the operator has already been told why is answered by whether
+  /// those errors are populated (see [MonitorController.create]).
+  final Future<bool> Function(Map<String, dynamic> fields) onSubmit;
 
   /// Called when the user taps Cancel.
   final VoidCallback onCancel;
@@ -231,15 +238,18 @@ class MonitorForm extends StatefulWidget {
 
 class _MonitorFormState extends State<MonitorForm>
     with SubmitsOnce<MonitorForm> {
+  /// The controller that owns this form's validation errors.
+  ///
+  /// Resolved from the container rather than passed in, the same way
+  /// [_escalation] below is: it is the one [MonitorController] the create and
+  /// edit screens already back onto, so the rules it checked the payload
+  /// against and the messages this form paints are the same object's state.
+  /// Every error slot below reads it through `getError`, and the field stack is
+  /// wrapped in a [ListenableBuilder] on it so a refusal repaints.
+  final MonitorController _monitor = MonitorController.instance;
+
   /// Monitor name (React `name`).
   late String _name;
-
-  /// Inline validation error for the Name field, or null when it is valid.
-  ///
-  /// Set on submit when the required Name is blank (a check the client can make
-  /// before any round trip), and by a server 422 that rejects `name`. Cleared
-  /// when the user edits the field.
-  String? _nameError;
 
   /// Monitor type token (React `type`).
   late String _type;
@@ -247,38 +257,27 @@ class _MonitorFormState extends State<MonitorForm>
   /// Monitored URL or host (React `url`).
   late String _url;
 
-  /// Inline validation error for the target field, or null when it is valid.
+  /// Inline error for the target's SHAPE, or null when it is well formed.
   ///
-  /// Set on submit by [_targetError] so a malformed target surfaces under the
-  /// field immediately (an HTTP monitor needs a full URL, a TCP monitor needs
-  /// `host:port`), instead of only bouncing back as a generic save-failed toast
-  /// after the round trip. Cleared when the target or the type changes.
+  /// The one field-level check that did not move to the controller, because
+  /// magic ships no regex rule and the backend's own check is one
+  /// (`StoreMonitorRequest::targetRules()`): an HTTP monitor needs a full URL, a
+  /// TCP monitor needs `host:port`. Set on submit by [_targetError], cleared
+  /// when the target or the type changes, and rendered in preference to the
+  /// controller's own `url` message because it is the more specific of the two.
   String? _urlError;
 
   /// Check-interval token (React `intervalValue`).
   late String _intervalValue;
 
-  /// Inline validation error for the check-interval field, set only by a server
-  /// 422 that rejects `check_interval_sec` (the client cannot pre-check it).
-  /// Cleared when the user picks another interval.
-  String? _intervalError;
-
   /// Selected probe-region values (React `regions`).
   late List<String> _regions;
-
-  /// Inline validation error for the Regions field, set only by a server 422
-  /// that rejects `regions`. Cleared when the user changes the selection.
-  String? _regionsError;
 
   /// Whether the advanced section is expanded (React `advanced`).
   late bool _advanced;
 
   /// HTTP method token for the advanced section (React `method`).
   String _method = 'get';
-
-  /// Inline validation error for the HTTP method field, set only by a server
-  /// 422 that rejects `method`. Cleared when the user picks another method.
-  String? _methodError;
 
   /// Request headers for the advanced section (React `headers`).
   late List<KeyValueRow> _headers;
@@ -299,9 +298,15 @@ class _MonitorFormState extends State<MonitorForm>
   /// placeholder as the new password.
   late MonitorCredential _storedCredential;
 
-  /// Inline credential errors keyed by the wire field name (`username`,
-  /// `password`, `token`, `key`, `header`, or `type`), from the client-side
-  /// checks or from a server 422 on `auth_config.*`.
+  /// Inline credential errors from the CLIENT-side shape check, keyed by the
+  /// wire field name (`username`, `password`, `token`, `key`, `header`, or
+  /// `type`).
+  ///
+  /// Local for the same reason [_urlError] is: the credential's rule is a
+  /// cross-field one (which key is required depends on the selected scheme) and
+  /// magic has no rule that says so. The backend's own `auth_config.*`
+  /// rejections arrive on the controller and are merged in by
+  /// [_credentialFieldErrors].
   Map<String, String> _credentialErrors = const <String, String>{};
 
   /// Request body for the advanced section (React `body`).
@@ -309,10 +314,6 @@ class _MonitorFormState extends State<MonitorForm>
 
   /// Timeout in seconds, kept as a raw string (React `timeoutMs`).
   String _timeoutMs = '30';
-
-  /// Inline validation error for the Timeout field, set only by a server 422
-  /// that rejects `timeout_sec`. Cleared when the user edits the field.
-  String? _timeoutError;
 
   /// Alert when the monitor goes down (React `notifyDown`).
   bool _followRedirects = false;
@@ -574,23 +575,31 @@ class _MonitorFormState extends State<MonitorForm>
         if (widget.banner != null) widget.banner!,
 
         // 2. The form card (surface variant) with the field stack.
+        //
+        //    Wrapped in a ListenableBuilder on the controller because that is
+        //    where the field errors live now: `validate()` and a server 422
+        //    both publish into `validationErrors` and notify, and without a
+        //    listener the refusal would be recorded and never painted.
         MSCard(
           variant: CardVariant.surface,
-          child: WDiv(
-            className: 'flex flex-col gap-5',
-            children: [
-              _buildNameField(),
-              _buildTypeField(),
-              _buildUrlField(),
-              _buildIntervalField(),
-              _buildRegionsField(),
-              _buildSloField(),
-              _buildAiModeField(),
-              _buildAiAutoUpdatesField(),
-              _buildNotificationsSection(),
-              _buildAdvancedToggle(),
-              if (_advanced) ..._buildAdvancedSection(),
-            ],
+          child: ListenableBuilder(
+            listenable: _monitor,
+            builder: (BuildContext context, Widget? _) => WDiv(
+              className: 'flex flex-col gap-5',
+              children: [
+                _buildNameField(),
+                _buildTypeField(),
+                _buildUrlField(),
+                _buildIntervalField(),
+                _buildRegionsField(),
+                _buildSloField(),
+                _buildAiModeField(),
+                _buildAiAutoUpdatesField(),
+                _buildNotificationsSection(),
+                _buildAdvancedToggle(),
+                if (_advanced) ..._buildAdvancedSection(),
+              ],
+            ),
           ),
         ),
 
@@ -615,13 +624,13 @@ class _MonitorFormState extends State<MonitorForm>
   Widget _buildNameField() {
     return MSFormField(
       label: trans('uptizm.monitors.form_field_name_label'),
-      error: _nameError,
+      error: _monitor.getError('name'),
       child: MSInput(
         value: _name,
-        onChanged: (value) => setState(() {
-          _name = value;
-          _nameError = null;
-        }),
+        onChanged: (value) {
+          _monitor.clearFieldError('name');
+          setState(() => _name = value);
+        },
         placeholder: trans('uptizm.monitors.form_field_name_placeholder'),
       ),
     );
@@ -635,14 +644,18 @@ class _MonitorFormState extends State<MonitorForm>
   Widget _buildTypeField() {
     return MSFormField(
       label: trans('uptizm.monitors.form_type_label'),
+      error: _monitor.getError('type'),
       child: MSSegmentedControl<String>(
         options: kMonitorTypes.map((o) => o.label).toList(),
         selectedIndex: _indexOfValue(kMonitorTypes, _type),
         onChanged: (index) => setState(() {
           _type = kMonitorTypes[index].value;
+          _monitor.clearFieldError('type');
           // The target's valid shape depends on the type, so a pending error
-          // no longer applies once the type changes.
+          // no longer applies once the type changes. Both halves go: the shape
+          // this form checked, and whatever the backend said about `url`.
           _urlError = null;
+          _monitor.clearFieldError('url');
           // Only an HTTP probe carries a credential, so the block is hidden for
           // TCP. Reverting it to what the monitor already stores (nothing, on a
           // create) is what keeps a hidden field out of the payload: the form
@@ -668,13 +681,19 @@ class _MonitorFormState extends State<MonitorForm>
       hint: _isHttp
           ? trans('uptizm.monitors.form_url_hint_http')
           : trans('uptizm.monitors.form_url_hint_other'),
-      error: _urlError,
+      // The shape check this form still owns outranks the controller's own
+      // `url` message: both can be pending at once and the specific one (an
+      // HTTP monitor needs a full URL) says more than "required".
+      error: _urlError ?? _monitor.getError('url'),
       child: MSInput(
         value: _url,
-        onChanged: (value) => setState(() {
-          _url = value;
-          _urlError = null;
-        }),
+        onChanged: (value) {
+          _monitor.clearFieldError('url');
+          setState(() {
+            _url = value;
+            _urlError = null;
+          });
+        },
         placeholder: _isHttp
             ? trans('uptizm.monitors.form_url_placeholder')
             : trans('uptizm.monitors.form_url_placeholder_other'),
@@ -690,7 +709,7 @@ class _MonitorFormState extends State<MonitorForm>
   Widget _buildIntervalField() {
     return MSFormField(
       label: trans('uptizm.monitors.form_interval_label'),
-      error: _intervalError,
+      error: _monitor.getError('check_interval_sec'),
       // Rebuild the options against the live entitlement: until the real plan
       // resolves the floor is 0 (nothing locked), then the sub-tier intervals
       // lock the instant the plan lands.
@@ -712,9 +731,9 @@ class _MonitorFormState extends State<MonitorForm>
           ],
           onChange: (value) {
             if (value != null) {
+              _monitor.clearFieldError('check_interval_sec');
               setState(() {
                 _intervalValue = value;
-                _intervalError = null;
                 _intervalTouchedByUser = true;
               });
             }
@@ -754,19 +773,21 @@ class _MonitorFormState extends State<MonitorForm>
     return MSFormField(
       label: trans('uptizm.monitors.form_regions_label'),
       hint: trans('uptizm.monitors.form_regions_hint'),
-      error: _regionsError,
+      error: _monitor.getError('regions'),
       child: ListenableBuilder(
         listenable: _entitlement,
         builder: (context, _) => RegionPicker(
           regions: _regionOptions,
           value: _regions,
-          onChanged: (next) => setState(() {
-            _regions = next;
-            _regionsError = null;
-            // A deliberate pick outranks the plan-derived default, so the
-            // entitlement landing later must not overwrite it.
-            _regionsTouchedByUser = true;
-          }),
+          onChanged: (next) {
+            _monitor.clearFieldError('regions');
+            setState(() {
+              _regions = next;
+              // A deliberate pick outranks the plan-derived default, so the
+              // entitlement landing later must not overwrite it.
+              _regionsTouchedByUser = true;
+            });
+          },
           maxSelected: _regionCap(),
           capNotice: _regionCapNotice(),
         ),
@@ -831,13 +852,17 @@ class _MonitorFormState extends State<MonitorForm>
     return MSFormField(
       label: trans('uptizm.monitors.form_slo_label'),
       hint: trans('uptizm.monitors.form_slo_hint'),
+      error: _monitor.getError('slo_target'),
       child: MSSelect<String>(
         value: _slo,
         options: kSloTargets
             .map((o) => SelectOption<String>(value: o.value, label: o.label))
             .toList(),
         onChange: (value) {
-          if (value != null) setState(() => _slo = value);
+          if (value == null) return;
+
+          _monitor.clearFieldError('slo_target');
+          setState(() => _slo = value);
         },
       ),
     );
@@ -1022,14 +1047,14 @@ class _MonitorFormState extends State<MonitorForm>
       if (_isHttp)
         MSFormField(
           label: trans('uptizm.monitors.form_method_label'),
-          error: _methodError,
+          error: _monitor.getError('method'),
           child: MSSegmentedControl<String>(
             options: kHttpMethods.map((o) => o.label).toList(),
             selectedIndex: _indexOfValue(kHttpMethods, _method),
-            onChanged: (index) => setState(() {
-              _method = kHttpMethods[index].value;
-              _methodError = null;
-            }),
+            onChanged: (index) {
+              _monitor.clearFieldError('method');
+              setState(() => _method = kHttpMethods[index].value);
+            },
           ),
         ),
       if (_isHttp)
@@ -1049,11 +1074,14 @@ class _MonitorFormState extends State<MonitorForm>
         MonitorCredentialFields(
           value: _credential,
           hasStoredSecret: _keepsStoredSecret,
-          errors: _credentialErrors,
-          onChanged: (next) => setState(() {
-            _credential = next;
-            _credentialErrors = const <String, String>{};
-          }),
+          errors: _credentialFieldErrors(),
+          onChanged: (next) {
+            _clearCredentialErrors();
+            setState(() {
+              _credential = next;
+              _credentialErrors = const <String, String>{};
+            });
+          },
         ),
       if (showBody)
         MSFormField(
@@ -1067,13 +1095,13 @@ class _MonitorFormState extends State<MonitorForm>
       MSFormField(
         label: trans('uptizm.monitors.form_timeout_label'),
         hint: trans('uptizm.monitors.form_timeout_hint'),
-        error: _timeoutError,
+        error: _monitor.getError('timeout_sec'),
         child: MSInput(
           value: _timeoutMs,
-          onChanged: (value) => setState(() {
-            _timeoutMs = value;
-            _timeoutError = null;
-          }),
+          onChanged: (value) {
+            _monitor.clearFieldError('timeout_sec');
+            setState(() => _timeoutMs = value);
+          },
           type: InputType.number,
           className: 'max-w-32',
         ),
@@ -1101,144 +1129,149 @@ class _MonitorFormState extends State<MonitorForm>
     ];
   }
 
-  /// Validates every client-side required field, then hands the fields to
-  /// [onSubmit] and routes any server 422 back into the inline error slots.
+  /// The wire field names this form renders an inline error slot for.
   ///
-  /// The client checks the required Name and the target shape up front so those
-  /// rejections surface inline WITHOUT a round trip. Only when they pass does it
-  /// await [onSubmit]; a non-empty result (a server 422) is a field-error map
-  /// keyed by the posted wire field names, which [_applyServerErrors] paints
-  /// under the matching fields. A returned key the form owns no slot for is a
-  /// global error, surfaced as the generic save-failed toast.
+  /// Anything the controller flags OUTSIDE this set has nowhere to land, so it
+  /// is toasted instead of being silently held. That is not a theoretical case:
+  /// the backend's plan gates add a bare `plan` key with no field behind it
+  /// (`StoreMonitorRequest::withValidator()`), and a Free team at its monitor
+  /// limit would otherwise tap Create and see nothing happen at all.
+  static const Set<String> _ownedFields = <String>{
+    'name',
+    'url',
+    'target',
+    'type',
+    'method',
+    'check_interval_sec',
+    'timeout_sec',
+    'timeout_ms',
+    'regions',
+    'slo_target',
+  };
+
+  /// The owned fields that live INSIDE the advanced section, and are therefore
+  /// invisible while it is collapsed.
+  static const Set<String> _advancedFields = <String>{
+    'method',
+    'timeout_sec',
+    'timeout_ms',
+  };
+
+  /// Runs the two checks the controller's rule map cannot express, then hands
+  /// the fields to [MonitorForm.onSubmit] and reacts to what it reports.
+  ///
+  /// Everything a magic [Rule] can state now lives on [MonitorController] and is
+  /// read back through `getError`, so a rejection needs no routing here. What is
+  /// left in this method is what magic has no rule for: the type-dependent
+  /// TARGET SHAPE (a regex on the backend) and the credential block's
+  /// cross-field shape. Both are answers the client already knows, so they still
+  /// run first and still stop the request.
+  ///
+  /// After a refused write there are exactly two things left to do that the
+  /// error slots cannot do themselves: OPEN the advanced section when the
+  /// flagged field is inside it (an inline error nobody can see is not a
+  /// message), and toast whatever this form owns no slot for.
   Future<void> _submitIfValid() async {
-    if (!_validateClientSide()) return;
+    if (!_checkTargetAndCredential()) return;
 
-    final Map<String, String> serverErrors = await widget.onSubmit(
-      buildFields(),
-    );
-    if (!mounted || serverErrors.isEmpty) return;
+    final bool written = await widget.onSubmit(buildFields());
+    if (!mounted || written) return;
 
-    final Map<String, String> unmapped = _applyServerErrors(serverErrors);
-    if (unmapped.isNotEmpty) {
-      Magic.error(
-        trans('uptizm.monitors.toast_save_failed_title'),
-        unmapped.values.first,
-      );
-    }
+    _revealRefusedFields();
   }
 
-  /// Runs every client-side required check, painting each field's inline error
-  /// slot, and returns whether the form may be submitted.
+  /// Runs the two shape checks this form still owns, painting their slots, and
+  /// returns whether the form may be submitted.
   ///
-  /// Currently the required Name, the target shape (via [_targetError]) and the
-  /// credential block; all three are checks the client can make before any
-  /// round trip. Every slot is always written (a passing check clears its slot)
-  /// so a previously shown error never lingers after a corrected resubmit.
+  /// Both slots are always written (a passing check clears its slot) so a
+  /// previously shown error never lingers after a corrected resubmit.
   ///
   /// The credential is only checked when the request will actually carry it: an
   /// untouched edit omits `auth_config`, and demanding a password for a
   /// credential nobody is changing would make a rename impossible.
-  bool _validateClientSide() {
-    final String? nameError = _name.trim().isEmpty
-        ? trans('uptizm.monitors.form_name_error_required')
-        : null;
+  bool _checkTargetAndCredential() {
     final String? targetError = _targetError();
     final Map<String, String> credentialErrors = _sendsCredential && _isHttp
         ? validateMonitorCredential(_credential)
         : const <String, String>{};
-    final String? timeoutError = _timeoutErrorFor(_timeoutMs);
 
     setState(() {
-      _nameError = nameError;
       _urlError = targetError;
       _credentialErrors = credentialErrors;
-      _timeoutError = timeoutError;
-      // A credential or timeout error lives in the advanced section, so open it
-      // rather than blocking submit with an explanation nobody can see.
-      if (credentialErrors.isNotEmpty || timeoutError != null) _advanced = true;
+      // The credential block lives in the advanced section, so open it rather
+      // than blocking submit with an explanation nobody can see.
+      if (credentialErrors.isNotEmpty) _advanced = true;
     });
 
-    return nameError == null &&
-        targetError == null &&
-        timeoutError == null &&
-        credentialErrors.isEmpty;
+    return targetError == null && credentialErrors.isEmpty;
   }
 
-  /// The inline error for the timeout field, or null when it is usable.
+  /// Makes a refused write's detail reachable: expands the advanced section
+  /// when a flagged field hides there, and toasts anything with no slot.
   ///
-  /// The write path builds `timeout_sec` with `int.tryParse(_timeoutMs) ?? 30`,
-  /// and nothing checked the field, so clearing it or typing anything the parser
-  /// refuses sent 30 instead. The backend accepts 30, answers 200, and the form
-  /// navigates to the detail page: the operator believes they set 60 seconds and
-  /// the monitor stays at 30, with nothing anywhere saying otherwise.
-  ///
-  /// The bounds mirror `StoreMonitorRequest` exactly (`min:1`, `max:120`), which
-  /// is the point of validating twice: the server still decides, and the client
-  /// stops a request it already knows the answer to.
-  String? _timeoutErrorFor(String raw) {
-    final int? seconds = int.tryParse(raw.trim());
+  /// Reads the controller rather than a returned map, because that is where the
+  /// detail lives now. An EMPTY error map here means the failure was not a
+  /// per-field one (a transport error or a 500), and the controller has already
+  /// surfaced its own toast for it, so this deliberately says nothing.
+  void _revealRefusedFields() {
+    final Map<String, String> errors = _monitor.validationErrors;
 
-    if (seconds == null) {
-      return trans('uptizm.monitors.form_timeout_error_number');
+    final bool hiddenInAdvanced = errors.keys.any(
+      (String key) => _advancedFields.contains(key) || _isCredentialKey(key),
+    );
+    if (hiddenInAdvanced && !_advanced) {
+      setState(() => _advanced = true);
     }
 
-    if (seconds < 1 || seconds > 120) {
-      return trans('uptizm.monitors.form_timeout_error_range');
-    }
+    final Iterable<MapEntry<String, String>> unmapped = errors.entries.where(
+      (MapEntry<String, String> entry) =>
+          !_ownedFields.contains(entry.key) && !_isCredentialKey(entry.key),
+    );
+    if (unmapped.isEmpty) return;
 
-    return null;
+    Magic.error(
+      trans('uptizm.monitors.toast_save_failed_title'),
+      unmapped.first.value,
+    );
   }
 
-  /// Routes a backend 422 field-error map (keyed by the wire field names the
-  /// form posts) into the inline error slots, returning the entries that map to
-  /// no known field so the caller can surface them another way.
+  /// Whether [key] addresses the credential map: the block itself, or one of
+  /// the dotted inner keys Laravel reports (`auth_config.password`).
+  bool _isCredentialKey(String key) =>
+      key == 'auth_config' || key.startsWith('auth_config.');
+
+  /// The credential block's inline errors: the client-side shape check merged
+  /// with whatever the backend rejected under `auth_config`.
   ///
-  /// When a rejected field lives in the advanced section (`method` / `timeout`),
-  /// the section is expanded so the inline error is actually visible rather than
-  /// hidden behind the collapsed toggle.
-  Map<String, String> _applyServerErrors(Map<String, String> errors) {
-    final Map<String, String> unmapped = {};
-    final Map<String, String> credentialErrors = {};
-    bool expandAdvanced = false;
+  /// The dotted inner keys Laravel reports are exactly the field names
+  /// [MonitorCredentialFields] renders its slots by, so a rejection lands under
+  /// the input it names instead of in a toast; a bare `auth_config` addresses
+  /// the scheme picker itself. The local check wins a collision, for the same
+  /// reason [_urlError] outranks the controller's `url` message.
+  Map<String, String> _credentialFieldErrors() {
+    final Map<String, String> merged = <String, String>{..._credentialErrors};
 
-    setState(() {
-      for (final MapEntry<String, String> entry in errors.entries) {
-        switch (entry.key) {
-          // Laravel reports the credential map's inner shape with dotted keys
-          // (`auth_config.password`), which are exactly the field names
-          // [MonitorCredentialFields] renders its error slots by, so the
-          // rejection lands under the field it names instead of a toast.
-          case final String key
-              when key == 'auth_config' || key.startsWith('auth_config.'):
-            credentialErrors[key == 'auth_config'
-                ? 'type'
-                : key.substring('auth_config.'.length)] = entry.value;
-            expandAdvanced = true;
-          case 'name':
-            _nameError = entry.value;
-          case 'url':
-          case 'target':
-            _urlError = entry.value;
-          case 'regions':
-            _regionsError = entry.value;
-          case 'check_interval_sec':
-            _intervalError = entry.value;
-          case 'method':
-            _methodError = entry.value;
-            expandAdvanced = true;
-          case 'timeout_sec':
-          case 'timeout_ms':
-            _timeoutError = entry.value;
-            expandAdvanced = true;
-          default:
-            unmapped[entry.key] = entry.value;
-        }
-      }
-      _credentialErrors = credentialErrors;
-      if (expandAdvanced) _advanced = true;
-    });
+    for (final MapEntry<String, String> entry
+        in _monitor.validationErrors.entries) {
+      if (!_isCredentialKey(entry.key)) continue;
 
-    return unmapped;
+      merged.putIfAbsent(
+        entry.key == 'auth_config'
+            ? 'type'
+            : entry.key.substring('auth_config.'.length),
+        () => entry.value,
+      );
+    }
+
+    return merged;
+  }
+
+  /// Drops every credential rejection the controller is holding, so editing the
+  /// block clears the backend's word on it the way it clears this form's.
+  void _clearCredentialErrors() {
+    for (final String key in _monitor.validationErrors.keys.toList()) {
+      if (_isCredentialKey(key)) _monitor.clearFieldError(key);
+    }
   }
 
   /// Validates the target against the selected type, mirroring the backend
@@ -1317,7 +1350,13 @@ class _MonitorFormState extends State<MonitorForm>
       'check_interval_sec': _intervalValue == _customIntervalToken
           ? _customIntervalSec!
           : kIntervalSeconds[_intervalValue] ?? 30,
-      'timeout_sec': int.tryParse(_timeoutMs) ?? 30,
+      // Deliberately NOT `?? 30`. That fallback turned an unparseable field into
+      // a silent 30: the backend accepted it, answered 200, and the operator who
+      // had cleared the box (or typed "60 " with a trailing space) believed they
+      // had set their own value while the monitor stayed at 30 with nothing
+      // anywhere saying otherwise. A null instead reaches `Required()` in
+      // `MonitorController._createRules` and comes straight back to this field.
+      'timeout_sec': int.tryParse(_timeoutMs.trim()),
       'regions': _regions,
       if (!widget.isEdit) 'tags': const <String>[],
       'slo_target': _slo.isEmpty ? null : double.tryParse(_slo),

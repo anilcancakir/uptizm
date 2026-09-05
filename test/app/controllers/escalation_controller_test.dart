@@ -163,6 +163,23 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('create', () {
+    test('a blank name is refused here, and nothing is sent', () async {
+      final EscalationController controller = EscalationController.instance;
+      await pumpEventQueue();
+      final FakeNetworkDriver fake = Http.fake();
+
+      final bool ok = await controller.create('', const [
+        EscalationRungDraft(
+          afterMinutes: 0,
+          targetType: EscalationTargetType.onCall,
+        ),
+      ]);
+
+      expect(ok, isFalse, reason: 'a refused write did not happen');
+      expect(controller.hasError('name'), isTrue);
+      fake.assertNothingSent();
+    });
+
     test('carries the two paging flags into the POST body', () async {
       // The defect this pins: the editor collected both switches, reported
       // success, and posted a body that never mentioned them, so a policy the

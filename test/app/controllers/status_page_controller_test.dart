@@ -504,7 +504,11 @@ void main() {
 
       await controller.save(draft);
 
-      expect(notifications, equals(1));
+      // 2, not 1: `validate()` clears `validationErrors` and calls `refreshUI()`
+      // unconditionally on entry (the draft is client-valid, so that is its only
+      // notification), and the success tail's own `refreshUI()` after the
+      // no-op component sync adds the second.
+      expect(notifications, equals(2));
     });
 
     test('syncs components through the pivot endpoints, not the page write', () async {
@@ -559,7 +563,11 @@ void main() {
       // Await the write fully: the ORM `save()` resolves its error toast after
       // it returns, so an unawaited future would leak into teardown.
       await expectLater(controller.save(statusPages.first), completes);
-      expect(notifications, equals(0));
+      // 1, not 0: `validate()` still clears + notifies once on entry (the
+      // draft is client-valid). The 422 carries no field errors, so
+      // `_publishFieldErrors` takes the generic-toast branch, which does not
+      // call `refreshUI()` again.
+      expect(notifications, equals(1));
     });
 
     test('degrades gracefully (no throw) when the write fails', () async {
@@ -613,7 +621,12 @@ void main() {
 
       await controller.create(statusPages.first);
 
-      expect(notifications, equals(1));
+      // 2, not 1: `validate()` clears + notifies once on entry (the draft is
+      // client-valid), and the success tail's own `refreshUI()` adds the
+      // second. The component sync is a no-op here too: the created page's
+      // response carries no id, so `_syncComponents` returns before issuing
+      // any pivot request.
+      expect(notifications, equals(2));
     });
 
     test('surfaces an error toast on a failed create', () async {
@@ -625,8 +638,40 @@ void main() {
       controller.addListener(() => notifications++);
 
       await expectLater(controller.create(statusPages.first), completes);
-      expect(notifications, equals(0));
+      // 1, not 0: `validate()` still clears + notifies once on entry. The 422
+      // carries no field errors, so `_publishFieldErrors` takes the
+      // generic-toast branch, which does not call `refreshUI()` again.
+      expect(notifications, equals(1));
     });
+
+    // The ordinary red test the plan asks for: a blank `name` is refused by
+    // the framework's own `validate()` (mirroring `StoreStatusPageRequest`'s
+    // `required`) before `create` ever reaches the network.
+    test(
+      'a blank name refuses locally, sets hasError(name), and sends nothing',
+      () async {
+        final fake = Http.fake();
+        final StatusPageController controller = StatusPageController.instance;
+        final StatusPage draft = StatusPage.fromMap(<String, dynamic>{
+          'name': '',
+          'slug': 'acme',
+          'domain_mode': 'path',
+          'is_public': true,
+          'subscriptions_enabled': true,
+          'monitors': <Map<String, dynamic>>[
+            <String, dynamic>{'id': 'api'},
+          ],
+        });
+
+        final bool written = await controller.create(draft);
+
+        expect(written, isFalse);
+        expect(controller.hasError('name'), isTrue);
+        fake.assertNotSent(
+          (r) => r.method == 'POST' && r.url.contains('status-pages'),
+        );
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------

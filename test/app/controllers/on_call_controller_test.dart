@@ -37,6 +37,12 @@ class _FakeOnCallApi {
   /// When set, every write answers with this status.
   int? writeStatus;
 
+  /// When set alongside [writeStatus], the failed write's body carries this
+  /// Laravel 422 `errors` map instead of a bare `message`. Exists because the
+  /// two shapes take different branches in the controller, and only one of
+  /// them used to reach the operator.
+  Map<String, List<String>>? writeFieldErrors;
+
   /// Auto-incrementing suffix for ids this fake mints.
   int _sequence = 0;
 
@@ -70,7 +76,10 @@ class _FakeOnCallApi {
     }
 
     if (writeStatus != null) {
-      return Http.response({'message': 'Validation failed'}, writeStatus!);
+      return Http.response({
+        'message': 'Validation failed',
+        if (writeFieldErrors != null) 'errors': writeFieldErrors,
+      }, writeStatus!);
     }
 
     if (request.method == 'POST' && path == 'on-call/schedules') {
@@ -411,6 +420,39 @@ void main() {
       expect(ok, isFalse);
       expect(OnCallController.instance.scheduleId, isNull);
     });
+
+    test(
+      'a field-shaped 422 reaches the operator instead of parking silently',
+      () async {
+        install(
+          _FakeOnCallApi()
+            ..writeStatus = 422
+            ..writeFieldErrors = <String, List<String>>{
+              'timezone': ['The timezone must be a valid zone.'],
+            },
+        );
+        final OnCallController controller = OnCallController.instance;
+
+        final bool ok = await controller.createSchedule();
+
+        expect(ok, isFalse);
+        // The point of this test. Every other vertical publishes a 422 onto
+        // validationErrors and stays silent, because its form renders a slot
+        // per field and the silence means "stay and correct". This screen has
+        // no form and no slot: nothing reads getError for an on-call field,
+        // and the view does not even read the returned bool. Publishing here
+        // would leave the operator tapping a button that does nothing and
+        // says nothing, so this path toasts instead and leaves the map empty.
+        // An implementation that populates it has re-hidden the message.
+        expect(
+          controller.validationErrors,
+          isEmpty,
+          reason:
+              'nothing renders an on-call field error, so a populated map is '
+              'a message the operator can never see',
+        );
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------

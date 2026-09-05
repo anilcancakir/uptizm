@@ -45,6 +45,13 @@ class _IncidentViewsLangLoader implements TranslationLoader {
     return {
       for (final MapEntry<String, dynamic> entry in shipped.entries)
         if (entry.key.startsWith(titleKeyPrefix)) entry.key: entry.value,
+      // The framework's own validation message: `IncidentController.
+      // _createRules` routes a blank required field through the shared
+      // `Required()` rule now, matching `monitor_form_test.dart`'s stub.
+      'validation.required': 'The :attribute field is required.',
+      // The shipped catalogue's `attributes.title` (`assets/lang/en.json`),
+      // so the humanized attribute name below is not the unset fallback.
+      'attributes.title': 'Title',
       // Shared relative-time + count copy.
       'uptizm.common.time_just_now': 'just now',
       'uptizm.monitors.kpi_delta_ongoing': 'ongoing',
@@ -84,7 +91,6 @@ class _IncidentViewsLangLoader implements TranslationLoader {
       'uptizm.incidents.form_title_label': 'Title',
       'uptizm.incidents.form_title_placeholder_incident': '503s',
       'uptizm.incidents.form_title_placeholder_maintenance': 'Upgrade',
-      'uptizm.incidents.form_title_error_required': 'Title is required.',
       'uptizm.incidents.form_affected_error_required': 'Select a monitor.',
       'uptizm.incidents.form_affected_label': 'Affected monitors',
       'uptizm.incidents.form_affected_hint': 'Drives the status page.',
@@ -950,6 +956,13 @@ void main() {
 
         // Submit with an empty title (the default blank-create state): the
         // client-side required check must block before any request.
+        //
+        // `IncidentController._createRules`'s `Required()` on `title` is what
+        // refuses this now (via `controller.create`'s own `validate()` call,
+        // before any request is built), rendering the framework's own
+        // validation message rather than a form-local string. `attributes.
+        // title` is set in the shipped catalogue, so the message reads
+        // "Title", not the humanized fallback.
         await tester.tap(
           find.widgetWithText(MSButton, trans('uptizm.incidents.submit_open')),
         );
@@ -957,7 +970,7 @@ void main() {
 
         expect(tester.takeException(), isNull);
         expect(
-          find.text(trans('uptizm.incidents.form_title_error_required')),
+          find.text('The Title field is required.'),
           findsOneWidget,
           reason: 'A blank title must surface its inline required error',
         );

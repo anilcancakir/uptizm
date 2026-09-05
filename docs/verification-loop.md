@@ -142,11 +142,36 @@ prescribes.
 
 Start it so it survives the shell that launched it. Then read
 `Debug service listening on ws://127.0.0.1:8181/<token>=/ws` from the log and
-write `~/.artisan/state.json` with `pid`, `vmServiceUri`, `webPort`,
-`vmServicePort`, `projectRoot`, and `device` so the dusk CLI can find it. Chrome's
-CDP port is the one Flutter chose, not one you pick: read it from the process args
-(`ps aux | grep -o "remote-debugging-port=[0-9]*"`). Check for
+write the session file with `pid`, `vmServiceUri`, `webPort`, `vmServicePort`,
+`cdpPort`, `projectRoot`, and `device` so the dusk CLI can find it.
+
+**The session file is PER PROJECT, and the old single `~/.artisan/state.json` is
+ignored.** It lives at `~/.artisan/sessions/<digest>/state.json`, where the digest
+is the first 12 hex characters of `sha256(canonicalProjectRoot)`
+(`artisan/lib/src/state/state_file.dart`). Compute it with:
+
+```sh
+printf '%s' "$PWD" | shasum -a 256 | cut -c1-12
+```
+
+Writing the old path instead leaves whatever stale session sits at the real one in
+charge, and `dusk:*` then fails with a 403 on a VM Service token from a previous
+run that nothing in your log accounts for. That cost three round trips on
+2026-09-05. A worktree is a different root and therefore a different digest.
+
+Chrome's CDP port is the one Flutter chose, not one you pick: read it from the
+process args (`ps aux | grep -o "remote-debugging-port=[0-9]*"`). Check for
 `Address already in use` on 3100 first; a killed run leaves the port held.
+
+**Run `./bin/fsa dusk:doctor` immediately after.** It is the one command that
+names both couplings above in plain words (`Session ownership: state.json
+describes this project`, `CDP session: port N serving :3100, page visible`), and
+each of them is silent when wrong.
+
+**Serve the API on the port `.env` names, which is 8001, not 8000.** `API_URL` in
+`.env` is what the bundled web build reads. Serving on the wrong port leaves every
+screen showing "Could not load monitors", which reads exactly like a product
+defect and is not one.
 
 ### Responsive: desktop and mobile are both required
 
@@ -179,7 +204,7 @@ keeps laying out at the old width, and everything renders doubled and clipped.
 - `fsa tinker --eval=...` is broken against a web-server device (dwds answers
   `NoSuchMethodError`). Use CDP `Runtime.evaluate` instead.
 
-### Three traps that produce confident wrong measurements
+### Five traps that produce confident wrong measurements
 
 - An exact-label lookup over the semantics tree resolves to the **sidebar** nav
   item, which carries the same label as the page it opens. Constrain the search to
@@ -190,6 +215,18 @@ keeps laying out at the old width, and everything renders doubled and clipped.
 - "The bottom-most content node" matches an aggregate parent whose box spans the
   whole page, so an overlap check reads true on every page including unchanged
   ones. Look at the screenshot.
+- **`dusk:tap` can report success and hit nothing.** A submit button near the
+  bottom edge answers `✓ Tapped eN (no observable change)` and does not fire;
+  scrolled fully into view, the same ref works first time. On 2026-09-05 this
+  looked twice like a silent-refusal bug in a form that was in fact correct.
+  Scroll the target fully into view before concluding anything about the code.
+  The gate DOES fail loudly for its other two reasons (`not stable (rect changed
+  by N px)` when the snapshot's rect is stale, and `obscured by other widget`),
+  so a plain "no observable change" is the ambiguous one.
+- **The screenshot is the evidence, not the snapshot.** `dusk:snap --grep` for a
+  validation message returned nothing on a screen that was visibly painting that
+  message in red. Read the image; treat the semantics tree as a way to find refs,
+  not as a way to prove what the operator sees.
 
 ## 4. Reading a system that is already running (measured 2026-08-12)
 

@@ -41,7 +41,6 @@ class _MonitorFormLangLoader implements TranslationLoader {
       'uptizm.monitors.form_url_hint_http': 'Must start with https://',
       'uptizm.monitors.form_url_hint_other': 'Hostname or IP',
       'uptizm.monitors.form_url_placeholder': 'https://example.com/health',
-      'uptizm.monitors.form_name_error_required': 'Name is required.',
       'uptizm.monitors.form_interval_label': 'Check interval',
       'uptizm.monitors.form_regions_label': 'Probe regions',
       'uptizm.monitors.form_regions_hint': 'Select at least one region.',
@@ -126,6 +125,13 @@ class _MonitorFormLangLoader implements TranslationLoader {
       // Not-found state.
       'uptizm.monitors.error_load_title': 'Monitor not found',
       'uptizm.monitors.error_load_description': 'No monitor with that id.',
+
+      // The framework's own validation copy, verbatim from assets/lang/en.json.
+      // A rule's `message()` is a translation KEY and a missing one renders to
+      // the user as the raw key, so a form driven by `ValidatesRequests` needs
+      // these loaded or every assertion here reads `validation.required`.
+      'validation.required': 'The :attribute field is required.',
+      'attributes.name': 'Name',
     };
   }
 }
@@ -199,7 +205,7 @@ void main() {
         wrap(
           MonitorForm(
             submitLabel: trans('uptizm.monitors.form_submit_create'),
-            onSubmit: (_) async => <String, String>{},
+            onSubmit: (_) async => true,
             onCancel: () {},
           ),
         ),
@@ -223,7 +229,7 @@ void main() {
             submitLabel: trans('uptizm.monitors.form_submit_create'),
             onSubmit: (_) async {
               submitted = true;
-              return <String, String>{};
+              return true;
             },
             onCancel: () {},
           ),
@@ -243,6 +249,42 @@ void main() {
       );
     });
 
+    testWidgets('a blank name renders the controller\'s message under the field', (
+      tester,
+    ) async {
+      // The form no longer owns a required check of its own: the rules live on
+      // MonitorController and the rejection is published in `validationErrors`,
+      // which the field reads through `getError('name')`. So this asserts the
+      // FRAMEWORK's sentence, not a `form_name_error_required` string, and a
+      // form still painting a local slot would show nothing here.
+      await tester.binding.setSurfaceSize(const Size(1200, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        wrap(
+          MonitorForm(
+            initialUrl: 'https://api.example.com/health',
+            submitLabel: trans('uptizm.monitors.form_submit_create'),
+            onSubmit: (fields) => MonitorController.instance.create(fields),
+            onCancel: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final submit = find.text(trans('uptizm.monitors.form_submit_create'));
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+
+      expect(
+        MonitorController.instance.hasError('name'),
+        isTrue,
+        reason: 'the rejection belongs to the controller',
+      );
+      expect(find.text('The Name field is required.'), findsOneWidget);
+    });
+
     testWidgets('a blank timeout blocks submit instead of silently sending 30', (
       tester,
     ) async {
@@ -252,22 +294,23 @@ void main() {
       // The backend accepts 30, answers 200, and the form navigates to the
       // detail page, so the operator believes they set their value and the
       // monitor stays at 30 with nothing anywhere saying otherwise.
+      //
+      // The guard moved rather than went away: the `?? 30` is gone, so an
+      // unparseable field reaches `Required()` on the controller as a null.
+      // That makes the REQUEST the thing to assert on (the form does now call
+      // its callback, and the controller is what refuses), which is also the
+      // level the defect actually lived at.
       await tester.binding.setSurfaceSize(const Size(1200, 1600));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      var submitted = false;
-      Map<String, dynamic>? sent;
+      final FakeNetworkDriver fake = Http.fake();
       await tester.pumpWidget(
         wrap(
           MonitorForm(
             initialUrl: 'https://example.com',
             initialName: 'API',
             submitLabel: trans('uptizm.monitors.form_submit_create'),
-            onSubmit: (Map<String, dynamic> fields) async {
-              submitted = true;
-              sent = fields;
-              return <String, String>{};
-            },
+            onSubmit: (fields) => MonitorController.instance.create(fields),
             onCancel: () {},
           ),
         ),
@@ -294,20 +337,30 @@ void main() {
       );
       await tester.pump();
 
+      // The form's own mount reads the entitlement and the escalation roster,
+      // so the recorder has to start from the submit rather than from the pump.
+      fake.reset();
+
       final submit = find.text(trans('uptizm.monitors.form_submit_create'));
       await tester.ensureVisible(submit);
       await tester.tap(submit);
       await tester.pumpAndSettle();
 
+      fake.assertNothingSent();
       expect(
-        submitted,
-        isFalse,
-        reason: 'a request whose answer is already known must not be made',
+        MonitorController.instance.hasError('timeout_sec'),
+        isTrue,
+        reason: 'a cleared field must reach the rule as a null, not as 30',
       );
-      expect(sent, isNull);
+      // Asserted as "the slot is filled" rather than against a literal
+      // sentence: `Required()` names the key `validation.required`, which the
+      // catalogue has, but the numeric bound below names `validation.max.numeric`,
+      // which it does NOT, and pinning either wording here would freeze that gap
+      // into the suite instead of leaving it visible.
       expect(
-        find.text(trans('uptizm.monitors.form_timeout_error_number')),
-        findsOneWidget,
+        tester.widget<MSFormField>(timeout).error,
+        isNotNull,
+        reason: 'the refusal renders under the field the operator cleared',
       );
     });
 
@@ -316,21 +369,21 @@ void main() {
     ) async {
       // The bounds mirror StoreMonitorRequest exactly (min:1, max:120), which
       // is what validating twice is for: the server still decides, and the
-      // client stops a request it already knows the answer to.
+      // client stops a request it already knows the answer to. They are
+      // `Max(120)` on the controller now, and it only measures the right
+      // quantity because `buildFields()` sends a PARSED int: hand it the string
+      // '600' instead and the same rule would count three characters and pass.
       await tester.binding.setSurfaceSize(const Size(1200, 1600));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      var submitted = false;
+      final FakeNetworkDriver fake = Http.fake();
       await tester.pumpWidget(
         wrap(
           MonitorForm(
             initialUrl: 'https://example.com',
             initialName: 'API',
             submitLabel: trans('uptizm.monitors.form_submit_create'),
-            onSubmit: (_) async {
-              submitted = true;
-              return <String, String>{};
-            },
+            onSubmit: (fields) => MonitorController.instance.create(fields),
             onCancel: () {},
           ),
         ),
@@ -354,15 +407,21 @@ void main() {
       );
       await tester.pump();
 
+      // The form's own mount reads the entitlement and the escalation roster,
+      // so the recorder has to start from the submit rather than from the pump.
+      fake.reset();
+
       final submit = find.text(trans('uptizm.monitors.form_submit_create'));
       await tester.ensureVisible(submit);
       await tester.tap(submit);
       await tester.pumpAndSettle();
 
-      expect(submitted, isFalse);
+      fake.assertNothingSent();
+      expect(MonitorController.instance.hasError('timeout_sec'), isTrue);
       expect(
-        find.text(trans('uptizm.monitors.form_timeout_error_range')),
-        findsOneWidget,
+        tester.widget<MSFormField>(timeout).error,
+        isNotNull,
+        reason: 'the refusal renders under the field the operator overshot',
       );
     });
 
@@ -381,7 +440,7 @@ void main() {
             initialUrl: 'db.example.com',
             onSubmit: (_) async {
               submitted = true;
-              return <String, String>{};
+              return true;
             },
             onCancel: () {},
           ),
@@ -419,7 +478,7 @@ void main() {
             initialUrl: 'db.example.com:5432',
             onSubmit: (_) async {
               submitted = true;
-              return <String, String>{};
+              return true;
             },
             onCancel: () {},
           ),
@@ -457,7 +516,7 @@ void main() {
               // Hold the write open so the second tap lands mid-flight, which is
               // the only window the bug lived in.
               await inFlight.future;
-              return <String, String>{};
+              return true;
             },
             onCancel: () {},
           ),
@@ -500,7 +559,7 @@ void main() {
         wrap(
           MonitorForm(
             submitLabel: trans('uptizm.monitors.form_submit_create'),
-            onSubmit: (_) async => <String, String>{},
+            onSubmit: (_) async => true,
             onCancel: () {},
           ),
         ),
@@ -530,7 +589,7 @@ void main() {
         wrap(
           MonitorForm(
             submitLabel: trans('uptizm.monitors.form_submit_create'),
-            onSubmit: (_) async => <String, String>{},
+            onSubmit: (_) async => true,
             onCancel: () {},
           ),
           size: const Size(1200, 5000),
@@ -585,7 +644,7 @@ void main() {
             MonitorForm(
               startAdvanced: true,
               submitLabel: trans('uptizm.monitors.form_submit_create'),
-              onSubmit: (_) async => <String, String>{},
+              onSubmit: (_) async => true,
               onCancel: () {},
             ),
             size: const Size(1200, 5000),
@@ -619,7 +678,7 @@ void main() {
         wrap(
           MonitorForm(
             submitLabel: trans('uptizm.monitors.form_submit_create'),
-            onSubmit: (_) async => <String, String>{},
+            onSubmit: (_) async => true,
             onCancel: () {},
           ),
         ),
@@ -642,7 +701,7 @@ void main() {
         wrap(
           MonitorForm(
             submitLabel: trans('uptizm.monitors.form_submit_create'),
-            onSubmit: (_) async => <String, String>{},
+            onSubmit: (_) async => true,
             onCancel: () {},
           ),
         ),
@@ -664,7 +723,7 @@ void main() {
         wrap(
           MonitorForm(
             submitLabel: trans('uptizm.monitors.form_submit_create'),
-            onSubmit: (_) async => <String, String>{},
+            onSubmit: (_) async => true,
             onCancel: () {},
           ),
         ),
@@ -733,7 +792,7 @@ void main() {
             submitLabel: trans(submitLabelKey),
             onSubmit: (fields) async {
               captured = fields;
-              return <String, String>{};
+              return true;
             },
             onCancel: () {},
           ),
@@ -888,7 +947,7 @@ void main() {
                 'password': 's3cret',
               },
               submitLabel: trans('uptizm.monitors.form_submit_create'),
-              onSubmit: (_) async => <String, String>{},
+              onSubmit: (_) async => true,
               onCancel: () {},
             ),
             size: const Size(1200, 5000),
@@ -922,7 +981,7 @@ void main() {
             initialUrl: 'https://api.example.com/health',
             initialAuthConfig: const {'type': 'basic', 'username': 'svc'},
             submitLabel: trans('uptizm.monitors.form_submit_save'),
-            onSubmit: (_) async => <String, String>{},
+            onSubmit: (_) async => true,
             onCancel: () {},
           ),
           size: const Size(1200, 5000),
@@ -1085,6 +1144,21 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1200, 5000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
+      // Driven through the real write path rather than a stubbed error map,
+      // because the routing moved: the 422 is read off the MODEL's own
+      // `validationErrors` (`Model.save()` consumes its response internally and
+      // hands back a bare bool), republished on the controller, and the block
+      // reads the dotted key back from there. A stub returning the map would
+      // now measure a seam that no longer exists.
+      Http.fake({
+        '*monitors': Http.response({
+          'message': 'The given data was invalid.',
+          'errors': {
+            'auth_config.password': ['That password was rejected.'],
+          },
+        }, 422),
+      });
+
       await tester.pumpWidget(
         wrap(
           MonitorForm(
@@ -1092,11 +1166,7 @@ void main() {
             initialName: 'API gateway',
             initialUrl: 'https://api.example.com/health',
             submitLabel: trans('uptizm.monitors.form_submit_create'),
-            // Laravel reports the map's inner shape with dotted keys; anything
-            // the form owns no slot for becomes a generic toast instead.
-            onSubmit: (_) async => {
-              'auth_config.password': 'That password was rejected.',
-            },
+            onSubmit: (fields) => MonitorController.instance.create(fields),
             onCancel: () {},
           ),
           size: const Size(1200, 5000),
@@ -1139,7 +1209,7 @@ void main() {
             initialType: 'tcp',
             initialUrl: 'db.example.com:5432',
             submitLabel: trans('uptizm.monitors.form_submit_create'),
-            onSubmit: (_) async => <String, String>{},
+            onSubmit: (_) async => true,
             onCancel: () {},
           ),
           size: const Size(1200, 5000),

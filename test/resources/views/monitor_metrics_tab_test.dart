@@ -28,6 +28,18 @@ class _MetricsLangLoader implements TranslationLoader {
   @override
   Future<Map<String, dynamic>> load(Locale locale) async {
     return {
+      // The generic validation template `MonitorMetricsController`'s
+      // `_createRules`/`_updateRules` render through; without it every
+      // assertion reading the controller's own message would see the raw
+      // `validation.required` key instead of a sentence.
+      'validation.required': 'The :attribute field is required.',
+      // The shipped catalogue's own display names for these two fields
+      // (`assets/lang/en.json`'s `attributes.label`/`attributes.key`),
+      // mirrored here so the fallback humanized name is not what the
+      // assertions below pin.
+      'attributes.label': 'Name',
+      'attributes.key': 'Key',
+
       // MonitorMetricsTab: system section.
       'uptizm.monitors.metrics_system_title': 'System metrics',
       'uptizm.monitors.metrics_system_collected_by_default': 'collected',
@@ -60,7 +72,6 @@ class _MetricsLangLoader implements TranslationLoader {
       'uptizm.monitors.metrics_form_key_hint':
           'Lowercase letters, digits, underscores.',
       'uptizm.monitors.metrics_form_key_error': 'Invalid key.',
-      'uptizm.monitors.form_name_error_required': 'Name required',
       'uptizm.monitors.metrics_form_key_error_required': 'Key required',
       'uptizm.monitors.metrics_form_path_error_required': 'Path required',
       'uptizm.monitors.toast_save_failed_title': "Couldn't save",
@@ -651,6 +662,74 @@ void main() {
         );
       },
     );
+
+    testWidgets(
+      'submitting a blank metric form paints the required message; '
+      'reopening shows none before typing',
+      (tester) async {
+        // The QA scenario this step's briefing names: open the modal, submit
+        // blank, assert the inline message; close and reopen, assert no
+        // message is present before typing. `MonitorMetricsTab` is a plain
+        // `StatefulWidget`, so the framework's per-mount error clear never
+        // fires for the sheet it opens; without the explicit `clearErrors()`
+        // call in `_openCreate`, a failed save from THIS open would paint its
+        // errors on the NEXT one before the operator has typed anything.
+        await tester.binding.setSurfaceSize(const Size(1280, 2400));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        await tester.pumpWidget(
+          wrapRootTheme(const MonitorMetricsTab(monitorId: 'api')),
+        );
+        await tester.pump();
+
+        await tester.tap(find.text(trans('uptizm.monitors.metrics_add')));
+        await tester.pumpAndSettle();
+
+        // The default source (`json`) needs a non-empty extraction path
+        // before Save even reaches the write path at all (a shape check this
+        // form still owns, since magic ships no `required_if`); fill it so
+        // the blank Name/Key are what actually gets refused, and it is the
+        // CONTROLLER's required message this case is about.
+        final Finder pathField = find.widgetWithText(
+          MSInput,
+          kPathPlaceholder['json']!,
+        );
+        await tester.tap(pathField);
+        await tester.pumpAndSettle();
+        await tester.enterText(pathField, r'$.queue.depth');
+        await tester.pump();
+
+        await tester.tap(
+          find.widgetWithText(
+            MSButton,
+            trans('uptizm.monitors.metrics_form_save_create'),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('The Name field is required.'),
+          findsOneWidget,
+          reason: 'a blank Name must surface the controller\'s required '
+              'message inline',
+        );
+
+        // Close without fixing anything.
+        await tester.tap(find.text(trans('uptizm.common.cancel')));
+        await tester.pumpAndSettle();
+
+        // Reopen: the failed save from the previous mount must not paint
+        // before the operator has typed anything.
+        await tester.tap(find.text(trans('uptizm.monitors.metrics_add')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('The Name field is required.'),
+          findsNothing,
+          reason: 'reopening the modal must not paint the previous refusal',
+        );
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -715,7 +794,7 @@ void main() {
               // Hold the write open so the second tap lands mid-flight, which
               // is the only window the bug lived in.
               await inFlight.future;
-              return <String, String>{};
+              return true;
             },
             onPreview: (_) async => null,
             onCancel: () {},
@@ -753,7 +832,7 @@ void main() {
           MonitorMetricForm(
             initial: kEmptyMetricForm,
             isEdit: false,
-            onSave: (_) async => <String, String>{},
+            onSave: (_) async => true,
             onPreview: (_) async => null,
             onCancel: () {},
           ),
@@ -785,22 +864,33 @@ void main() {
     });
 
     testWidgets(
-      'tapping Save on a blank form paints inline required errors and does '
-      'not round-trip',
+      'tapping Save on a blank form paints the controller\'s required '
+      'message and does not reach the network',
       (tester) async {
+        // The form no longer owns a required check of its own: the rules live
+        // on MonitorMetricsController and the rejection is published in
+        // `validationErrors`, which the field reads through `getError('label'
+        // / 'key')`. So this asserts the FRAMEWORK's sentence, not a
+        // `form_name_error_required` string, mirroring
+        // `monitor_form_test.dart`'s equivalent case.
         await tester.binding.setSurfaceSize(const Size(600, 3000));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        bool submitted = false;
+        final FakeNetworkDriver fake = Http.fake();
         await tester.pumpWidget(
           wrapForm(
             MonitorMetricForm(
-              initial: kEmptyMetricForm,
+              // `source: 'http_status'` so the form's OWN required-path check
+              // (magic ships no `required_if`, so it stays client-side) does
+              // not block the submit before the controller's rules get a
+              // chance to; this test is about the CONTROLLER's required
+              // check, not the form's own.
+              initial: kEmptyMetricForm.copyWith(source: 'http_status'),
               isEdit: false,
-              onSave: (_) async {
-                submitted = true;
-                return <String, String>{};
-              },
+              onSave: (form) => MonitorMetricsController.instance.create(
+                'api',
+                form,
+              ),
               onPreview: (_) async => null,
               onCancel: () {},
             ),
@@ -814,23 +904,21 @@ void main() {
             trans('uptizm.monitors.metrics_form_save_create'),
           ),
         );
-        await tester.pump();
+        await tester.pumpAndSettle();
 
+        fake.assertNothingSent();
         expect(
-          submitted,
-          isFalse,
-          reason: 'A blank required form must never reach the write path',
+          MonitorMetricsController.instance.hasError('label'),
+          isTrue,
+          reason: 'A blank required Name must never reach the write path',
         );
+        expect(find.text('The Name field is required.'), findsOneWidget);
         expect(
-          find.text(trans('uptizm.monitors.form_name_error_required')),
-          findsOneWidget,
-          reason: 'The blank Name must surface its required error inline',
+          MonitorMetricsController.instance.hasError('key'),
+          isTrue,
+          reason: 'A blank required Key must never reach the write path',
         );
-        expect(
-          find.text(trans('uptizm.monitors.metrics_form_key_error_required')),
-          findsOneWidget,
-          reason: 'The blank Key must surface its required error inline',
-        );
+        expect(find.text('The Key field is required.'), findsOneWidget);
       },
     );
 
@@ -854,7 +942,7 @@ void main() {
               isEdit: false,
               onSave: (form) async {
                 submitted = form;
-                return <String, String>{};
+                return true;
               },
               onPreview: (_) async => null,
               onCancel: () {},
@@ -898,7 +986,7 @@ void main() {
             MonitorMetricForm(
               initial: statusForm,
               isEdit: false,
-              onSave: (_) async => <String, String>{},
+              onSave: (_) async => true,
               onPreview: (_) async => null,
               onCancel: () {},
             ),
@@ -940,6 +1028,14 @@ void main() {
     /// Pumps the form and returns the list Save writes the submitted draft
     /// into; it stays EMPTY when the client blocked the write, which is how the
     /// "no request sent" half of each rule is pinned.
+    ///
+    /// [serverErrors] is keyed by the ALREADY-COLLAPSED field name
+    /// (`ok_values`, not a dot-notation element key): the collapsing itself is
+    /// `MonitorMetricsController`'s own job and is proven in
+    /// `monitor_metrics_controller_test.dart`, so this stub publishes straight
+    /// onto [MonitorMetricsController.validationErrors] the way a real 422
+    /// would have landed there, and this widget test only proves the form
+    /// PAINTS from it.
     Future<List<MetricForm>> pumpForm(
       WidgetTester tester,
       MetricForm initial, {
@@ -956,7 +1052,12 @@ void main() {
             isEdit: false,
             onSave: (form) async {
               submitted.add(form);
-              return serverErrors;
+              if (serverErrors.isNotEmpty) {
+                MonitorMetricsController.instance.validationErrors =
+                    Map<String, String>.from(serverErrors);
+                MonitorMetricsController.instance.refreshUI();
+              }
+              return serverErrors.isEmpty;
             },
             onPreview: (_) async => null,
             onCancel: () {},
@@ -1154,15 +1255,17 @@ void main() {
     );
 
     testWidgets(
-      'a 422 on ok_values.1 paints an inline error on the healthy-values field',
+      'a controller-published ok_values error paints on the healthy-values field',
       (tester) async {
-        // The backend validates list ELEMENTS, so its key is dot-notation. The
-        // form renders one chip editor per list, so the element key has to
-        // collapse onto the list it belongs to or the message becomes a toast.
+        // The backend validates list ELEMENTS under a dot-notation key
+        // (`ok_values.1`); `MonitorMetricsController` collapses that onto the
+        // owning field before it ever reaches `validationErrors` (proven in
+        // `monitor_metrics_controller_test.dart`), so by the time this form
+        // reads it through `getError('ok_values')` it is already collapsed.
         final List<MetricForm> submitted = await pumpForm(
           tester,
           stringDraft().copyWith(okValues: ['ok', 'fine']),
-          serverErrors: const {'ok_values.1': 'This value is too long.'},
+          serverErrors: const {'ok_values': 'This value is too long.'},
         );
 
         await tapSave(tester);
@@ -1195,7 +1298,7 @@ void main() {
           MonitorMetricForm(
             initial: initial,
             isEdit: false,
-            onSave: (_) async => <String, String>{},
+            onSave: (_) async => true,
             onPreview: (_) async => null,
             onCandidates: onCandidates,
             onCancel: () {},
@@ -1313,7 +1416,7 @@ void main() {
                 unmatchedBand: 'critical',
               ),
               isEdit: false,
-              onSave: (_) async => <String, String>{},
+              onSave: (_) async => true,
               onPreview: (draft) =>
                   MonitorMetricsController.instance.preview('api', draft),
               onCancel: () {},
@@ -1393,7 +1496,7 @@ void main() {
             isEdit: false,
             onSave: (form) async {
               submitted.add(form);
-              return <String, String>{};
+              return true;
             },
             onPreview: (_) async => null,
             onCandidates: onCandidates,
@@ -1918,7 +2021,7 @@ void main() {
               path: r'$.data.latency_ms',
             ),
             isEdit: false,
-            onSave: (_) async => <String, String>{},
+            onSave: (_) async => true,
             onPreview: (_) async => answer,
             onCancel: () {},
           ),
@@ -2034,7 +2137,7 @@ void main() {
               path: r'$.data.latency_ms',
             ),
             isEdit: false,
-            onSave: (_) async => <String, String>{},
+            onSave: (_) async => true,
             onPreview: (_) async => null,
             onCancel: () {},
           ),

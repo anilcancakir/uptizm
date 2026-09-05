@@ -4,7 +4,11 @@ import 'package:magic_starter/magic_starter.dart';
 
 import 'monitor_metrics_support.dart';
 import '../../../app/controllers/monitor_metrics_controller.dart'
-    show MetricCandidate, MetricCandidateSet, MetricPreviewResult;
+    show
+        MetricCandidate,
+        MetricCandidateSet,
+        MetricPreviewResult,
+        MonitorMetricsController;
 import '../../../app/enums/status_key.dart';
 import '../../../app/support/submits_once.dart';
 import '../../../ui/components/ai_insight/index.dart';
@@ -63,7 +67,7 @@ enum MetricCandidateStatus {
 ///   context,
 ///   initial: kEmptyMetricForm,
 ///   isEdit: false,
-///   onSave: (form) => setState(() => metrics.add(form)),
+///   onSave: (form) => controller.create(monitorId, form),
 /// );
 /// ```
 ///
@@ -72,6 +76,15 @@ enum MetricCandidateStatus {
 /// hardcoded: every tone flows through semantic alias keys (the monitoring
 /// status families from `uptizm_status_tokens.dart` and the standard
 /// `DESIGN.md` roles).
+///
+/// Field validation is the framework's, not this widget's. The rules live on
+/// `MonitorMetricsController` (`_createRules` / `_updateRules`, mirrored off
+/// the backend's `StoreMonitorMetricRequest`), a refusal is published in
+/// `validationErrors`, and every `error:` slot below reads it back through
+/// `getError`. Two checks stay here because magic ships no rule that can state
+/// them: the source-dependent required extraction path (a `required_if`) and
+/// the string-band block's two cross-field rules (no value in two lists; an
+/// unmatched band needs a non-empty list).
 class MonitorMetricForm extends StatefulWidget {
   /// The initial form values (an empty form for create, a seeded form for
   /// edit).
@@ -81,16 +94,16 @@ class MonitorMetricForm extends StatefulWidget {
   /// Save label).
   final bool isEdit;
 
-  /// Called with the form when the user taps Save (once the client-side
-  /// required checks pass).
+  /// Called with the form when the user taps Save (once the client-side shape
+  /// checks this form still owns pass).
   ///
-  /// Returns the backend field errors keyed by the wire field name the write
-  /// posts (`label`, `key`, `extraction_path`, `warn_bound`,
-  /// `critical_bound`, ...), single message per field, so a server 422 renders
-  /// inline under the matching field. An empty map means success (the sheet has
-  /// already been closed by [show]). Any returned key the form does not own is
-  /// surfaced as a generic failure toast.
-  final Future<Map<String, String>> Function(MetricForm form) onSave;
+  /// Answers whether the metric was WRITTEN, and nothing more: the per-field
+  /// detail of a refusal lives on [MonitorMetricsController.validationErrors],
+  /// which every field slot below reads through `getError`. So `false` means
+  /// "stay open", and whether the operator has already been told why is
+  /// answered by whether those errors are populated (see
+  /// [MonitorMetricsController.create]).
+  final Future<bool> Function(MetricForm form) onSave;
 
   /// Called when the user taps "Fetch & test": applies the draft rule to the
   /// monitor's most recent check and returns what the backend actually
@@ -136,7 +149,7 @@ class MonitorMetricForm extends StatefulWidget {
     BuildContext context, {
     required MetricForm initial,
     required bool isEdit,
-    required Future<Map<String, String>> Function(MetricForm form) onSave,
+    required Future<bool> Function(MetricForm form) onSave,
     required Future<MetricPreviewResult?> Function(MetricForm form) onPreview,
     Future<MetricCandidateSet?> Function()? onCandidates,
   }) {
@@ -149,16 +162,16 @@ class MonitorMetricForm extends StatefulWidget {
         builder: (sheetContext) => MonitorMetricForm(
           initial: initial,
           isEdit: isEdit,
-          // The sheet closes only on a successful write (an empty error map),
-          // mirroring the monitor form's "navigate only on success"; a server
-          // 422 hands its field errors back so the form keeps the sheet open
-          // and paints them inline.
+          // The sheet closes only on a successful write, mirroring the monitor
+          // form's "navigate only on success"; a server 422 leaves the sheet
+          // open with its errors published on the controller for the field
+          // slots below to paint.
           onSave: (form) async {
-            final Map<String, String> errors = await onSave(form);
-            if (errors.isEmpty && sheetContext.mounted) {
+            final bool written = await onSave(form);
+            if (written && sheetContext.mounted) {
               Navigator.of(sheetContext).pop();
             }
-            return errors;
+            return written;
           },
           onPreview: onPreview,
           onCandidates: onCandidates,
@@ -174,6 +187,17 @@ class MonitorMetricForm extends StatefulWidget {
 
 class _MonitorMetricFormState extends State<MonitorMetricForm>
     with SubmitsOnce<MonitorMetricForm> {
+  /// The controller that owns this form's validation errors.
+  ///
+  /// Resolved from the container rather than passed in, the same way
+  /// `monitor_form.dart`'s `_monitor` is: it is the one
+  /// [MonitorMetricsController] the create and edit call sites already back
+  /// onto, so the rules it checked the payload against and the messages this
+  /// form paints are the same object's state. Every error slot below reads it
+  /// through `getError`, and the field stack is wrapped in a
+  /// [ListenableBuilder] on it so a refusal repaints.
+  final MonitorMetricsController _controller = MonitorMetricsController.instance;
+
   /// The live, string-backed form model. Mutated through [_set] / [_onLabel] /
   /// [_onKey] so every edit also resets [_testStatus] to idle (matching the
   /// React `set` patch behavior).
@@ -183,48 +207,29 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
   /// Key stops auto-following the Name slug (React `keyEdited`).
   late bool _keyEdited;
 
-  /// Inline validation error for the Name field, or null when it is valid.
-  ///
-  /// Set on submit when the required Name is blank (a check the client can make
-  /// before any round trip), and by a server 422 that rejects `label`. Cleared
-  /// when the user edits the field.
-  String? _labelError;
-
-  /// Inline validation error for the Key field, or null when it is valid.
-  ///
-  /// Set on submit when the required Key is blank or malformed, and by a server
-  /// 422 that rejects `key` (e.g. the per-monitor uniqueness rule). Cleared when
-  /// the user edits the field; while null, the live slug-format check
-  /// ([_keyValid]) still surfaces a malformed key as the user types.
-  String? _keyError;
-
   /// Inline validation error for the extraction-path field, or null when it is
-  /// valid. Set on submit when a path is required (the source needs one) but
-  /// blank, and by a server 422 that rejects `extraction_path`. Cleared when the
-  /// user edits the field.
+  /// valid.
+  ///
+  /// The one field-level check that did not move to [_controller], because
+  /// whether a path is required at all depends on the sibling `source` field
+  /// (magic ships no `required_if`), and the backend's own rule
+  /// (`extraction_path`: `nullable`) does not enforce it either: it is purely
+  /// this form's own business rule. Set on submit when the source needs a path
+  /// but it is blank, cleared when the user edits the field.
   String? _pathError;
 
-  /// Inline validation error for the Warn threshold field, set only by a server
-  /// 422 that rejects `warn_bound`. Cleared when the user edits the field.
-  String? _warnError;
-
-  /// Inline validation error for the Critical threshold field, set only by a
-  /// server 422 that rejects `critical_bound`. Cleared when the user edits the
-  /// field.
-  String? _criticalError;
-
-  /// Inline validation errors for the three string-band value lists, set by the
-  /// client-side overlap check and by a server 422 on `ok_values` /
-  /// `warn_values` / `critical_values` (including its dot-notation element
-  /// keys). Cleared whenever ANY of the four string-band fields changes, because
-  /// both cross-field rules read all four.
+  /// Inline validation errors for the three string-band value lists, set by
+  /// the client-side overlap check (`_stringBandErrors`). Neither cross-field
+  /// rule (no value in two lists; an unmatched band needs a non-empty list) is
+  /// a single-field rule magic can state, so both stay here, on the same
+  /// footing as `monitor_form.dart`'s credential-block check. Merged at
+  /// display time with [_controller]'s own message for the field (e.g. a
+  /// server-side duplicate-value rejection this form's check does not catch).
+  /// Cleared whenever ANY of the four string-band fields changes, because both
+  /// cross-field rules read all four.
   String? _okValuesError;
   String? _warnValuesError;
   String? _criticalValuesError;
-
-  /// Inline validation error for the unmatched-band select, set when a band is
-  /// chosen with no list to match against and by a server 422 on
-  /// `unmatched_band`.
   String? _unmatchedBandError;
 
   /// The extraction-test lifecycle.
@@ -291,14 +296,14 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
   /// Updates the Name and, while the Key has not been manually edited, mirrors
   /// the slugified Name into the Key field (React `onLabel`).
   void _onLabel(String value) {
+    _controller.clearFieldError('label');
+    // A server key error no longer applies once the auto-slug follows a fresh
+    // Name.
+    if (!_keyEdited) _controller.clearFieldError('key');
     setState(() {
       final String nextKey = _keyEdited ? _form.key : slugify(value);
       _form = _form.copyWith(label: value, key: nextKey);
       _testStatus = MetricTestStatus.idle;
-      _labelError = null;
-      // A blank/server key error no longer applies once the auto-slug follows a
-      // fresh Name.
-      if (!_keyEdited) _keyError = null;
       if (!_keyEdited && _keyController.text != nextKey) {
         _keyController.text = nextKey;
       }
@@ -307,11 +312,11 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
 
   /// Marks the Key as manually edited and stores the raw value (React `onKey`).
   void _onKey(String value) {
+    _controller.clearFieldError('key');
     setState(() {
       _keyEdited = true;
       _form = _form.copyWith(key: value);
       _testStatus = MetricTestStatus.idle;
-      _keyError = null;
     });
   }
 
@@ -322,10 +327,8 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
     final String critical = suggCrit.toString();
     _warnController.text = warn;
     _criticalController.text = critical;
-    setState(() {
-      _warnError = null;
-      _criticalError = null;
-    });
+    _controller.clearFieldError('warn_bound');
+    _controller.clearFieldError('critical_bound');
     _set(_form.copyWith(warn: warn, critical: critical));
   }
 
@@ -351,17 +354,22 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
     });
   }
 
-  /// Clears every string-band error slot.
+  /// Clears every string-band error slot, both the client-side ones held
+  /// locally and whatever [_controller] is holding for the same four fields.
   ///
-  /// One helper rather than four, because both cross-field rules read all four
-  /// fields: an edit to any one of them invalidates a verdict painted on any
-  /// other, so keeping a stale one visible would point the operator at the wrong
-  /// field.
+  /// One helper rather than eight separate clears, because both cross-field
+  /// rules read all four fields: an edit to any one of them invalidates a
+  /// verdict painted on any other, so keeping a stale one visible would point
+  /// the operator at the wrong field.
   void _clearStringBandErrors() {
     _okValuesError = null;
     _warnValuesError = null;
     _criticalValuesError = null;
     _unmatchedBandError = null;
+    _controller.clearFieldError('ok_values');
+    _controller.clearFieldError('warn_values');
+    _controller.clearFieldError('critical_values');
+    _controller.clearFieldError('unmatched_band');
   }
 
   /// Applies an edit that invalidates the string-band verdict (one of the four
@@ -459,11 +467,13 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
 
   bool get _keyValid => _form.key.isEmpty || kKeyRe.hasMatch(_form.key);
 
-  /// The error rendered under the Key field: the submit/server error slot
-  /// ([_keyError]) takes precedence, falling back to the live slug-format check
-  /// so a malformed key still surfaces as the user types.
+  /// The error rendered under the Key field: [_controller]'s message (required
+  /// or a server rejection, e.g. the per-monitor uniqueness rule) takes
+  /// precedence, falling back to the live slug-format check so a malformed key
+  /// still surfaces as the user types even before a submit.
   String? get _keyFieldError {
-    if (_keyError != null) return _keyError;
+    final String? controllerError = _controller.getError('key');
+    if (controllerError != null) return controllerError;
     return _keyValid ? null : trans('uptizm.monitors.metrics_form_key_error');
   }
 
@@ -540,46 +550,59 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
     return WDiv(
       className: 'flex flex-col gap-4',
       children: [
-        // 1. Name + Key text fields (Key auto-slugifies from Name).
-        _buildNameField(),
-        _buildKeyField(),
+        // Wrapped in a ListenableBuilder on [_controller] because that is
+        // where the field errors live now: `validate()` and a server 422 both
+        // publish into `validationErrors` and notify, and without a listener
+        // the refusal would be recorded and never painted.
+        ListenableBuilder(
+          listenable: _controller,
+          builder: (BuildContext context, Widget? _) => WDiv(
+            className: 'flex flex-col gap-4',
+            children: [
+              // 1. Name + Key text fields (Key auto-slugifies from Name).
+              _buildNameField(),
+              _buildKeyField(),
 
-        // 2. Type segmented control.
-        MSFormField(
-          label: trans('uptizm.monitors.metrics_form_type_label'),
-          child: _buildTypeControl(),
-        ),
+              // 2. Type segmented control.
+              MSFormField(
+                label: trans('uptizm.monitors.metrics_form_type_label'),
+                child: _buildTypeControl(),
+              ),
 
-        // 3. Source + Unit selects (Unit numeric-only, 2-col responsive).
-        _buildSourceUnitRow(),
+              // 3. Source + Unit selects (Unit numeric-only, 2-col responsive).
+              _buildSourceUnitRow(),
 
-        // 4. Extraction path (hidden for http_status).
-        if (_needsPath) _buildPathField(),
+              // 4. Extraction path (hidden for http_status).
+              if (_needsPath) _buildPathField(),
 
-        // 5. Numeric-only block: direction, thresholds, AI suggestion.
-        if (_isNumeric) ...[
-          MSFormField(
-            label: trans('uptizm.monitors.metrics_form_direction_label'),
-            child: _buildDirectionControl(),
+              // 5. Numeric-only block: direction, thresholds, AI suggestion.
+              if (_isNumeric) ...[
+                MSFormField(
+                  label: trans('uptizm.monitors.metrics_form_direction_label'),
+                  child: _buildDirectionControl(),
+                ),
+                _buildThresholdRow(),
+                // Null until a test has measured a real value, so no baseline
+                // is claimed before one exists.
+                ?_buildAiInsight(),
+              ],
+
+              // 6. String-only block: the three value lists plus the
+              //    unmatched band. A sibling of the numeric block above,
+              //    never a companion to it: the two band the same reading by
+              //    different means, and a metric is one type at a time.
+              if (_isString) _buildStringBandBlock(),
+
+              // 7. Candidate browser, only when the sheet's opener wired a
+              //    source for it (it owns the monitor id; see
+              //    [MonitorMetricForm.onCandidates]).
+              if (widget.onCandidates != null) _buildCandidatePanel(),
+
+              // 8. Test extraction panel (when the rule is ready).
+              if (_ruleReady) _buildTestPanel(),
+            ],
           ),
-          _buildThresholdRow(),
-          // Null until a test has measured a real value, so no baseline is
-          // claimed before one exists.
-          ?_buildAiInsight(),
-        ],
-
-        // 6. String-only block: the three value lists plus the unmatched band.
-        //    A sibling of the numeric block above, never a companion to it: the
-        //    two band the same reading by different means, and a metric is one
-        //    type at a time.
-        if (_isString) _buildStringBandBlock(),
-
-        // 7. Candidate browser, only when the sheet's opener wired a source for
-        //    it (it owns the monitor id; see [MonitorMetricForm.onCandidates]).
-        if (widget.onCandidates != null) _buildCandidatePanel(),
-
-        // 8. Test extraction panel (when the rule is ready).
-        if (_ruleReady) _buildTestPanel(),
+        ),
 
         // 9. Footer: Cancel + Save.
         _buildFooter(),
@@ -591,7 +614,7 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
   Widget _buildNameField() {
     return MSFormField(
       label: trans('uptizm.monitors.metrics_form_name_label'),
-      error: _labelError,
+      error: _controller.getError('label'),
       child: MSInput(
         value: _form.label,
         onChanged: _onLabel,
@@ -681,11 +704,12 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
     return MSFormField(
       label: trans('uptizm.monitors.metrics_form_extraction_label'),
       hint: kPathHint[_form.source],
-      error: _pathError,
+      error: _pathError ?? _controller.getError('extraction_path'),
       child: MSInput(
         value: _form.path,
         onChanged: (value) {
           _pathError = null;
+          _controller.clearFieldError('extraction_path');
           _set(_form.copyWith(path: value));
         },
         placeholder: kPathPlaceholder[_form.source] ?? '',
@@ -712,11 +736,11 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
       children: [
         MSFormField(
           label: trans('uptizm.monitors.metrics_form_warn_label'),
-          error: _warnError,
+          error: _controller.getError('warn_bound'),
           child: MSInput(
             controller: _warnController,
             onChanged: (value) {
-              _warnError = null;
+              _controller.clearFieldError('warn_bound');
               _set(_form.copyWith(warn: value));
             },
             placeholder: '80',
@@ -725,11 +749,11 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
         ),
         MSFormField(
           label: trans('uptizm.monitors.metrics_form_critical_label'),
-          error: _criticalError,
+          error: _controller.getError('critical_bound'),
           child: MSInput(
             controller: _criticalController,
             onChanged: (value) {
-              _criticalError = null;
+              _controller.clearFieldError('critical_bound');
               _set(_form.copyWith(critical: value));
             },
             placeholder: '95',
@@ -796,7 +820,7 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
         ),
         MSFormField(
           label: trans('uptizm.monitors.metrics_form_ok_values_label'),
-          error: _okValuesError,
+          error: _okValuesError ?? _controller.getError('ok_values'),
           child: StringValueList(
             value: _form.okValues,
             onChanged: (List<String> next) =>
@@ -808,7 +832,7 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
         ),
         MSFormField(
           label: trans('uptizm.monitors.metrics_form_warn_values_label'),
-          error: _warnValuesError,
+          error: _warnValuesError ?? _controller.getError('warn_values'),
           child: StringValueList(
             value: _form.warnValues,
             onChanged: (List<String> next) =>
@@ -821,7 +845,7 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
         ),
         MSFormField(
           label: trans('uptizm.monitors.metrics_form_critical_values_label'),
-          error: _criticalValuesError,
+          error: _criticalValuesError ?? _controller.getError('critical_values'),
           child: StringValueList(
             value: _form.criticalValues,
             onChanged: (List<String> next) =>
@@ -835,7 +859,7 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
         MSFormField(
           label: trans('uptizm.monitors.metrics_form_unmatched_band_label'),
           hint: trans('uptizm.monitors.metrics_form_unmatched_band_help'),
-          error: _unmatchedBandError,
+          error: _unmatchedBandError ?? _controller.getError('unmatched_band'),
           child: MSSelect<String>(
             value: _form.unmatchedBand,
             options: _unmatchedBandOptions(),
@@ -1248,56 +1272,57 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
   // Submit + validation.
   // ---------------------------------------------------------------------------
 
-  /// Validates every client-side required field, then hands the form to
-  /// [MonitorMetricForm.onSave] and routes any server 422 back into the inline
-  /// error slots.
+  /// The wire fields this form renders a dedicated error slot for. Used by
+  /// [_revealRefusedFields] to tell a rejection this form already painted
+  /// apart from one it owns no slot for.
+  static const Set<String> _ownedFields = <String>{
+    'label',
+    'key',
+    'extraction_path',
+    'warn_bound',
+    'critical_bound',
+    'ok_values',
+    'warn_values',
+    'critical_values',
+    'unmatched_band',
+  };
+
+  /// Runs the two shape checks this form still owns, then hands the form to
+  /// [MonitorMetricForm.onSave].
   ///
-  /// The client checks the required Name, the required + well-formed Key, and
-  /// (when the source needs one) the required extraction path up front so those
-  /// rejections surface inline WITHOUT a round trip. Only when they pass does it
-  /// await [MonitorMetricForm.onSave]; an empty result means success ([show] has
-  /// already closed the sheet), a non-empty result (a server 422) is a
-  /// field-error map keyed by the posted wire field names, which
-  /// [_applyServerErrors] paints under the matching fields. A returned key the
-  /// form owns no slot for is surfaced as the generic save-failed toast.
+  /// Everything a magic [Rule] can state (the required Name, the required Key,
+  /// their lengths, the enum fields) now lives on [MonitorMetricsController]
+  /// and is read back through `getError`, so a rejection there needs no
+  /// routing here. What is left is what magic has no rule for: the
+  /// SOURCE-dependent required extraction path (a `required_if` magic does not
+  /// ship) and the string-band block's two cross-field rules (no value in two
+  /// lists; an unmatched band needs a non-empty list). Both are answers the
+  /// client already knows, so they still run first and still stop the request.
+  ///
+  /// After a refused write there is exactly one thing left to do that the error
+  /// slots cannot do themselves: toast whatever this form owns no slot for
+  /// (see [_revealRefusedFields]).
   Future<void> _submitIfValid() async {
-    if (!_validateClientSide()) return;
+    if (!_checkClientSideShape()) return;
 
-    final Map<String, String> serverErrors = await widget.onSave(_form);
-    if (!mounted || serverErrors.isEmpty) return;
+    final bool written = await widget.onSave(_form);
+    if (!mounted || written) return;
 
-    final Map<String, String> unmapped = _applyServerErrors(serverErrors);
-    if (unmapped.isNotEmpty) {
-      Magic.error(
-        trans('uptizm.monitors.toast_save_failed_title'),
-        unmapped.values.first,
-      );
-    }
+    _revealRefusedFields();
   }
 
-  /// Runs every client-side required check, painting each field's inline error
-  /// slot, and returns whether the form may be submitted.
+  /// Runs the two shape checks this form still owns, painting their slots, and
+  /// returns whether the form may be submitted.
   ///
-  /// Checks the required Name, the required + well-formed Key, and the required
-  /// extraction path (only when the source needs one, mirroring [_ruleReady]);
-  /// all three are checks the client can make before any round trip. For a
-  /// `string` metric it also runs the two cross-field string-band rules the
-  /// server enforces, so the operator learns about a collision here rather than
-  /// through a 422. Every slot is always written (a passing check clears its
-  /// slot) so a previously shown error never lingers after a corrected resubmit.
-  bool _validateClientSide() {
-    final String? labelError = _form.label.trim().isEmpty
-        ? trans('uptizm.monitors.form_name_error_required')
-        : null;
-    final String? keyError = _keyRequiredError();
+  /// Both slots are always written (a passing check clears its slot) so a
+  /// previously shown error never lingers after a corrected resubmit.
+  bool _checkClientSideShape() {
     final String? pathError = _needsPath && _form.path.trim().isEmpty
         ? trans('uptizm.monitors.metrics_form_path_error_required')
         : null;
     final Map<String, String> bandErrors = _stringBandErrors();
 
     setState(() {
-      _labelError = labelError;
-      _keyError = keyError;
       _pathError = pathError;
       _okValuesError = bandErrors['ok_values'];
       _warnValuesError = bandErrors['warn_values'];
@@ -1305,10 +1330,26 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
       _unmatchedBandError = bandErrors['unmatched_band'];
     });
 
-    return labelError == null &&
-        keyError == null &&
-        pathError == null &&
-        bandErrors.isEmpty;
+    return pathError == null && bandErrors.isEmpty;
+  }
+
+  /// Toasts a refused write's detail that no field slot on this form covers.
+  ///
+  /// Reads [_controller] rather than a returned map, because that is where the
+  /// detail lives now. An EMPTY error map here means the failure was not a
+  /// per-field one (a transport error or a 500), and the controller has
+  /// already surfaced its own toast for it, so this deliberately says nothing.
+  void _revealRefusedFields() {
+    final Iterable<MapEntry<String, String>> unmapped = _controller
+        .validationErrors.entries
+        .where((MapEntry<String, String> entry) =>
+            !_ownedFields.contains(entry.key));
+    if (unmapped.isEmpty) return;
+
+    Magic.error(
+      trans('uptizm.monitors.toast_save_failed_title'),
+      unmapped.first.value,
+    );
   }
 
   /// The two cross-field string-band rules, keyed by the wire field each one
@@ -1366,61 +1407,6 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
     }
 
     return errors;
-  }
-
-  /// Resolves the client-side Key error: the required message when blank, the
-  /// slug-format message when malformed, or null when valid.
-  String? _keyRequiredError() {
-    if (_form.key.trim().isEmpty) {
-      return trans('uptizm.monitors.metrics_form_key_error_required');
-    }
-    if (!kKeyRe.hasMatch(_form.key)) {
-      return trans('uptizm.monitors.metrics_form_key_error');
-    }
-    return null;
-  }
-
-  /// Routes a backend 422 field-error map (keyed by the wire field names the
-  /// write posts) into the inline error slots, returning the entries that map
-  /// to no known field so the caller can surface them another way.
-  ///
-  /// The key is read up to its first dot. Laravel reports a list-element failure
-  /// under a dot-notation key (`ok_values.1`), and the form renders ONE chip
-  /// editor per list rather than one field per element, so an element key has
-  /// nowhere else to land. `MonitorMetricsController` already collapses these on
-  /// the way through; doing it here too keeps the form correct for any caller
-  /// that hands one over raw, and no wire field this form owns contains a dot,
-  /// so the split is a no-op for every other key. An unmapped entry keeps its
-  /// ORIGINAL key so the toast still names what the server actually rejected.
-  Map<String, String> _applyServerErrors(Map<String, String> errors) {
-    final Map<String, String> unmapped = {};
-    setState(() {
-      for (final MapEntry<String, String> entry in errors.entries) {
-        switch (entry.key.split('.').first) {
-          case 'label':
-            _labelError = entry.value;
-          case 'key':
-            _keyError = entry.value;
-          case 'extraction_path':
-            _pathError = entry.value;
-          case 'warn_bound':
-            _warnError = entry.value;
-          case 'critical_bound':
-            _criticalError = entry.value;
-          case 'ok_values':
-            _okValuesError = entry.value;
-          case 'warn_values':
-            _warnValuesError = entry.value;
-          case 'critical_values':
-            _criticalValuesError = entry.value;
-          case 'unmatched_band':
-            _unmatchedBandError = entry.value;
-          default:
-            unmapped[entry.key] = entry.value;
-        }
-      }
-    });
-    return unmapped;
   }
 
   // ---------------------------------------------------------------------------

@@ -34,7 +34,7 @@ Measured, so match these rather than the framework's general advice or a sibling
 - **Routes are registered in a provider's `register()`, never in `boot()`.** The router pre-builds during `Magic.init()`, before any `boot()` runs, so a route added there is registered after the thing that reads it.
 - `Auth.restore()` after any state-changing call that touches the user or the team; the starter's contract depends on it.
 
-Three shapes magic offers that this app does NOT use, so do not assume them from the skill: `ValidatesRequests`, `fill(validated, strict: true)`, and `renderState` / `MagicBuilder`. Reaching for one is a deliberate new pattern rather than a correction; say so if you do.
+Write paths validate through `ValidatesRequests` with `fill(validated, strict: true)`: eight of the eleven controllers mix it in, and six fills are strict. The three that do not (`assistant`, `dashboard`, `entitlement`) have no create or update form: two are read-only and the third takes a single free-text prompt with no `FormRequest` to mirror. The one shape magic offers that this app does NOT use is `renderState` / `MagicBuilder`. Reaching for one is a deliberate new pattern rather than a correction; say so if you do.
 
 ## Framework idioms that bite
 
@@ -42,7 +42,7 @@ Three shapes magic offers that this app does NOT use, so do not assume them from
 - One cache written by both a list endpoint and a detail endpoint loses the detail-only fields on every list refetch. If a field appears only in `show`, do not let `index` overwrite the same cached model.
 - Models are cast from nested maps, not lazy-loaded relations, and there is no eager loading. A relation is present because the API sent it.
 - Where a Dart enum mirrors a backend one, decode through its `*FromWire()` helper so a backend that ships a new case does not crash an older client. The mirror is partial and renamed: `MonitorStatus` is `StatusKey`, `IncidentStatus` is `IncidentLifecycle`, and `MonitorType`, `HttpMethod` and `MonitorRegion` have no Dart enum at all, so they travel as bare strings. Those are the fields where a typo reaches the backend and comes back a silent 422; validate them against the backend's set rather than trusting a call site.
-- Write paths are validated twice: client-side `required` before the request, and the server's 422 field errors mapped back onto the form. `lib/app/controllers/monitor_controller.dart` plus the monitor form is the reference implementation.
+- Write paths validate through two phases: client-side with `validate(fields, rules)` called from the submit handler only (rules declared per vertical as private getters like `_createRules`), and server-side 422 errors mapped back through `lib/app/support/field_errors.dart`. Views read errors via the controller's `getError` and `hasError`, clearing with `clearFieldError` in `onChanged`. `Unique` is banned because the synchronous `validate()` skips async rules silently. `lib/app/controllers/monitor_controller.dart` plus the monitor form is the reference implementation.
 - A write that silently does nothing is usually a missing field in one of two lists: the Laravel `FormRequest` `rules()`, or the magic model's `fillable`. Check both before debugging further up.
 - Flutter web ignores `fsa reload`: it reports success and applies nothing. Hot-restart instead.
 

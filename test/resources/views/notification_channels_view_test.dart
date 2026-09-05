@@ -24,6 +24,17 @@ class _NotificationChannelsLangLoader implements TranslationLoader {
     return {
       'validation.required': 'The :attribute field is required.',
       'common.error_occurred': 'An unexpected error occurred.',
+      // `Validator._humanizeAttribute` looks up `attributes.<key>` before
+      // falling back to a humanized raw key; these are the wave review's
+      // added catalogue entries (verbatim `assets/lang/en.json` copy) so a
+      // namespaced rule key like `slack.credentials.token` reads as its
+      // real field label rather than the raw wire key.
+      'attributes.slack.credentials.token': 'Bot token',
+      'attributes.slack.credentials.channel': 'Channel',
+      'attributes.webhook.credentials.url': 'Endpoint URL',
+      'attributes.webhook.credentials.secret': 'Signing secret',
+      'attributes.pagerduty.credentials.routing_key': 'Routing key',
+      'attributes.teams.credentials.url': 'Incoming webhook URL',
       'notifications.channel_push_unconfigured': 'Push not yet configured',
       'uptizm.enums.channel_type.slack': 'Slack',
       'uptizm.enums.channel_type.webhook': 'Webhook',
@@ -63,6 +74,8 @@ class _NotificationChannelsLangLoader implements TranslationLoader {
       'uptizm.teams.channels_slack_token_label': 'Bot token',
       'uptizm.teams.channels_slack_token_placeholder': 'xoxb-...',
       'uptizm.teams.channels_webhook_url_placeholder': 'https://...',
+      // Backs the view's own URL-shape check (magic ships no `Url` rule).
+      'uptizm.teams.channels_url_invalid': 'Enter a full URL including https://',
     };
   }
 }
@@ -209,7 +222,13 @@ void main() {
       await tester.tap(find.text('Save').first);
       await tester.pump();
 
-      expect(find.text('The Bot token field is required.'), findsOneWidget);
+      // `magic`'s Validator humanizes an attribute through
+      // `attributes.<key>`, which now resolves `slack.credentials.token` to
+      // its real field label rather than rendering the raw wire key.
+      expect(
+        find.text('The Bot token field is required.'),
+        findsOneWidget,
+      );
       expect(fake.recorded.any((entry) => entry.$1.method == 'POST'), isFalse);
     },
   );
@@ -324,6 +343,73 @@ void main() {
       expect(
         find.text('The Endpoint URL field is required.'),
         findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets(
+    'an invalid Teams URL paints only the Teams URL field, never the '
+    'webhook one',
+    (tester) async {
+      // The regression this pins: `credentials.url` is the wire key for
+      // BOTH the webhook and Teams card, so an unnamespaced implementation
+      // cannot say which card's error a failure belongs to. magic ships no
+      // `Url` rule, so an invalid (non-empty, wrong-scheme) URL is refused by
+      // the view's own `_isValidWebhookUrl` shape check rather than by a
+      // magic `Rule`.
+      await tester.binding.setSurfaceSize(const Size(1280, 4000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final FakeNetworkDriver fake = Http.fake();
+
+      await tester.pumpWidget(wrap(const NotificationChannelsView()));
+      await tester.pump();
+
+      // Connect buttons render in _types order: slack, webhook, pagerduty,
+      // teams. Index 3 is Teams.
+      await tester.tap(find.text('Connect').at(3));
+      await tester.pump();
+      await tester.enterText(
+        find.byType(EditableText).first,
+        'not-a-valid-url',
+      );
+      await tester.pump();
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+
+      expect(
+        find.descendant(
+          of: find.byWidgetPredicate(
+            (widget) =>
+                widget is MSFormField &&
+                widget.label == 'Incoming webhook URL',
+          ),
+          matching: find.text('Enter a full URL including https://'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        fake.recorded.any((entry) => entry.$1.method == 'POST'),
+        isFalse,
+        reason: 'a request the backend will certainly reject is not worth '
+            'making',
+      );
+
+      // Expanding the webhook card must show no error under ITS url field:
+      // an unnamespaced `credentials.url` key would bleed the Teams error
+      // into this one.
+      await tester.tap(find.text('Connect').at(1));
+      await tester.pump();
+
+      expect(
+        find.descendant(
+          of: find.byWidgetPredicate(
+            (widget) =>
+                widget is MSFormField && widget.label == 'Endpoint URL',
+          ),
+          matching: find.text('Enter a full URL including https://'),
+        ),
+        findsNothing,
       );
     },
   );

@@ -33,6 +33,20 @@ import '../../../app/enums/channel_type.dart' show ChannelType;
 /// credential inputs always start blank: leaving them blank on Save keeps the
 /// existing stored credential, typing a fresh value replaces it.
 ///
+/// **Two exceptions to the app's usual client-validation shape, both
+/// forced.** First, `credentials.token`/`.url`/`.secret`/`.routing_key` are
+/// each required only for ONE [ChannelType] on the backend
+/// (`required_if:channel_type,...`, which magic has no equivalent of), so
+/// [_NotificationChannelsViewState._rulesFor] is a per-type SWITCH rather
+/// than a flat rule map — kept here, in the caller, rather than moved onto
+/// [NotificationChannelController]: a new [ChannelType] with no arm is a
+/// compile error, never a silently-unvalidated channel. Second, this screen
+/// holds one [_ChannelDraft] PER type expanded at once and `credentials.url`
+/// is the wire key for BOTH the webhook and Teams card, so every validation
+/// key — client or server — is namespaced `<type>.<wire_key>` (e.g.
+/// `teams.credentials.url`) at the point it is written, and each
+/// [MSFormField] below reads only its own type's prefix.
+///
 /// ### Example
 /// ```dart
 /// MagicRoute.page(
@@ -81,22 +95,6 @@ class _ChannelDraft {
 
   /// Severity pick before the first connect. `'all'` or `'critical'`.
   String severity = 'all';
-
-  /// Inline validation error for the Slack token field, or `null`.
-  String? tokenError;
-
-  /// Inline validation error for the webhook / Teams URL field, or `null`.
-  String? urlError;
-
-  /// Inline validation error for the PagerDuty routing key field, or `null`.
-  String? routingKeyError;
-
-  /// Inline error for the webhook signing secret.
-  ///
-  /// Its absence is what made a failed webhook connect invisible: the backend
-  /// requires this field, answered 422 keyed `credentials.secret`, and the form
-  /// had no slot to paint it into.
-  String? secretError;
 }
 
 class _NotificationChannelsViewState extends State<NotificationChannelsView> {
@@ -425,8 +423,12 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
   /// Flips [record]'s enabled state via `PUT .../:id` (no credentials in the
   /// payload, so the stored credential is untouched). Fire-and-forget: the
   /// controller's own reload rebuilds this view through the [ListenableBuilder].
+  ///
+  /// Passes [record.type] explicitly: this payload carries no `channel_type`
+  /// key, and the controller no longer derives the type from the payload (see
+  /// [NotificationChannelController.update]'s docblock).
   void _setEnabled(NotificationChannelRecord record, bool value) {
-    NotificationChannelController.instance.update(record.id, {
+    NotificationChannelController.instance.update(record.id, record.type, {
       'is_enabled': value,
     });
   }
@@ -452,17 +454,29 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
   /// Resolves the type-conditional credential fields for [type], one arm per
   /// channel shape (Slack: bot token + channel; webhook: URL + secret;
   /// PagerDuty: routing key; Teams: Workflows webhook URL).
+  ///
+  /// Every `error:` reads [NotificationChannelController.getError] under this
+  /// type's namespaced key (`<type>.credentials.<field>`), never a local
+  /// `_ChannelDraft` field: both the controller's client-side `validate()`
+  /// (required/length) and a server 422 publish into the SAME namespaced
+  /// [NotificationChannelController.validationErrors], so one read serves
+  /// both. Each `onChanged` clears only that field's own namespaced key via
+  /// [NotificationChannelController.clearFieldError].
   List<Widget> _buildTypeFields(ChannelType type, _ChannelDraft draft) {
+    final NotificationChannelController controller =
+        NotificationChannelController.instance;
+    final String prefix = type.name;
+
     return switch (type) {
       ChannelType.slack => [
         MSFormField(
           label: trans('uptizm.teams.channels_slack_token_label'),
-          error: draft.tokenError,
+          error: controller.getError('$prefix.credentials.token'),
           child: MSInput(
             value: draft.token,
             onChanged: (String value) => setState(() {
               draft.token = value;
-              draft.tokenError = null;
+              controller.clearFieldError('$prefix.credentials.token');
             }),
             type: InputType.password,
             // The Slack token prefix itself, identical in every locale.
@@ -471,9 +485,13 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
         ),
         MSFormField(
           label: trans('uptizm.teams.channels_slack_channel_label'),
+          error: controller.getError('$prefix.credentials.channel'),
           child: MSInput(
             value: draft.channel,
-            onChanged: (String value) => setState(() => draft.channel = value),
+            onChanged: (String value) => setState(() {
+              draft.channel = value;
+              controller.clearFieldError('$prefix.credentials.channel');
+            }),
             placeholder: trans('uptizm.teams.channels_slack_channel_placeholder'),
           ),
         ),
@@ -481,12 +499,12 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
       ChannelType.webhook => [
         MSFormField(
           label: trans('uptizm.teams.channels_webhook_url_label'),
-          error: draft.urlError,
+          error: controller.getError('$prefix.credentials.url'),
           child: MSInput(
             value: draft.url,
             onChanged: (String value) => setState(() {
               draft.url = value;
-              draft.urlError = null;
+              controller.clearFieldError('$prefix.credentials.url');
             }),
             // A bare URL scheme, identical in every locale.
             placeholder: trans('uptizm.teams.channels_webhook_url_placeholder'),
@@ -495,12 +513,12 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
         MSFormField(
           label: trans('uptizm.teams.channels_webhook_secret_label'),
           hint: trans('uptizm.teams.channels_webhook_secret_hint'),
-          error: draft.secretError,
+          error: controller.getError('$prefix.credentials.secret'),
           child: MSInput(
             value: draft.secret,
             onChanged: (String value) => setState(() {
               draft.secret = value;
-              draft.secretError = null;
+              controller.clearFieldError('$prefix.credentials.secret');
             }),
             type: InputType.password,
           ),
@@ -509,12 +527,12 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
       ChannelType.pagerduty => [
         MSFormField(
           label: trans('uptizm.teams.channels_pagerduty_routing_key_label'),
-          error: draft.routingKeyError,
+          error: controller.getError('$prefix.credentials.routing_key'),
           child: MSInput(
             value: draft.routingKey,
             onChanged: (String value) => setState(() {
               draft.routingKey = value;
-              draft.routingKeyError = null;
+              controller.clearFieldError('$prefix.credentials.routing_key');
             }),
             type: InputType.password,
           ),
@@ -524,12 +542,12 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
         MSFormField(
           label: trans('uptizm.teams.channels_teams_webhook_label'),
           hint: trans('uptizm.teams.channels_teams_webhook_hint'),
-          error: draft.urlError,
+          error: controller.getError('$prefix.credentials.url'),
           child: MSInput(
             value: draft.url,
             onChanged: (String value) => setState(() {
               draft.url = value;
-              draft.urlError = null;
+              controller.clearFieldError('$prefix.credentials.url');
             }),
             placeholder: trans('uptizm.teams.channels_teams_webhook_placeholder'),
           ),
@@ -570,9 +588,13 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
           final String value = _severityValues[index];
           setState(() => draft.severity = value);
           if (record != null) {
-            NotificationChannelController.instance.update(record.id, {
-              'severity': value,
-            });
+            // No `channel_type` in this payload either; [record.type] carries
+            // it explicitly for the same reason as [_setEnabled].
+            NotificationChannelController.instance.update(
+              record.id,
+              record.type,
+              {'severity': value},
+            );
           }
         },
       ),
@@ -609,49 +631,73 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
     );
   }
 
-  /// Validates the client-side required field for [type] (a fresh Slack
-  /// token / webhook URL / PagerDuty routing key / Teams URL is required only
-  /// when connecting for the first time; an already-connected channel may
-  /// resave with the credential fields left blank), then creates or updates
-  /// the channel through [NotificationChannelController]. A server 422 maps
-  /// its `credentials.token`/`credentials.url`/`credentials.routing_key` key
-  /// back onto the matching inline error slot.
+  /// Validates [type]'s credential fields client-side, then creates or
+  /// updates the channel through [NotificationChannelController].
+  ///
+  /// Two exceptions this vertical carries, both forced (see the class
+  /// docblock):
+  ///
+  ///  1. [_rulesFor] is the exhaustive `ChannelType` switch the plan for this
+  ///     step keeps: the backend keys every credential rule
+  ///     `required_if:channel_type,...`, which magic has no equivalent of, so
+  ///     a missing arm here is a compile error rather than a silently
+  ///     unvalidated channel. `validate()` runs BEFORE any request and, on
+  ///     failure, publishes into [NotificationChannelController.validationErrors]
+  ///     under this type's namespaced keys — which is what every
+  ///     [MSFormField] above already reads via `getError` — so this method
+  ///     returns without building a payload at all.
+  ///  2. [_isValidWebhookUrl] is the one check no magic [Rule] can express
+  ///     (magic ships no `Url` rule, and an [In] approximation would refuse
+  ///     every valid value): it runs AFTER `validate()` passes (so a blank
+  ///     url is still `Required`'s job) and publishes through
+  ///     [NotificationChannelController.setFieldError] under the same
+  ///     namespaced key the field reads.
+  ///
+  /// A server 422 the write action publishes onto
+  /// [NotificationChannelController.validationErrors] also lands in
+  /// `getError` via the same namespaced key; what remains after that (a
+  /// field this form has no slot for) surfaces as a generic toast, mirroring
+  /// the fallback in `status_page_editor_view`, `incident_create_view` and
+  /// `escalation_policy_editor_view`. Read only when the write answers
+  /// `false`: a `true` means it was written and there is nothing left to
+  /// surface.
   Future<void> _save(ChannelType type, NotificationChannelRecord? record) async {
     final _ChannelDraft draft = _drafts[type]!;
-    if (!_validate(type, draft, isNew: record == null)) return;
-
     final NotificationChannelController controller =
         NotificationChannelController.instance;
+    final String prefix = type.name;
+
+    try {
+      controller.validate(
+        _validationData(type, draft),
+        _rulesFor(type, isNew: record == null),
+      );
+    } on ValidationException {
+      return;
+    }
+
+    if (_hasUrlField(type)) {
+      final String url = draft.url.trim();
+      if (url.isNotEmpty && !_isValidWebhookUrl(url)) {
+        controller.setFieldError(
+          '$prefix.credentials.url',
+          trans('uptizm.teams.channels_url_invalid'),
+        );
+        return;
+      }
+    }
+
     final Map<String, dynamic> fields = _buildFields(type, record, draft);
-
-    final Map<String, String> errors = record == null
+    final bool ok = record == null
         ? await controller.create(fields)
-        : await controller.update(record.id, fields);
+        : await controller.update(record.id, type, fields);
 
-    if (!mounted || errors.isEmpty) return;
+    if (!mounted || ok) return;
 
-    const List<String> owned = <String>[
-      'credentials.token',
-      'credentials.url',
-      'credentials.secret',
-      'credentials.routing_key',
-    ];
-
-    setState(() {
-      draft.tokenError = errors['credentials.token'];
-      draft.urlError = errors['credentials.url'];
-      draft.secretError = errors['credentials.secret'];
-      draft.routingKeyError = errors['credentials.routing_key'];
-    });
-
-    // Everything this form has no slot for. `create` returns field errors
-    // WITHOUT raising a toast, so a 422 on a key none of the four slots match
-    // used to produce no toast, no inline message and no state change: the
-    // operator tapped Save on a form that never reacted. Mirrors the fallback
-    // in status_page_editor_view, incident_create_view and
-    // escalation_policy_editor_view.
+    final Set<String> owned = _rulesFor(type, isNew: true).keys.toSet();
     final Map<String, String> unmapped = <String, String>{
-      for (final MapEntry<String, String> entry in errors.entries)
+      for (final MapEntry<String, String> entry
+          in controller.validationErrors.entries)
         if (!owned.contains(entry.key)) entry.key: entry.value,
     };
 
@@ -663,63 +709,113 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
     }
   }
 
-  /// Runs the client-side required check for [type]'s credential field,
-  /// painting its inline error slot, and returns whether the form may be
-  /// submitted. Only enforced when [isNew] (connecting for the first time);
-  /// an already-connected channel may resave with blank credential fields
-  /// (the stored credential stays untouched). One arm per type so a new
-  /// channel shape is a compile error, never a silently skipped check.
-  bool _validate(ChannelType type, _ChannelDraft draft, {required bool isNew}) {
-    if (!isNew) return true;
+  /// The client-side mirror of `StoreNotificationChannelRequest::rules()`'s
+  /// per-type credential shape (`POST /notification-channels`), one arm per
+  /// [ChannelType] because the backend keys every credential rule
+  /// `required_if:channel_type,...`
+  /// (`backend/app/Http/Requests/StoreNotificationChannelRequest.php:63,74,81,87`)
+  /// and magic has no `required_if` at all: a missing arm here is a compile
+  /// error, never a silently-unvalidated new channel type.
+  ///
+  /// Keys are namespaced `<type>.credentials.<field>` (matching
+  /// [_validationData] and [NotificationChannelController]'s own
+  /// `_namespace`) rather than the bare wire key, because this screen holds
+  /// one [_ChannelDraft] PER type open at once and `credentials.url` is the
+  /// wire key for both the webhook and Teams card; an unnamespaced key could
+  /// not say which card's error a failure was.
+  ///
+  /// [Required] applies only when [isNew] (connecting for the first time):
+  /// `UpdateNotificationChannelRequest` carries no `required_if` on any
+  /// credential field at all, so an already-connected channel may resave
+  /// with every credential field left blank (the stored credential stays
+  /// untouched). [Max] mirrors the backend's exact bound unconditionally,
+  /// since it passes on `null` and an absent field costs nothing to check.
+  ///
+  /// Deliberately absent, and why: the SSRF host-guard on `credentials.url`
+  /// (`HostGuard::resolveAndAssertAllowed`, an async DNS resolution no
+  /// synchronous client [Rule] can approximate) and the URL-SHAPE check
+  /// [_isValidWebhookUrl] runs instead, since magic ships no `Url` rule and
+  /// an [In] approximation would refuse every valid value.
+  ///
+  /// A fresh map per call, not a shared constant: [Max] remembers the value
+  /// type it last measured and `message()` reads it back, so one shared
+  /// instance would let one submit's type pick another's message (see
+  /// `MonitorController._createRules`'s docblock for the same reasoning).
+  Map<String, List<Rule>> _rulesFor(ChannelType type, {required bool isNew}) {
+    final String prefix = type.name;
 
     return switch (type) {
-      ChannelType.slack => _requireCredential(
-        draft.token,
-        trans('uptizm.teams.channels_slack_token_label'),
-        (String? error) => setState(() => draft.tokenError = error),
-      ),
-      // Both, and deliberately not short-circuited with `&&`: an operator who
-      // left the whole card blank should see both fields marked, not fix the
-      // url and then discover the secret was required too.
-      ChannelType.webhook => [
-        _requireCredential(
-          draft.url,
-          trans('uptizm.teams.channels_webhook_url_label'),
-          (String? error) => setState(() => draft.urlError = error),
-        ),
-        _requireCredential(
-          draft.secret,
-          trans('uptizm.teams.channels_webhook_secret_label'),
-          (String? error) => setState(() => draft.secretError = error),
-        ),
-      ].every((bool ok) => ok),
-      ChannelType.pagerduty => _requireCredential(
-        draft.routingKey,
-        trans('uptizm.teams.channels_pagerduty_routing_key_label'),
-        (String? error) => setState(() => draft.routingKeyError = error),
-      ),
-      ChannelType.teams => _requireCredential(
-        draft.url,
-        trans('uptizm.teams.channels_teams_webhook_label'),
-        (String? error) => setState(() => draft.urlError = error),
-      ),
+      ChannelType.slack => <String, List<Rule>>{
+        '$prefix.credentials.token': [
+          if (isNew) Required(),
+          Max(255),
+        ],
+        '$prefix.credentials.channel': [Max(200)],
+      },
+      ChannelType.webhook => <String, List<Rule>>{
+        '$prefix.credentials.url': [
+          if (isNew) Required(),
+          Max(2048),
+        ],
+        '$prefix.credentials.secret': [
+          if (isNew) Required(),
+          Max(255),
+        ],
+      },
+      ChannelType.pagerduty => <String, List<Rule>>{
+        '$prefix.credentials.routing_key': [
+          if (isNew) Required(),
+          Max(64),
+        ],
+      },
+      ChannelType.teams => <String, List<Rule>>{
+        '$prefix.credentials.url': [
+          if (isNew) Required(),
+          Max(2048),
+        ],
+      },
     };
   }
 
-  /// Runs the client-side required check on [value], painting [paintError]
-  /// with a localized "required" message (or `null` when present) and
-  /// returning whether the field is filled. [attribute] is the human field
-  /// name interpolated into the `validation.required` copy.
-  bool _requireCredential(
-    String value,
-    String attribute,
-    void Function(String?) paintError,
-  ) {
-    final String? error = value.trim().isEmpty
-        ? trans('validation.required', {'attribute': attribute})
-        : null;
-    paintError(error);
-    return error == null;
+  /// Builds the flat, namespaced data map [_rulesFor] validates against, read
+  /// straight off [draft] rather than the assembled wire `fields`.
+  ///
+  /// `Validator` looks up each rule's key literally in the data map — it
+  /// never walks a nested map (see `magic`'s `Validator._runValidation`) —
+  /// and only the keys [_rulesFor] actually files a rule under are ever
+  /// checked, so including every credential field here unconditionally
+  /// (rather than switching on [type] a second time) is safe: an
+  /// irrelevant key for this type is simply never read.
+  Map<String, dynamic> _validationData(ChannelType type, _ChannelDraft draft) {
+    final String prefix = type.name;
+
+    return <String, dynamic>{
+      '$prefix.credentials.token': draft.token.trim(),
+      '$prefix.credentials.channel': draft.channel.trim(),
+      '$prefix.credentials.url': draft.url.trim(),
+      '$prefix.credentials.secret': draft.secret.trim(),
+      '$prefix.credentials.routing_key': draft.routingKey.trim(),
+    };
+  }
+
+  /// Whether [type]'s config form carries a `credentials.url` field
+  /// (webhook and Teams both reuse [_ChannelDraft.url]).
+  bool _hasUrlField(ChannelType type) =>
+      type == ChannelType.webhook || type == ChannelType.teams;
+
+  /// Whether [value] is a well-formed `https://` URL with a non-empty host.
+  ///
+  /// Mirrors the one STATELESS half of the backend's SSRF `HostGuard` check
+  /// on `credentials.url`
+  /// (`StoreNotificationChannelRequest::webhookUrlRule`): a non-`https`
+  /// scheme is rejected outright, no network resolution required. The
+  /// host-resolution half (the private/loopback/metadata denylist) stays
+  /// server-only; approximating IT client-side would need a DNS lookup this
+  /// form cannot make. Not a magic [Rule] because magic ships no `Url` rule
+  /// and an [In] approximation would refuse every valid value.
+  bool _isValidWebhookUrl(String value) {
+    final Uri? uri = Uri.tryParse(value);
+    return uri != null && uri.scheme == 'https' && uri.host.isNotEmpty;
   }
 
   /// Assembles the create/update field map for [type] from [draft], omitting

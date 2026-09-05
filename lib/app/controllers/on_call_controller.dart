@@ -2,6 +2,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../models/on_call_schedule.dart';
+import '../support/field_errors.dart';
 import '../support/team_types.dart'
     show
         OnCallOverrideWindow,
@@ -77,6 +78,7 @@ enum OnCallPhase {
 /// knows. Each returns `true`/`false` and surfaces its own toast; none ever
 /// throws to the caller.
 class OnCallController extends MagicController
+    with ValidatesRequests
     implements SessionScopedController {
   /// Singleton accessor, registering the controller on first access.
   static OnCallController get instance => Magic.findOrPut(OnCallController.new);
@@ -257,6 +259,7 @@ class OnCallController extends MagicController
     _overrides = const [];
     _currentResponder = null;
     _currentRotationId = null;
+    clearErrors();
     refreshUI();
 
     await reload();
@@ -360,19 +363,31 @@ class OnCallController extends MagicController
   ///
   /// The timezone is the one [DateManager] resolved for this device at boot, so
   /// the created schedule is anchored where the operator actually is.
+  ///
+  /// This is the one write in the app with NO client-side rule map, and the
+  /// absence is deliberate. Every other vertical mirrors its Laravel
+  /// `FormRequest` because an operator types into a form and a rule catches a
+  /// mistake before the round trip. Here there is no form at all: the empty
+  /// state's button calls this with no arguments (see
+  /// `on_call_schedule_view.dart`), `name` is always the translated default
+  /// and `timezone` always the device's own zone. A mirror of
+  /// `StoreOnCallScheduleRequest` would be a rule that cannot fire, provable
+  /// only by faking the translator, so it would read as enforcement and
+  /// enforce nothing. Add the rules together with the field, if a create form
+  /// ever lands here.
+  ///
+  /// The SERVER half is real and stays: a 422 (a zone the backend's IANA
+  /// lookup refuses, a name a future form makes editable) is republished
+  /// through [_publishFieldErrors].
   Future<bool> createSchedule() async {
     final OnCallSchedule schedule = OnCallSchedule()
       ..fill(<String, dynamic>{
         'name': trans('uptizm.teams.oncall_default_schedule_name'),
         'timezone': DateManager.instance.timezoneName,
-      });
+      }, strict: true);
 
     final bool ok = await schedule.save();
-    if (!ok) {
-      Log.error('[OnCallController.createSchedule] save() returned false');
-      _toastError(null);
-      return false;
-    }
+    if (!ok) return _publishFieldErrors(schedule);
 
     await reload();
     Magic.success(
@@ -380,6 +395,40 @@ class OnCallController extends MagicController
       schedule.name ?? '',
     );
     return true;
+  }
+
+  /// Surfaces a failed [schedule] save to the operator and answers `false`.
+  ///
+  /// This vertical does NOT follow the other seven's publish-and-stay-silent
+  /// shape, and the difference is forced rather than stylistic. Everywhere else
+  /// a field error is deliberately silent, because the form renders a slot per
+  /// field and the silence is what tells "stay and correct the flagged fields"
+  /// apart from "already toasted". Here there is no form and no slot: nothing
+  /// reads `getError` for an on-call field, and `on_call_schedule_view.dart`
+  /// does not even read the returned bool. Publishing onto [validationErrors]
+  /// and returning would leave the operator tapping a button that does nothing
+  /// and says nothing, which is exactly the failure the rest of this work
+  /// removed. So every failure toasts.
+  ///
+  /// A field-shaped 422 is the real case, not a hypothetical: the backend's
+  /// `timezone` rule is a Carbon-backed IANA lookup and can refuse the zone
+  /// [DateManager] resolved for this device. Its message is more useful than
+  /// the generic one, so it is what gets shown. [fieldErrorsFromModel] is the
+  /// only way in, because `Model.save()` consumes its own [MagicResponse]
+  /// internally and leaves no response for `setErrorsFromResponse` to read.
+  ///
+  /// Give this the other verticals' shape the day this screen grows a create
+  /// form with an error slot, and not before.
+  bool _publishFieldErrors(OnCallSchedule schedule) {
+    final Map<String, String> fieldErrors = fieldErrorsFromModel(schedule);
+
+    Log.error(
+      '[OnCallController.createSchedule] save() returned false: '
+      '${fieldErrors.isEmpty ? 'no field errors' : fieldErrors}',
+    );
+    _toastError(fieldErrors.isEmpty ? null : fieldErrors.values.first);
+
+    return false;
   }
 
   /// Adds [member] to the end of the ring via

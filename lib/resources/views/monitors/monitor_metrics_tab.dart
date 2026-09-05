@@ -164,7 +164,14 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
   // ---------------------------------------------------------------------------
 
   /// Opens the create form; Save posts the new metric to the backend.
+  ///
+  /// Clears [MonitorMetricsController.validationErrors] first. This tab is a
+  /// plain `StatefulWidget`, not a `MagicStatefulView`, so the framework's
+  /// per-mount error clear never fires for the sheet it opens: without this, a
+  /// failed save from a PREVIOUS open would paint its errors on this one
+  /// before the operator has typed anything.
   void _openCreate() {
+    _controller.clearErrors();
     MonitorMetricForm.show(
       context,
       initial: kEmptyMetricForm,
@@ -208,6 +215,7 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
   /// something the operator approves rather than something they discover
   /// afterwards.
   void _acceptSeed(AiMetricSeed seed) {
+    _controller.clearErrors();
     MonitorMetricForm.show(
       context,
       initial: metricFormFromSeed(seed),
@@ -220,6 +228,7 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
 
   /// Opens the edit form for [record]; Save puts the updated fields.
   void _openEdit(MonitorMetricRecord record) {
+    _controller.clearErrors();
     MonitorMetricForm.show(
       context,
       initial: record.form,

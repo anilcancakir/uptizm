@@ -1511,6 +1511,188 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // Client-side validation: the framework contract (`ValidatesRequests`), not a
+  // hand-rolled check in the form. A payload the backend would refuse anyway
+  // never becomes a request, and the rejection is published on the controller
+  // where the form reads it through `hasError` / `getError`.
+  // ---------------------------------------------------------------------------
+
+  group('the write path validates before it reaches the network', () {
+    /// A complete, backend-shaped create payload, with [overrides] applied so a
+    /// test can break exactly one field.
+    Map<String, dynamic> payload([Map<String, dynamic> overrides = const {}]) =>
+        <String, dynamic>{
+          'name': 'Fresh',
+          'url': 'https://fresh.test/health',
+          'type': 'http',
+          'method': 'get',
+          'check_interval_sec': 180,
+          'timeout_sec': 30,
+          'regions': const <String>['eu-central'],
+          ...overrides,
+        };
+
+    /// Resolves the controller and lets its `onInit` inventory read settle
+    /// against the setUp fake, then installs a FRESH fake so
+    /// `assertNothingSent` measures only what the write did.
+    Future<(MonitorController, FakeNetworkDriver)> armed() async {
+      final MonitorController controller = MonitorController.instance;
+      await pumpEventQueue();
+
+      return (controller, Http.fake());
+    }
+
+    test('a blank name is refused here, and nothing is sent', () async {
+      final (MonitorController controller, FakeNetworkDriver fake) =
+          await armed();
+
+      final bool ok = await controller.create(payload({'name': ''}));
+
+      expect(ok, isFalse, reason: 'a refused write did not happen');
+      expect(controller.hasError('name'), isTrue);
+      fake.assertNothingSent();
+    });
+
+    test('a valid payload still reaches the backend', () async {
+      // The other half of the same guard: validation that refuses everything
+      // passes the test above and breaks the product.
+      final MonitorController controller = MonitorController.instance;
+      await pumpEventQueue();
+      final FakeNetworkDriver fake = Http.fake({
+        '*monitors': Http.response({
+          'data': {'id': 'brand-new-id', 'name': 'Fresh', 'type': 'http'},
+        }),
+      });
+
+      await controller.create(payload());
+
+      expect(controller.hasErrors, isFalse);
+      fake.assertSent((r) => r.method == 'POST');
+    });
+
+    test('a check interval under the server floor is refused here', () async {
+      // `min:30` in StoreMonitorRequest. The bound measures the PARSED number,
+      // which is what the form sends; a String payload would have measured its
+      // character count instead and let 10 through.
+      final (MonitorController controller, FakeNetworkDriver fake) =
+          await armed();
+
+      final bool ok = await controller.create(
+        payload({'check_interval_sec': 10}),
+      );
+
+      expect(ok, isFalse);
+      expect(controller.hasError('check_interval_sec'), isTrue);
+      fake.assertNothingSent();
+    });
+
+    test('an empty region selection is refused here', () async {
+      final (MonitorController controller, FakeNetworkDriver fake) =
+          await armed();
+
+      final bool ok = await controller.create(
+        payload({'regions': const <String>[]}),
+      );
+
+      expect(ok, isFalse);
+      expect(controller.hasError('regions'), isTrue);
+      fake.assertNothingSent();
+    });
+
+    test('a type outside the backend enum is refused here', () async {
+      // `MonitorType` has no Dart mirror, so `type` crosses the wire as a bare
+      // string and a typo used to come back as a silent 422.
+      final (MonitorController controller, FakeNetworkDriver fake) =
+          await armed();
+
+      final bool ok = await controller.create(payload({'type': 'ping'}));
+
+      expect(ok, isFalse);
+      expect(controller.hasError('type'), isTrue);
+      fake.assertNothingSent();
+    });
+
+    test('an edit sends a partial payload without tripping the rules', () async {
+      // `UpdateMonitorRequest` is `sometimes|required` on every field, so a
+      // payload that omits a key is one the server accepts. A bare `Required`
+      // in the update rules would refuse it, which is worse than omitting the
+      // half magic cannot express.
+      final MonitorController controller = MonitorController.instance;
+      await pumpEventQueue();
+      final FakeNetworkDriver fake = Http.fake({
+        'monitors/api': Http.response({
+          'data': {'id': 'api', 'name': 'API', 'url': 'https://api.uptizm.com'},
+        }),
+      });
+
+      await controller.save('api', <String, dynamic>{'name': 'Renamed'});
+
+      expect(controller.hasErrors, isFalse);
+      fake.assertSent((r) => r.method.toUpperCase() == 'PUT');
+    });
+
+    test('a server 422 lands on the controller, not in a return value', () async {
+      // `Monitor.save()` consumes its own `MagicResponse` internally, so there
+      // is no response object to hand `setErrorsFromResponse`; the model's own
+      // `validationErrors` is the only surface the 422 survives on.
+      final MonitorController controller = MonitorController.instance;
+      await pumpEventQueue();
+      Http.fake({
+        '*monitors': Http.response({
+          'message': 'The given data was invalid.',
+          'errors': {
+            'name': ['That name is already taken.'],
+          },
+        }, 422),
+      });
+
+      final bool ok = await controller.create(payload());
+
+      expect(ok, isFalse);
+      expect(
+        controller.getError('name'),
+        equals('That name is already taken.'),
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Mass assignment: `fill(fields, strict: true)` on the two write paths that
+  // carry raw USER input (create/save). A key the form sends that
+  // `Monitor.fillable` does not declare must throw rather than being dropped
+  // silently, which is exactly the defect class `Monitor.fillable`'s own
+  // docblock warns about (AI-assist mode and the escalation-policy pin were
+  // both lost this way before anyone noticed).
+  // ---------------------------------------------------------------------------
+
+  group('strict mass assignment on user-input writes', () {
+    test(
+      'create throws MassAssignmentException for a key outside Monitor.fillable',
+      () async {
+        final MonitorController controller = MonitorController.instance;
+
+        // The payload is VALID apart from the undeclared key, deliberately.
+        // The rule check now runs before `fill`, so a payload that is also
+        // incomplete never reaches mass assignment at all and this guard would
+        // pass on the refusal rather than on the throw it exists to pin.
+        await expectLater(
+          controller.create(<String, dynamic>{
+            'name': 'Fresh',
+            'url': 'https://fresh.test/health',
+            'type': 'http',
+            'method': 'get',
+            'check_interval_sec': 180,
+            'timeout_sec': 30,
+            'regions': const <String>['eu-central'],
+            'not_a_declared_field': 'x',
+          }),
+          throwsA(isA<MassAssignmentException>()),
+        );
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
   // resetForSession: clear the previous identity's inventory, then refetch.
   // ---------------------------------------------------------------------------
 
@@ -1559,6 +1741,18 @@ void main() {
         equals(['other-team-web']),
       );
       expect(controller.monitorById('api'), isNull);
+    });
+
+    test('resetForSession clears validation errors from the previous identity', () async {
+      // A rejected field message belongs to the identity that saw it; carried
+      // across a team switch it would flag a field the incoming team never
+      // submitted.
+      final MonitorController controller = MonitorController.instance;
+      controller.validationErrors = {'name': 'x'};
+
+      await controller.resetForSession();
+
+      expect(controller.validationErrors, isEmpty);
     });
   });
 }

@@ -6,7 +6,9 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../models/status_page.dart';
+import '../support/field_errors.dart';
 import '../support/roster_page.dart';
+import '../enums/domain_mode.dart' show DomainMode;
 import '../enums/status_page_preview_status.dart'
     show StatusPagePreviewStatus;
 import '../support/status_page_types.dart' show Subscriber;
@@ -33,6 +35,7 @@ import '../../resources/views/status/status_form_support.dart' show aiDraftFor;
 /// and [removeSubscriber] persist through `POST`/`DELETE` on the same
 /// sub-resource.
 class StatusPageController extends MagicController
+    with ValidatesRequests
     implements SessionScopedController {
   /// Singleton accessor, registering the controller on first access.
   static StatusPageController get instance =>
@@ -304,6 +307,7 @@ class StatusPageController extends MagicController
     // login, so nothing else clears these.
     _previewPollGeneration.clear();
     _previewPollCapped.clear();
+    clearErrors();
     _previewRenderRequested.clear();
     refreshUI();
 
@@ -435,57 +439,66 @@ class StatusPageController extends MagicController
   /// Saves an existing status page [draft] via the ORM `StatusPage.save()`
   /// (`PUT /status-pages/{id}`).
   ///
-  /// Maps the editor's value-object draft to a persistence model marked as
-  /// already existing (so `save()` issues an update, not a create), then checks
-  /// the bool result: on success, refreshes the bound view, surfaces a success
-  /// toast, and returns to the list; on a false result, hands any 422 field
-  /// errors back for inline display (staying put, no toast) or surfaces the
-  /// generic error toast for a non-field failure, so the operator can retry
-  /// from the still-open editor.
+  /// [draft] is checked against [_updateRules] BEFORE anything is sent, so a
+  /// payload whose answer is already known never becomes a request. Once that
+  /// passes, maps the draft to a persistence model marked as already existing
+  /// (so `save()` issues an update, not a create), then checks the bool
+  /// result: on success, syncs the component pivot, refreshes the bound view,
+  /// surfaces a success toast, and returns to the list; on a false result,
+  /// publishes any 422 field errors for inline display (staying put, no toast)
+  /// or surfaces the generic error toast for a non-field failure, so the
+  /// operator can retry from the still-open editor.
   ///
-  /// Returns the backend per-field validation errors (single message per field,
-  /// keyed by the wire field name: `name`, `slug`, `domain_mode`, ...) so the
-  /// editor can render a server 422 inline; an empty map means success or a
-  /// non-field failure (already toasted).
-  Future<Map<String, String>> save(StatusPage draft) async {
+  /// Answers whether the page was written, on the same contract
+  /// [MonitorController.create] documents: the per-field detail lives in
+  /// [validationErrors], not in the return value. `false` with a populated
+  /// [validationErrors] means "stay on the form and correct the flagged
+  /// fields"; `false` with an EMPTY one means the generic save-failed toast
+  /// has already fired.
+  Future<bool> save(StatusPage draft) async {
+    try {
+      validate(_wireFields(draft), _updateRules);
+    } on ValidationException {
+      return false;
+    }
+
     final StatusPage page = _modelFrom(draft, existing: true);
 
     final bool ok = await page.save();
-    if (!ok) {
-      final Map<String, String>? fieldErrors = _fieldErrorsOrToast(page);
-      if (fieldErrors != null) return fieldErrors;
-      return const {};
-    }
+    if (!ok) return _publishFieldErrors(page);
 
     await _syncComponents(page.id, draft.monitorIds);
     refreshUI();
     Magic.success(trans('uptizm.status.editor_form_save'), draft.name ?? '');
     MagicRoute.to('/status');
-    return const {};
+    return true;
   }
 
   /// Creates a new status page from [draft] via the ORM `StatusPage.save()`
   /// (`POST /status-pages`).
   ///
-  /// Maps the value-object draft to a fresh (non-existing) model so `save()`
-  /// issues a create, then checks the bool result: on success, refreshes the
-  /// bound view, surfaces a success toast, and returns to the list; on a false
-  /// result, hands any 422 field errors back for inline display (staying put,
-  /// no toast) or surfaces the generic error toast for a non-field failure.
+  /// [draft] is checked against [_createRules] BEFORE anything is sent, so a
+  /// payload whose answer is already known never becomes a request. Once that
+  /// passes, maps the draft to a fresh (non-existing) model so `save()` issues
+  /// a create, then checks the bool result: on success, syncs the component
+  /// pivot, refreshes the bound view, surfaces a success toast, and returns to
+  /// the list; on a false result, publishes any 422 field errors for inline
+  /// display (staying put, no toast) or surfaces the generic error toast for a
+  /// non-field failure.
   ///
-  /// Returns the backend per-field validation errors (single message per field,
-  /// keyed by the wire field name) so the editor can render a server 422
-  /// inline; an empty map means success or a non-field failure (already
-  /// toasted).
-  Future<Map<String, String>> create(StatusPage draft) async {
+  /// Answers whether the page was written, on the same contract [save]
+  /// documents.
+  Future<bool> create(StatusPage draft) async {
+    try {
+      validate(_wireFields(draft), _createRules);
+    } on ValidationException {
+      return false;
+    }
+
     final StatusPage page = _modelFrom(draft, existing: false);
 
     final bool ok = await page.save();
-    if (!ok) {
-      final Map<String, String>? fieldErrors = _fieldErrorsOrToast(page);
-      if (fieldErrors != null) return fieldErrors;
-      return const {};
-    }
+    if (!ok) return _publishFieldErrors(page);
 
     await _syncComponents(page.id, draft.monitorIds);
     refreshUI();
@@ -494,7 +507,7 @@ class StatusPageController extends MagicController
       draft.name ?? '',
     );
     MagicRoute.to('/status');
-    return const {};
+    return true;
   }
 
   /// Brings page [pageId]'s attached components in line with [desiredIds], in
@@ -549,27 +562,33 @@ class StatusPageController extends MagicController
     }
   }
 
-  /// Resolves a failed [page] save into either its per-field validation errors
-  /// or a generic toast.
+  /// Publishes a failed [page] save as either per-field validation errors or a
+  /// generic toast, and answers `false` either way.
   ///
-  /// Returns the field errors (single message per field, keyed by the wire
-  /// field name) when the failed save carried the Laravel 422 shape via
-  /// [StatusPage.validationErrors], so the caller hands them back to the editor
-  /// for inline display and stays put. Returns `null` for a non-field failure
-  /// (a transport error / 500) after surfacing the generic error toast and
-  /// logging the cause, so the caller falls back to its empty-map contract.
-  Map<String, String>? _fieldErrorsOrToast(StatusPage page) {
-    final Map<String, List<String>> errors = page.validationErrors;
-    if (errors.isNotEmpty) {
-      return {
-        for (final MapEntry<String, List<String>> entry in errors.entries)
-          entry.key: entry.value.first,
-      };
+  /// The 422 is read off [StatusPage.validationErrors] rather than a
+  /// [MagicResponse], because there is no response object in scope to read:
+  /// `Model.save()` consumes its own response internally and hands back a bare
+  /// bool, which is also why `setErrorsFromResponse` cannot serve this path.
+  /// Assigning [validationErrors] is what puts the messages where the editor's
+  /// `getError` reads them.
+  ///
+  /// A failure carrying NO field errors is a transport error or a 500, so it
+  /// gets the generic toast and leaves [validationErrors] untouched, which is
+  /// the signal the editor uses to tell "stay and correct" apart from
+  /// "already told".
+  bool _publishFieldErrors(StatusPage page) {
+    final Map<String, String> fieldErrors = fieldErrorsFromModel(page);
+    if (fieldErrors.isNotEmpty) {
+      validationErrors = fieldErrors;
+      refreshUI();
+
+      return false;
     }
 
     Log.error('[StatusPageController] save returned false with no field errors');
     _toastError(null);
-    return null;
+
+    return false;
   }
 
   /// Attaches [monitorId] to the page [pageId]'s public component list via
@@ -720,6 +739,11 @@ class StatusPageController extends MagicController
 
     if (data is! Map<String, dynamic>) return;
 
+    // Deliberately not strict here: this fills from the server's `show`
+    // resource, which carries `id`, `created_at`, `updated_at` and
+    // `preview_rendered_at`, none of them in `StatusPage.fillable`. Strict
+    // mode would throw on every read of this response instead of just this
+    // write path's user input.
     _replaceCachedPage(StatusPage()..fill(data));
   }
 
@@ -1038,38 +1062,114 @@ class StatusPageController extends MagicController
   /// Builds a clean [StatusPage] persistence model from the editor's [draft]
   /// model.
   ///
-  /// Fills the backend's `Store`/`UpdateStatusPageRequest` field shape (the
-  /// domain mode goes out as its enum `name`, the colour through the forward
-  /// write-cast [_wireBrandColor]) and, when
-  /// [existing] is true, stamps the id and marks the model as already existing
-  /// so `save()` routes to `PUT` rather than `POST`.
+  /// Fills the same wire map [_wireFields] builds for [validate] (so the two
+  /// can never drift), and, when [existing] is true, stamps the id and marks
+  /// the model as already existing so `save()` routes to `PUT` rather than
+  /// `POST`.
   ///
   /// `monitorIds` is deliberately excluded: monitor membership is a separate
   /// pivot managed through [attachMonitor]/[detachMonitor].
   StatusPage _modelFrom(StatusPage draft, {required bool existing}) {
-    final StatusPage page = StatusPage()
-      ..fill(<String, dynamic>{
-        'name': draft.name,
-        'slug': draft.slug,
-        'domain_mode': draft.domainMode.name,
-        'brand_color': _wireBrandColor(draft.brandColor),
-        'logo_text': draft.logoText,
-        'description': draft.description,
-        // The second half of a dropped write. This map enumerates the wire fields
-        // explicitly, so a field the editor collects and this list omits is filled into
-        // the draft, shown to the operator, and then silently discarded on the way out.
-        // `is_public` was missing from BOTH ends: the editor had no control and this map
-        // had no entry, which is why every page created in the product stayed private and
-        // answered 404 with nothing in the UI able to change it.
-        'is_public': draft.isPublic,
-        'subscriptions_enabled': draft.subscriptionsEnabled,
-      });
+    final StatusPage page = StatusPage()..fill(_wireFields(draft), strict: true);
     if (existing) {
       page.id = draft.id;
       page.exists = true;
     }
     return page;
   }
+
+  /// The backend's `Store`/`UpdateStatusPageRequest` field shape, projected
+  /// from the editor's [draft]: the domain mode goes out as its enum `name`,
+  /// the colour through the forward write-cast [_wireBrandColor].
+  ///
+  /// Shared by [_modelFrom] (what gets persisted) and [save]/[create] (what
+  /// gets validated against [_updateRules]/[_createRules] before either
+  /// touches the network), so the two can never check one shape and send
+  /// another.
+  ///
+  /// This map enumerates the wire fields explicitly, so a field the editor
+  /// collects and this list omits is filled into the draft, shown to the
+  /// operator, and then silently discarded on the way out. `is_public` was
+  /// missing from BOTH ends: the editor had no control and this map had no
+  /// entry, which is why every page created in the product stayed private
+  /// and answered 404 with nothing in the UI able to change it.
+  Map<String, dynamic> _wireFields(StatusPage draft) => <String, dynamic>{
+    'name': draft.name,
+    'slug': draft.slug,
+    'domain_mode': draft.domainMode.name,
+    'brand_color': _wireBrandColor(draft.brandColor),
+    'logo_text': draft.logoText,
+    'description': draft.description,
+    'is_public': draft.isPublic,
+    'subscriptions_enabled': draft.subscriptionsEnabled,
+  };
+
+  /// The `domain_mode` wire vocabulary, read off [DomainMode] rather than
+  /// retyped here, so the rule and the enum it mirrors cannot drift.
+  static final List<String> _domainModeValues = DomainMode.values
+      .map((DomainMode mode) => mode.name)
+      .toList();
+
+  /// The client-side mirror of `StoreStatusPageRequest::rules()`
+  /// (`POST /status-pages`).
+  ///
+  /// Only the rules magic ships EXACTLY are here. An approximation would
+  /// refuse a payload the server accepts, which is worse than leaving the
+  /// server to decide, so each of these is deliberately absent:
+  ///
+  ///  - `string` / `boolean` / `nullable`: magic has no type rules at all.
+  ///    [Max] passes on `null`, which is `nullable`'s effect for a rule that
+  ///    only measures a value it was given.
+  ///  - `slug`'s `regex:/^[a-z0-9]+(-[a-z0-9]+)*$/` and
+  ///    `Rule::notIn(config('status_pages.reserved_slugs'))`: magic has no
+  ///    regex rule and no `NotIn` rule (only [In], which asks the opposite
+  ///    question).
+  ///  - `slug`'s `Rule::unique('status_pages', 'slug')`: every [AsyncRule]
+  ///    (including [Unique]) is skipped SILENTLY by the synchronous
+  ///    [validate], so a rule here would read as enforced and enforce
+  ///    nothing.
+  ///  - `brand_color`'s `regex:/^#[0-9a-fA-F]{6}...$/` hex-format check: same
+  ///    reason as `slug`'s regex.
+  ///  - `custom_domain` and `locale`: never sent by the editor at all (see
+  ///    [_wireFields]; [StatusPage] carries no `locale` attribute at all), so
+  ///    there is nothing on the wire to validate.
+  ///  - `is_public` / `subscriptions_enabled`'s `boolean`: a type rule this
+  ///    client cannot express, and there is no other rule on either field.
+  ///  - the plan gates in `withValidator()` (the status-page-count limit and
+  ///    the private-pages entitlement): they read team state this client does
+  ///    not hold, and they come back as ordinary 422 field errors on `plan` /
+  ///    `is_public` anyway.
+  ///
+  /// A fresh map per call rather than a shared constant, because [Max]
+  /// remembers the value type it last measured and `message()` reads it back;
+  /// one shared instance would let one submit's type pick another's message.
+  Map<String, List<Rule>> get _createRules => <String, List<Rule>>{
+    'name': [Required(), Max(200)],
+    'slug': [Required(), Max(100)],
+    'domain_mode': [In<String>(_domainModeValues)],
+    'brand_color': [Max(9)],
+    'logo_text': [Max(8)],
+    'description': [Max(500)],
+  };
+
+  /// The client-side mirror of `UpdateStatusPageRequest::rules()`
+  /// (`PUT /status-pages/{id}`).
+  ///
+  /// Every field there is `sometimes|required`, and magic has no `sometimes`,
+  /// so the `required` half is DROPPED rather than approximated: a bare
+  /// [Required] would refuse a partial payload the server explicitly accepts.
+  /// [_wireFields] always sends every key here, so in practice the difference
+  /// is only that a blank `name`/`slug` on an edit costs one round trip
+  /// instead of none; the server's 422 comes back through [validationErrors]
+  /// either way. See [_createRules] for the omissions this mirrors.
+  Map<String, List<Rule>> get _updateRules => <String, List<Rule>>{
+    'name': [Max(200)],
+    'slug': [Max(100)],
+    'domain_mode': [In<String>(_domainModeValues)],
+    'brand_color': [Max(9)],
+    'logo_text': [Max(8)],
+    'description': [Max(500)],
+  };
 
   /// Encodes a fixture [Color] as the backend's `#RRGGBB` hex string.
   String _wireBrandColor(Color color) {

@@ -155,11 +155,6 @@ class _EscalationPolicyEditorViewState
   /// Save/Create action so a double-tap cannot fire two writes.
   bool _saving = false;
 
-  /// Inline validation error for the policy-name field, or null when it is
-  /// valid. Set on save when the required name is blank, and by a server 422
-  /// that rejects `name`. Cleared when the name is edited.
-  String? _nameError;
-
   @override
   void initState() {
     // Register the controller before the base state resolves it via
@@ -207,7 +202,6 @@ class _EscalationPolicyEditorViewState
   /// Edit mode copies each wire step into a fresh [_RungDraft] (carrying its
   /// backend id) so mutating the draft never touches the cached policy model.
   void _seedFrom(EscalationPolicy? existing) {
-    _nameError = null;
     if (existing == null) {
       _isEdit = false;
       _nameController.text = '';
@@ -296,20 +290,27 @@ class _EscalationPolicyEditorViewState
     });
   }
 
+  /// The wire fields this editor renders a dedicated error slot for. Used by
+  /// [_revealUnmappedError] to tell a refusal already painted (`name`, via
+  /// [_buildDetailsCard]'s `getError`) apart from one this editor owns no
+  /// slot for.
+  static const Set<String> _ownedFields = <String>{'name'};
+
   /// Saves the draft: [EscalationController.create] in create mode,
   /// [EscalationController.save] in edit mode. Both persist through to
   /// `api/v1/escalation-policies` and navigate back to the list on success.
   ///
-  /// Runs the client-side required check first (a non-empty policy name),
-  /// painting its inline error without a round trip. Only when it passes does
-  /// it await the matching
-  /// controller write; a non-empty result (a server 422) is a field-error map
-  /// keyed by the posted wire field names, which [_applyServerErrors] paints
-  /// under the matching fields. A returned key the editor owns no slot for is
-  /// surfaced as the generic error toast.
+  /// Both validate the policy name against magic's own rules BEFORE any
+  /// request, and on a refusal populate [EscalationController.validationErrors]
+  /// and call `refreshUI()` themselves, which the [ListenableBuilder] in
+  /// [_buildDetailsCard] repaints against. There is no client-only check left
+  /// to run first: every rung always carries a valid target (the picker
+  /// defaults to the on-call rotation and can never be cleared). What is left
+  /// after a `false` result is whatever [validationErrors] carries that no
+  /// owned field renders (`repeat_last_step`/`is_default`, which this editor's
+  /// switches never surface an inline error for), handed to
+  /// [_revealUnmappedError].
   Future<void> _save() async {
-    if (!_validateClientSide()) return;
-
     setState(() => _saving = true);
     final String name = _nameController.text.trim();
     final List<EscalationRungDraft> rungs = [
@@ -322,7 +323,7 @@ class _EscalationPolicyEditorViewState
         ),
     ];
 
-    final Map<String, String> serverErrors = _isEdit
+    final bool written = _isEdit
         ? await controller.save(
             widget.id!,
             name,
@@ -340,50 +341,33 @@ class _EscalationPolicyEditorViewState
 
     if (!mounted) return;
     setState(() => _saving = false);
-
-    if (serverErrors.isEmpty) return;
-    final Map<String, String> unmapped = _applyServerErrors(serverErrors);
-    if (unmapped.isNotEmpty) {
-      Magic.error(
-        trans('uptizm.teams.escalation_toast_error_title'),
-        unmapped.values.first,
-      );
-    }
+    if (!written) _revealUnmappedError();
   }
 
-  /// Runs the client-side required check, painting the name field's inline
-  /// error slot, and returns whether the draft may be saved.
+  /// Surfaces whatever a refused write's
+  /// [EscalationController.validationErrors] carries that no owned field
+  /// ([_ownedFields]) already renders inline.
   ///
-  /// Checks only the required policy name: every rung always carries a valid
-  /// target (the picker defaults to the on-call rotation and can never be
-  /// cleared). The slot is always written (a passing check clears it) so a
-  /// previously shown error never lingers after a corrected resubmit.
-  bool _validateClientSide() {
-    final String? nameError = _nameController.text.trim().isEmpty
-        ? trans('uptizm.teams.form_name_error_required')
-        : null;
+  /// `StoreEscalationPolicyRequest` can reject `repeat_last_step` and
+  /// `is_default`; neither has a slot on this editor, so without this the
+  /// operator hit Save, the policy was not written, and the screen said
+  /// nothing at all. An EMPTY result means the failure was not a per-field
+  /// one (a transport error or a 500), and the controller has already
+  /// surfaced its own toast for it, so this deliberately says nothing.
+  /// Mirrors the fallback in `status_page_editor_view` and
+  /// `monitor_metric_form`.
+  void _revealUnmappedError() {
+    final Iterable<String> unmapped = controller.validationErrors.entries
+        .where(
+          (MapEntry<String, String> entry) => !_ownedFields.contains(entry.key),
+        )
+        .map((MapEntry<String, String> entry) => entry.value);
+    if (unmapped.isEmpty) return;
 
-    setState(() => _nameError = nameError);
-
-    return nameError == null;
-  }
-
-  /// Routes a backend 422 field-error map (keyed by the wire field names the
-  /// editor posts) into the inline error slots, returning the entries that map
-  /// to no known field so the caller can surface them another way.
-  Map<String, String> _applyServerErrors(Map<String, String> errors) {
-    final Map<String, String> unmapped = {};
-    setState(() {
-      for (final MapEntry<String, String> entry in errors.entries) {
-        switch (entry.key) {
-          case 'name':
-            _nameError = entry.value;
-          default:
-            unmapped[entry.key] = entry.value;
-        }
-      }
-    });
-    return unmapped;
+    Magic.error(
+      trans('uptizm.teams.escalation_toast_error_title'),
+      unmapped.first,
+    );
   }
 
   @override
@@ -510,25 +494,32 @@ class _EscalationPolicyEditorViewState
   }
 
   /// Builds the name + description card.
+  ///
+  /// Wrapped in a [ListenableBuilder] on [controller], because that is where
+  /// the field error now lives: `validate()` and a server 422 both publish
+  /// into `EscalationController.validationErrors` and notify, and without a
+  /// listener the refusal would be recorded and never painted.
   Widget _buildDetailsCard() {
     return MSCard(
       variant: CardVariant.surface,
-      child: WDiv(
-        className: 'flex flex-col gap-5',
-        children: <Widget>[
-          MSFormField(
-            label: trans('uptizm.teams.escalation_editor_name_label'),
-            error: _nameError,
-            child: MSInput(
-              controller: _nameController,
-              placeholder: trans(
-                'uptizm.teams.escalation_editor_name_placeholder',
+      child: ListenableBuilder(
+        listenable: controller,
+        builder: (BuildContext context, Widget? _) => WDiv(
+          className: 'flex flex-col gap-5',
+          children: <Widget>[
+            MSFormField(
+              label: trans('uptizm.teams.escalation_editor_name_label'),
+              error: controller.getError('name'),
+              child: MSInput(
+                controller: _nameController,
+                placeholder: trans(
+                  'uptizm.teams.escalation_editor_name_placeholder',
+                ),
+                onChanged: (String _) => controller.clearFieldError('name'),
               ),
-              // Clear the inline required error as soon as the name is edited.
-              onChanged: (String _) => setState(() => _nameError = null),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
