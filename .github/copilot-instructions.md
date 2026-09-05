@@ -43,7 +43,7 @@ Several agents work this repo at the same time, so isolation is the default and 
 
 ## Verifying a change
 
-`bin/check` is the gate: nine jobs fanned across cores, one summary line each, non-zero when any failed. `--fast` runs the static passes; `flutter`, `backend` or `worker` scopes it to one half. `docs/verification-loop.md` carries the invocations and what each job does and does not measure.
+`bin/check` is the gate: ten jobs fanned across cores, one summary line each, non-zero when any failed. `--fast` runs the static passes; `flutter`, `backend` or `worker` scopes it to one half. `docs/verification-loop.md` carries the invocations and what each job does and does not measure.
 
 One gate is NOT in `bin/check`: the `.github/` mirrors are checked by CI, so a stale mirror passes locally and blocks the merge there. Run `bin/sync-instructions` after editing this file or any rule, and `bin/sync-skills` after pulling a sibling package.
 

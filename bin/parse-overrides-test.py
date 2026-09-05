@@ -151,6 +151,19 @@ CASES: list[tuple[str, str, list[str], bool]] = [
         ['magic -> /nonexistent/a', 'wind -> /nonexistent/b'],
         False,
     ),
+    # --- an anchor or tag decorates the child, it is not the entry's value ---
+    (
+        'anchor before a block child',
+        'dependency_overrides:\n  magic: &m\n    path: /nonexistent/anchor\n',
+        ['magic -> /nonexistent/anchor'],
+        False,
+    ),
+    (
+        'tag before a block child',
+        'dependency_overrides:\n  magic: !!map\n    path: /nonexistent/tag\n',
+        ['magic -> /nonexistent/tag'],
+        False,
+    ),
     # --- a shape it cannot read is LOUD, never a silent pass ---
     ('list form', 'dependency_overrides:\n  - magic\n', [], True),
     (
@@ -162,8 +175,46 @@ CASES: list[tuple[str, str, list[str], bool]] = [
 ]
 
 
-def main() -> int:
+def exit_code_failures() -> list[str]:
+    """The three exit codes `bin/check` branches on, run through main().
+
+    scan() is the interesting half, but the guard's behaviour is the exit code:
+    2 and 3 are what turn a bad file into a loud failure rather than a silent
+    pass, and bin/check tests `$status` against them. A table that stopped at
+    scan() would leave the loud half hand-verified, which is where this started.
+    """
+    import subprocess
+    import tempfile
+
+    script = str(Path(__file__).resolve().parent / 'parse-overrides.py')
     failures = []
+
+    def run(label: str, contents: str | None, expected_code: int) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / 'pubspec_overrides.yaml'
+            if contents is None:
+                target = Path(directory) / 'absent.yaml'
+            else:
+                target.write_text(contents, encoding='utf-8')
+            result = subprocess.run(
+                [sys.executable, script, str(target)], capture_output=True, text=True
+            )
+            if result.returncode != expected_code:
+                failures.append(
+                    f'{label}: expected exit {expected_code}, got {result.returncode}'
+                )
+
+    run('exit 0 on a healthy file', 'dependency_overrides:\n  magic:\n    path: /tmp\n', 0)
+    run('exit 0 on a stale file (findings go to stdout)',
+        'dependency_overrides:\n  magic:\n    path: /nonexistent/x\n', 0)
+    run('exit 2 when the file cannot be opened', None, 2)
+    run('exit 3 on a shape it cannot read', 'dependency_overrides:\n  - magic\n', 3)
+    return failures
+
+
+def main() -> int:
+    exit_failures = exit_code_failures()
+    failures = list(exit_failures)
     for name, yaml, expected, expect_unreadable in CASES:
         missing, reason = scan(yaml)
         if expect_unreadable:
@@ -178,7 +229,9 @@ def main() -> int:
 
     for line in failures:
         print(f'  FAIL {line}', file=sys.stderr)
-    print(f'parse-overrides: {len(CASES) - len(failures)}/{len(CASES)} shapes pass')
+    total = len(CASES) + 4
+    print(f'parse-overrides: {total - len(failures)}/{total} checks pass '
+          f'({len(CASES)} shapes, 4 exit codes)')
     return 1 if failures else 0
 
 

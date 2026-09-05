@@ -103,6 +103,11 @@ def flow_path(value: str) -> str | None:
     return None
 
 
+def is_decorator(value: str) -> bool:
+    """Whether [value] is only a YAML anchor or tag, so the real value follows."""
+    return all(word.startswith(('&', '!')) for word in value.split())
+
+
 def check(name: str, value: str, missing: list[str]) -> None:
     path = unquote(strip_comment(value).strip())
     if path and not os.path.isdir(path):
@@ -156,7 +161,12 @@ def scan(raw: str) -> tuple[list[str], str | None]:
                 if own is not None:
                     check(key, own, missing)
                 continue
-            if not value:
+            # An anchor or tag (`magic: &m`, `magic: !!map`) is not the entry's
+            # value, it decorates the block child on the following lines. Push
+            # the entry so that child's `path:` is still seen; without this the
+            # child was swallowed and a stale path passed silently, which is the
+            # one class this whole file exists to stop.
+            if not value or is_decorator(value):
                 stack.append((indent, key))
             continue
 
