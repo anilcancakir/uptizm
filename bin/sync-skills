@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+#
+# Copies the sibling packages' authoring skills into `.github/skills`, where Copilot code review
+# reads them.
+#
+#   bin/sync-skills           refresh the copies from the sibling working trees
+#   bin/sync-skills --check   verify them (CI uses this)
+#
+# WHY COPIES AND NOT SYMLINKS
+#
+# A symlink cannot work here, and for a stronger reason than the one `bin/sync-instructions`
+# records. Copilot's review runs on GitHub with the repository checkout and nothing else, so a link
+# to `../magic/skills/...` resolves to a path that does not exist there. The target is OUTSIDE the
+# repository by definition: these packages are separate repos.
+#
+# WHY ONLY TWO OF THE FIVE
+#
+# The five sibling skills total 1,819 lines as measured here, against GitHub's own guidance to keep the whole
+# instruction surface near 1,000. `magic-framework` and `wind-ui` are the two describing code that
+# is actually WRITTEN in this repository; `artisan`, `dusk` and `telescope` describe tools that drive
+# a running app, which a reviewer looking at a diff cannot use. Adding them would spend the budget
+# on advice the reviewer cannot act on.
+#
+# Reference files under each skill's `references/` are NOT copied. Copilot does not follow links, so
+# a pointer to one is dead weight, and copying them all would double the surface again.
+#
+# WHAT --check CAN AND CANNOT PROVE
+#
+# Two different guarantees, each made where it can be:
+#
+#   locally, with the siblings present: the copy still matches upstream (catches DRIFT)
+#   on CI, with the siblings absent:    the copy matches its own recorded hash (catches HAND-EDITS)
+#
+# CI cannot detect upstream drift, because the upstream is not in the checkout. That is a real limit
+# rather than an oversight: run this script after pulling a sibling package.
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+# The workspace holding the sibling packages, resolved from the MAIN worktree rather than from
+# here. `$REPO_ROOT/..` is `.claude/worktrees` when this runs inside a worktree, which is the same
+# nested-layout trap `AGENTS.md` records for `pubspec_overrides.yaml`: `..` means something else
+# depending on where you are. `--git-common-dir` always points at the main repository's `.git`.
+MAIN_ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
+WORKSPACE="$(cd "$MAIN_ROOT/.." && pwd)"
+TARGET_DIR=".github/skills"
+
+CHECK=0
+[ "${1:-}" = "--check" ] && CHECK=1
+
+# package:skill, and the skill name is also the directory name Copilot discovers.
+SKILLS="magic:magic-framework wind:wind-ui"
+
+sha256() {
+    if command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | cut -d' ' -f1
+    else
+        sha256sum "$1" | cut -d' ' -f1
+    fi
+}
+
+# Frontmatter, then the provenance banner, then the rest of the source verbatim.
+#
+# The banner goes AFTER the frontmatter because `name:` and `description:` have to stay on line 1
+# for the loader to parse them, the same constraint the path-scoped rules have.
+render() {
+    local source_file="$1" version="$2" hash="$3" package="$4" skill="$5"
+
+    awk 'NR == 1 && $0 == "---" { print; inside = 1; next }
+         inside && $0 == "---" { print; exit }
+         inside { print }' "$source_file"
+
+    # No blank line before the banner, and none after. The banner has to be EXACTLY the lines
+    # `without_banner` removes, or the copy minus its banner is not byte-identical to the source and
+    # the recorded hash can never match. That is how this was caught: the round trip differed by one
+    # empty line and the CI-side check would have failed on every clean copy.
+    printf '<!-- COPIED by bin/sync-skills from %s. Do not edit here: edit it in that repository,\n' \
+        "$package/skills/$skill/SKILL.md"
+    printf '     then re-run the script. Source version %s, sha256 %s.\n' "$version" "$hash"
+    printf '     Present so Copilot code review can read it; a symlink would resolve to nothing on\n'
+    printf '     GitHub, because the source is a separate repository. -->\n'
+
+    awk 'NR == 1 && $0 == "---" { inside = 1; next }
+         inside && $0 == "---" { inside = 0; body = 1; next }
+         body' "$source_file"
+}
+
+# The copy minus its banner, which is byte-identical to the source it came from.
+without_banner() {
+    awk '/^<!-- COPIED by bin\/sync-skills/ { skipping = 1 }
+         !skipping { print }
+         skipping && /-->$/ { skipping = 0; next }' "$1"
+}
+
+failed=0
+
+for pair in $SKILLS; do
+    package="${pair%%:*}"
+    skill="${pair##*:}"
+    source_file="$WORKSPACE/$package/skills/$skill/SKILL.md"
+    target="$TARGET_DIR/$skill/SKILL.md"
+
+    if [ ! -f "$source_file" ]; then
+        if [ "$CHECK" -eq 0 ]; then
+            echo "sync-skills: $source_file is missing; is the $package working tree beside this repo?" >&2
+            exit 1
+        fi
+
+        # The CI case. Verify the copy against the hash it recorded, which catches an edit made here
+        # and says plainly that upstream freshness was not checked.
+        if [ ! -f "$target" ]; then
+            echo "sync-skills: $target is missing" >&2
+            failed=1
+            continue
+        fi
+
+        recorded="$(sed -n 's/.*sha256 \([0-9a-f]\{64\}\)\..*/\1/p' "$target" | head -1)"
+        stripped="$(mktemp)"
+        without_banner "$target" >"$stripped"
+        actual="$(sha256 "$stripped")"
+        rm -f "$stripped"
+
+        if [ "$recorded" != "$actual" ]; then
+            echo "sync-skills: $target was edited in place. It is a copy; edit it in $package." >&2
+            failed=1
+        else
+            echo "sync-skills: $skill matches its recorded hash (upstream not checked, source absent)"
+        fi
+
+        continue
+    fi
+
+    version="$(sed -n 's/^version: *//p' "$source_file" | head -1)"
+    [ -n "$version" ] || version="unversioned"
+    hash="$(sha256 "$source_file")"
+
+    staged="$(mktemp)"
+    render "$source_file" "$version" "$hash" "$package" "$skill" >"$staged"
+
+    if [ "$CHECK" -eq 1 ]; then
+        if [ -f "$target" ] && diff -q "$staged" "$target" >/dev/null 2>&1; then
+            echo "sync-skills: $skill is current ($package $version)"
+        else
+            echo "sync-skills: $skill is stale. Run bin/sync-skills and commit the result." >&2
+            diff -u "$target" "$staged" 2>/dev/null | head -20 || true
+            failed=1
+        fi
+        rm -f "$staged"
+
+        continue
+    fi
+
+    mkdir -p "$(dirname "$target")"
+    mv "$staged" "$target"
+    echo "sync-skills: wrote $target ($package $version, $(wc -l <"$target" | tr -d ' ') lines)"
+done
+
+exit "$failed"

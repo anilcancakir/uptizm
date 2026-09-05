@@ -1,0 +1,37 @@
+# Gitignored files copied into every worktree Claude Code creates, for `--worktree`,
+# for `EnterWorktree`, and for a subagent with `isolation: worktree`.
+#
+# A worktree is a fresh checkout, so none of these are present in it, and each one
+# fails in its own way, none of them naming the missing file:
+#
+#   pubspec_overrides.yaml   every sibling resolves from pub.dev instead, and the
+#                            suite then certifies the PUBLISHED packages while you
+#                            are editing the working trees. Nothing errors.
+#   .env                     a bundled pubspec asset. flutter_dotenv defaults
+#                            BROADCAST_CONNECTION to null on web and realtime never
+#                            connects; `flutter analyze` reports it as
+#                            asset_does_not_exist, which reads like a pubspec typo.
+#   backend/.env             artisan aborts before it says why.
+#   .artisan/plugins.json    every plugin command disappears from `./bin/fsa`.
+#
+# `.gitignore` syntax, and only files that match AND are gitignored are copied, so a
+# tracked file can never be duplicated by this list.
+#
+# `bin/check` copies these plus `backend/public/build` and the worker's `.dev.vars`,
+# because AGENTS.md offers `git worktree add` by hand as an equal path and that one
+# reaches this file not at all. The overlap is deliberate.
+#
+# NOT processed when a WorktreeCreate hook replaces the default git logic; such a
+# hook has to copy these itself. This project has no such hook, deliberately.
+#
+# One thing no file here can fix, because the rule lives in artisan:
+# `sessionOwnershipError` treats a working directory INSIDE `projectRoot` as owning
+# the session, and a worktree under `.claude/worktrees/` is inside the main
+# checkout. So a `dusk:*` call from a worktree with no session of its own drives the
+# app the MAIN checkout started, and reports success. Run `./bin/fsa start` in the
+# worktree, or pass `--state=<path>`, before any dusk command there.
+
+pubspec_overrides.yaml
+.env
+backend/.env
+.artisan/plugins.json

@@ -31,32 +31,30 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # Local path links to the magic ecosystem under development in this workspace.
-  magic:
-    path: ../magic
-  magic_deeplink:
-    path: ../magic_deeplink
-  magic_notifications:
-    path: ../magic_notifications
-  magic_payments:
-    path: ../magic_payments
-  magic_social_auth:
-    path: ../magic_social_auth
-  magic_starter:
-    path: ../magic_starter
+  # The magic ecosystem, resolved from pub.dev. A gitignored pubspec_overrides.yaml
+  # points these at the local sibling checkouts for development; see that file and
+  # `.claude/rules/flutter-app.md`. Declaring them hosted rather than by path is what
+  # lets a worktree under .claude/worktrees/ analyze clean, because the analyzer reads
+  # this file directly and warns on a `path:` that does not resolve from there.
+  #
+  # Caret on a 0.0.x package does NOT pin the patch in pub: `^0.0.9` means
+  # `>=0.0.9 <0.1.0`, so a sibling's next patch is admitted without a bump here.
+  magic: ^0.0.9
+  magic_deeplink: ^0.0.3
+  magic_notifications: ^0.2.0
+  magic_payments: ^0.0.2
+  magic_social_auth: ^0.0.3
+  magic_starter: ^0.0.1-alpha.26
 
   # Dev-tooling, imported by lib/main.dart under kDebugMode (release tree-shakes).
-  magic_devtools:
-    path: ../magic_devtools
-  fluttersdk_dusk:
-    path: ../dusk
-  fluttersdk_telescope:
-    path: ../telescope
+  magic_devtools: ^0.0.4
+  fluttersdk_dusk: ^0.0.13
+  fluttersdk_telescope: ^0.0.5
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  fluttersdk_artisan: any
+  fluttersdk_artisan: ^0.0.14
 
   # Error and performance reporting. Unlike magic_devtools above, this is NOT
   # dev-only: it is the release build's only way of telling anyone that
@@ -70,38 +68,14 @@ dependencies:
   fl_chart: ^1.1.1
 
 
-# Force every reference (root and transitive) to the local workspace source so
-# the plugins' own hosted magic constraints do not clash with the path links above.
+# The only tracked override, and it is not a path one. Every sibling now resolves
+# from pub.dev, so nothing has to be forced onto a local source here.
+#
+# A gitignored pubspec_overrides.yaml REPLACES this block rather than merging with
+# it, so the entry below has to be mirrored there too. That file says the same thing
+# from its own side; changing one without the other drops file_picker from
+# "direct overridden" to "transitive" in pubspec.lock, which is the only symptom.
 dependency_overrides:
-  magic:
-    path: ../magic
-  magic_deeplink:
-    path: ../magic_deeplink
-  magic_notifications:
-    path: ../magic_notifications
-  magic_payments:
-    path: ../magic_payments
-  magic_social_auth:
-    path: ../magic_social_auth
-  magic_starter:
-    path: ../magic_starter
-  magic_devtools:
-    path: ../magic_devtools
-  fluttersdk_dusk:
-    path: ../dusk
-  fluttersdk_telescope:
-    path: ../telescope
-  # Wind and artisan reach this app transitively (through magic and the plugins),
-  # so they are overridden here too rather than only in the gitignored
-  # pubspec_overrides.yaml. Without them CI resolves those two from pub.dev while
-  # everything around them comes from the local working trees, and the mismatch
-  # surfaces as an "undefined" analyze error that reproduces nowhere locally.
-  fluttersdk_artisan:
-    path: ../artisan
-  fluttersdk_wind:
-    path: ../wind
-  fluttersdk_wind_diagnostics_contracts:
-    path: ../wind_diagnostics_contracts
   # Pin to the stable line: magic's ">=11.0.2 <13.0.0" otherwise lets the
   # 12.0.0-beta prerelease resolve, whose non-null saveFile params break magic.
   file_picker: ^11.0.2

@@ -408,37 +408,42 @@ packages:
   fluttersdk_artisan:
     dependency: "direct main"
     description:
-      path: "../artisan"
-      relative: true
-    source: path
+      name: fluttersdk_artisan
+      sha256: "15f77c2e57663c75358d4ae6e6b72c74b53a8340478522d75449141bbcef3385"
+      url: "https://pub.dev"
+    source: hosted
     version: "0.0.14"
   fluttersdk_dusk:
     dependency: "direct main"
     description:
-      path: "../dusk"
-      relative: true
-    source: path
+      name: fluttersdk_dusk
+      sha256: cb67f106452e2e655a9f5e3345c6c04b3c39fa81f1247eaa37cf2fa0b45c878c
+      url: "https://pub.dev"
+    source: hosted
     version: "0.0.13"
   fluttersdk_telescope:
     dependency: "direct main"
     description:
-      path: "../telescope"
-      relative: true
-    source: path
+      name: fluttersdk_telescope
+      sha256: "2496ce77e12fc0d4053c3e204d9cc2ec6872ec7be7acf3de8c18b5a114e272a7"
+      url: "https://pub.dev"
+    source: hosted
     version: "0.0.5"
   fluttersdk_wind:
-    dependency: "direct overridden"
+    dependency: transitive
     description:
-      path: "../wind"
-      relative: true
-    source: path
+      name: fluttersdk_wind
+      sha256: "7374b032db392aa092e0e05466ec3f510b32f84d0179de66691d3d022a65d65f"
+      url: "https://pub.dev"
+    source: hosted
     version: "1.5.0"
   fluttersdk_wind_diagnostics_contracts:
-    dependency: "direct overridden"
+    dependency: transitive
     description:
-      path: "../wind_diagnostics_contracts"
-      relative: true
-    source: path
+      name: fluttersdk_wind_diagnostics_contracts
+      sha256: "3c302f7504c9e8037072b4d2be2c266fb5488aa907eda1ce9321f1ee8556c972"
+      url: "https://pub.dev"
+    source: hosted
     version: "1.1.0"
   glob:
     dependency: transitive
@@ -699,51 +704,58 @@ packages:
   magic:
     dependency: "direct main"
     description:
-      path: "../magic"
-      relative: true
-    source: path
+      name: magic
+      sha256: "6ed2efc9e09e3803c4dd180d80050eba7981325c3496e21ddb6620b25e11b3e0"
+      url: "https://pub.dev"
+    source: hosted
     version: "0.0.9"
   magic_deeplink:
     dependency: "direct main"
     description:
-      path: "../magic_deeplink"
-      relative: true
-    source: path
+      name: magic_deeplink
+      sha256: "6aa5ea94fdc926ee06958d27a3bcc8f632d17b55bfa56fdfc77e290f6728b6a0"
+      url: "https://pub.dev"
+    source: hosted
     version: "0.0.3"
   magic_devtools:
     dependency: "direct main"
     description:
-      path: "../magic_devtools"
-      relative: true
-    source: path
+      name: magic_devtools
+      sha256: aa7337320708cc5864a3514299a4a6049c59c977526128f14d0fd7653b8e8519
+      url: "https://pub.dev"
+    source: hosted
     version: "0.0.4"
   magic_notifications:
     dependency: "direct main"
     description:
-      path: "../magic_notifications"
-      relative: true
-    source: path
+      name: magic_notifications
+      sha256: "9ec9464b88ff628881a26870a2b6a45fba901acf515be451230d0691f2b7f97c"
+      url: "https://pub.dev"
+    source: hosted
     version: "0.2.0"
   magic_payments:
     dependency: "direct main"
     description:
-      path: "../magic_payments"
-      relative: true
-    source: path
+      name: magic_payments
+      sha256: a3ec0cfd8b6e7421e629d003d4da5f9b8ece0510f96e0e000024e3f43b9ee5de
+      url: "https://pub.dev"
+    source: hosted
     version: "0.0.2"
   magic_social_auth:
     dependency: "direct main"
     description:
-      path: "../magic_social_auth"
-      relative: true
-    source: path
+      name: magic_social_auth
+      sha256: "37ade352950ce84923a20a6549fd861a0928d3f8efc00c818ba38eef74b3772e"
+      url: "https://pub.dev"
+    source: hosted
     version: "0.0.3"
   magic_starter:
     dependency: "direct main"
     description:
-      path: "../magic_starter"
-      relative: true
-    source: path
+      name: magic_starter
+      sha256: "86915e3dd2bec379e0ab69c829c14ebdd185b68f6bb9a714bf1d06b9d2acdef0"
+      url: "https://pub.dev"
+    source: hosted
     version: "0.0.1-alpha.26"
   matcher:
     dependency: transitive

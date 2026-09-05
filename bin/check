@@ -78,25 +78,43 @@ TOTAL_CORES="$(cores)"
 LANE=$((TOTAL_CORES / 2))
 [ "$LANE" -lt 2 ] && LANE=2
 
-# A worktree for this repo has to be a SIBLING of it, not nested inside it.
-# The twelve packages are declared as `path: ../<pkg>`, so from
-# `<repo>/.claude/worktrees/<name>` they resolve to `.claude/worktrees/magic` and do
-# not exist. A generated pubspec_overrides.yaml does fix resolution, and it does NOT
-# fix `flutter analyze`, which reads pubspec.yaml itself and reports eight
-# path_does_not_exist warnings that no override file can silence. So the layout is
-# the fix:
+# The twelve siblings are declared as hosted carets, so a checkout with no
+# pubspec_overrides.yaml resolves every one of them from pub.dev and the suite then
+# passes against the PUBLISHED packages rather than the working trees you are
+# editing. That is the failure this guard exists for, and it is silent: nothing
+# errors, the run is just measuring something else.
 #
-#   git worktree add ../uptizm-<slug> -b feature/<slug>
-#
-# From there `../magic` is the same directory the main checkout means, and nothing
-# needs generating.
-require_sibling_layout() {
+# `bootstrap_ignored_files` copies the file into a worktree before this runs, so
+# reaching the error below means it is absent from the main checkout too.
+require_local_siblings() {
     wants flutter || return 0
-    [ -d ../magic ] && return 0
+    [ -f pubspec_overrides.yaml ] || {
+        echo "check: pubspec_overrides.yaml is absent, so every sibling would resolve from pub.dev" >&2
+        echo "check: and this run would certify the published packages, not your working trees." >&2
+        echo "check: copy it from the main checkout, or from the block in .claude/rules/flutter-app.md." >&2
+        exit 1
+    }
 
-    echo "check: ../magic is not next to this checkout, so the sibling packages cannot resolve." >&2
-    echo "check: create the worktree beside the repo instead of inside it:" >&2
-    echo "check:   git worktree add ../uptizm-<slug> -b feature/<slug>" >&2
+    # The paths inside it are absolute, so a stale one points at a directory that
+    # moved. pub reports that as a resolution failure with no hint of this file.
+    local missing
+    missing="$(python3 - <<'PY'
+import sys, yaml
+try:
+    data = yaml.safe_load(open('pubspec_overrides.yaml')) or {}
+except Exception as exc:                       # a malformed file is silently ignored by pub
+    print(f"unparseable: {exc}")
+    sys.exit(0)
+import os
+for name, spec in (data.get('dependency_overrides') or {}).items():
+    if isinstance(spec, dict) and 'path' in spec and not os.path.isdir(spec['path']):
+        print(f"{name} -> {spec['path']}")
+PY
+)"
+    [ -z "$missing" ] && return 0
+
+    echo "check: pubspec_overrides.yaml points at paths that do not exist:" >&2
+    echo "$missing" | sed 's/^/check:   /' >&2
     exit 1
 }
 
