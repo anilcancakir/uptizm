@@ -251,6 +251,7 @@ List<String> _stringListFromWire(Object? raw) {
 /// controller owns only the custom metrics catalog; the metrics tab's
 /// system section stays a separate, client-derived concern.
 class MonitorMetricsController extends MagicController
+    with ValidatesRequests
     implements SessionScopedController {
   /// Singleton accessor, registering the controller on first access.
   static MonitorMetricsController get instance =>
@@ -347,6 +348,7 @@ class MonitorMetricsController extends MagicController
     // skeleton, not the previous tenant's conclusion that a monitor has no
     // custom metrics.
     _resolved.clear();
+    clearErrors();
     refreshUI();
   }
 

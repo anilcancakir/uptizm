@@ -118,6 +118,7 @@ class NotificationChannelRecord {
 /// toast: a failed test-send (Slack `{ok:false}` / webhook non-2xx, surfaced
 /// by the backend as a 502) is reported as a failure, never a false success.
 class NotificationChannelController extends MagicController
+    with ValidatesRequests
     implements SessionScopedController {
   /// Singleton accessor, registering the controller on first access.
   static NotificationChannelController get instance =>
@@ -270,6 +271,7 @@ class NotificationChannelController extends MagicController
     // Back to "not asked yet": the incoming identity must get a skeleton, not
     // the previous tenant's conclusion that nothing is wired up.
     _resolvedOnce = false;
+    clearErrors();
     refreshUI();
 
     await reload();

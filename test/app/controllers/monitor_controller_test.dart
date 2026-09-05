@@ -1586,5 +1586,17 @@ void main() {
       );
       expect(controller.monitorById('api'), isNull);
     });
+
+    test('resetForSession clears validation errors from the previous identity', () async {
+      // A rejected field message belongs to the identity that saw it; carried
+      // across a team switch it would flag a field the incoming team never
+      // submitted.
+      final MonitorController controller = MonitorController.instance;
+      controller.validationErrors = {'name': 'x'};
+
+      await controller.resetForSession();
+
+      expect(controller.validationErrors, isEmpty);
+    });
   });
 }

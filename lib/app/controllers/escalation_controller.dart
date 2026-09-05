@@ -77,6 +77,7 @@ class EscalationStepWire {
 /// exactly one people-only step: `target_type: on_call` (the shared rotation,
 /// no `target_id`) or `target_type: user` (`target_id` = a team member id).
 class EscalationController extends MagicController
+    with ValidatesRequests
     implements SessionScopedController {
   /// Singleton accessor, registering the controller on first access.
   static EscalationController get instance =>
@@ -257,6 +258,7 @@ class EscalationController extends MagicController
     // Back to "not asked yet": the incoming identity must get a skeleton, not
     // the previous tenant's conclusion that there are no policies.
     _resolvedOnce = false;
+    clearErrors();
     refreshUI();
 
     await reload();

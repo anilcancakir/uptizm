@@ -29,6 +29,7 @@ import '../support/roster_page.dart';
 /// planned work. `SessionScopeSync` discovers this by TYPE, so implementing the
 /// interface is the whole registration.
 class MaintenanceController extends MagicController
+    with ValidatesRequests
     implements SessionScopedController {
   /// Singleton accessor. Registers the controller; it does NOT fetch.
   ///
@@ -134,6 +135,7 @@ class MaintenanceController extends MagicController
     // so the incoming identity gets a skeleton, not the outgoing team's answer.
     _windows = const [];
     _resolvedOnce = false;
+    clearErrors();
     refreshUI();
 
     await load();

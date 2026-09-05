@@ -40,7 +40,7 @@ import '../support/incident_types.dart'
 /// [load] resolves. [aiSuggestions] stays empty: AI analysis attachment is a
 /// separate, not-yet-wired concern.
 class IncidentController extends MagicController
-    with MagicStateMixin<List<Incident>>
+    with MagicStateMixin<List<Incident>>, ValidatesRequests
     implements SessionScopedController {
   /// The token for the next page, or null when the roster has been walked.
   String? _nextCursor;
@@ -571,6 +571,7 @@ class IncidentController extends MagicController
     _monitorRoster = null;
     _monitorRosterSettled = false;
     setState(null, status: const RxStatus.empty(), notify: false);
+    clearErrors();
     refreshUI();
 
     // Re-arm the one-shot guard: the previous identity's load already claimed

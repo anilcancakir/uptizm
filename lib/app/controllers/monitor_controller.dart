@@ -142,6 +142,7 @@ class MonitorAnalysis {
 /// arguments and stays navigation-only; firing the same write on Cancel as
 /// on Submit would silently persist stale field values.
 class MonitorController extends MagicController
+    with ValidatesRequests
     implements SessionScopedController {
   /// Singleton accessor, registering the controller on first access.
   static MonitorController get instance =>
@@ -543,6 +544,10 @@ class MonitorController extends MagicController
     // Back to "not asked yet": the incoming identity must get a skeleton, not
     // the previous tenant's conclusion that there are no monitors.
     _resolvedOnce = false;
+    // A rejected field message belongs to the identity that saw it; carried
+    // across a team switch it would flag a field the incoming team never
+    // submitted.
+    clearErrors();
     refreshUI();
 
     await reload();

@@ -77,6 +77,7 @@ enum OnCallPhase {
 /// knows. Each returns `true`/`false` and surfaces its own toast; none ever
 /// throws to the caller.
 class OnCallController extends MagicController
+    with ValidatesRequests
     implements SessionScopedController {
   /// Singleton accessor, registering the controller on first access.
   static OnCallController get instance => Magic.findOrPut(OnCallController.new);
@@ -257,6 +258,7 @@ class OnCallController extends MagicController
     _overrides = const [];
     _currentResponder = null;
     _currentRotationId = null;
+    clearErrors();
     refreshUI();
 
     await reload();

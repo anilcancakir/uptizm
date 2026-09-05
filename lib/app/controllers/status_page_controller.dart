@@ -34,6 +34,7 @@ import '../../resources/views/status/status_form_support.dart' show aiDraftFor;
 /// and [removeSubscriber] persist through `POST`/`DELETE` on the same
 /// sub-resource.
 class StatusPageController extends MagicController
+    with ValidatesRequests
     implements SessionScopedController {
   /// Singleton accessor, registering the controller on first access.
   static StatusPageController get instance =>
@@ -305,6 +306,7 @@ class StatusPageController extends MagicController
     // login, so nothing else clears these.
     _previewPollGeneration.clear();
     _previewPollCapped.clear();
+    clearErrors();
     _previewRenderRequested.clear();
     refreshUI();
 
