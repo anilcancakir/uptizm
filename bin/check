@@ -122,9 +122,18 @@ require_local_siblings() {
     # sailed through the one check written to catch it. Nothing in this repo
     # declares PyYAML, so that was most machines.
     #
-    # The shape here is fixed and machine-written (`  <name>:` then
-    # `    path: <abs>`), so two regexes cover it. Anything the parser cannot
-    # read is a hard failure now, never a silent pass.
+    # This file is HAND-written, so it carries whichever YAML style its author
+    # reached for. Both are covered: the block form (`  <name>:` then
+    # `    path: <abs>`) and the flow form (`  <name>: {path: <abs>}`), which is
+    # the one `.claude/rules/flutter-app.md` and `AGENTS.md` themselves write.
+    # An earlier version of this parser handled only the block form, so a
+    # flow-style stale path passed exactly the way the PyYAML gap did.
+    #
+    # A `dependency_overrides` entry the parser cannot classify EXITS non-zero
+    # rather than being skipped, because a shape it does not know is the one
+    # thing that would let this go quiet a third time. A `git:` override is a
+    # legitimate entry with no path to check, so its nested keys are ignored
+    # rather than treated as unknown.
     local missing status
     missing="$(python3 - <<'PY'
 import os, re, sys
@@ -135,11 +144,19 @@ except OSError as exc:
     print(f"cannot read pubspec_overrides.yaml: {exc}", file=sys.stderr)
     sys.exit(2)
 
-name_re = re.compile(r'^  ([A-Za-z_][A-Za-z0-9_]*):\s*(#.*)?$')
+block_re = re.compile(r'^  ([A-Za-z_][A-Za-z0-9_]*):\s*(#.*)?$')
+flow_re = re.compile(r'^  ([A-Za-z_][A-Za-z0-9_]*):\s*\{(.*)\}\s*(#.*)?$')
+scalar_re = re.compile(r'^  ([A-Za-z_][A-Za-z0-9_]*):\s*[^{\s#][^#]*(#.*)?$')
 path_re = re.compile(r'^    path:\s*(.+?)\s*$')
+flow_path_re = re.compile(r'(?:^|,)\s*path:\s*([^,]+)')
+
+def report(name, raw):
+    path = raw.strip().strip('\'"')
+    if not os.path.isdir(path):
+        print(f"{name} -> {path}")
 
 inside, current = False, None
-for line in lines:
+for number, line in enumerate(lines, 1):
     if not line.strip() or line.lstrip().startswith('#'):
         continue
     if not line.startswith(' '):
@@ -148,22 +165,37 @@ for line in lines:
         continue
     if not inside:
         continue
-    matched = name_re.match(line)
+
+    # Nested under an entry: only `path:` matters, and a `git:` block's own
+    # keys fall through here harmlessly.
+    if line.startswith('    '):
+        matched = path_re.match(line)
+        if matched and current:
+            report(current, matched.group(1))
+            current = None
+        continue
+
+    matched = flow_re.match(line)
+    if matched:
+        current = None
+        inner = flow_path_re.search(matched.group(2))
+        if inner:
+            report(matched.group(1), inner.group(1))
+        continue
+
+    matched = block_re.match(line)
     if matched:
         current = matched.group(1)
         continue
-    # A single-line entry (`  file_picker: ^11.0.2`) matches neither regex.
-    # Clear the pending name on it, so a `path:` further down can never be
-    # attributed to the wrong package.
-    if not line.startswith('    '):
+
+    # A single-line version (`  file_picker: ^11.0.2`) declares no path. Clear
+    # the pending name so a later `path:` cannot be attributed to it.
+    if scalar_re.match(line):
         current = None
         continue
-    matched = path_re.match(line)
-    if matched and current:
-        path = matched.group(1).strip('\'"')
-        if not os.path.isdir(path):
-            print(f"{current} -> {path}")
-        current = None
+
+    print(f"unrecognised dependency_overrides line {number}: {line.strip()}", file=sys.stderr)
+    sys.exit(3)
 PY
 )" && status=0 || status=$?
 
