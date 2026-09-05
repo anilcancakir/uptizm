@@ -1110,7 +1110,7 @@ class _MonitorFormState extends State<MonitorForm>
       // HTTP only: a TCP probe opens a socket and has no redirect to follow.
       //
       // Laid out like `_buildAdvancedToggle()` rather than wrapped in an
-      // `MSFormField`: `_buildSwitchRow` renders its own label, so a form field
+      // `MSFormField`: [SwitchRow] renders its own label, so a form field
       // around it would print the same sentence twice.
       if (_isHttp)
         WDiv(
