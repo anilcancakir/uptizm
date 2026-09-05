@@ -114,123 +114,14 @@ require_local_siblings() {
     # The paths inside it are absolute, so a stale one points at a directory that
     # moved. pub reports that as a resolution failure with no hint of this file.
     #
-    # Parsed with the standard library rather than PyYAML, and that is the whole
-    # point of doing it by hand. `import yaml` used to sit outside the try, so on
-    # any machine without PyYAML the ImportError left stdout empty, `missing`
-    # came back empty, and the guard PASSED. `set -u -o pipefail` carries no
-    # `-e`, so the failed substitution did not stop the run either: a stale file
-    # sailed through the one check written to catch it. Nothing in this repo
-    # declares PyYAML, so that was most machines.
-    #
-    # This file is HAND-written, so it carries whichever YAML style its author
-    # reached for, and the history of this guard is three rounds of discovering
-    # one more style it did not read: PyYAML absent, then flow form
-    # (`  <name>: {path: <abs>}`, which is the form `AGENTS.md` itself writes),
-    # then four-space and tab indentation. Each fix was keyed to the shapes
-    # somebody had thought of, which is why each one found the next.
-    #
-    # So this walks the file by INDENT LEVEL rather than matching fixed-width
-    # line shapes: it tracks the open key stack, expands tabs, accepts a quoted
-    # key, and strips a trailing comment the same way in both forms. What it
-    # cares about is one thing, a `path:` belonging to an entry directly under
-    # `dependency_overrides`, at whatever indent the file happens to use.
-    #
-    # A line INSIDE `dependency_overrides` that is not a mapping entry exits
-    # non-zero rather than being skipped, because an unread shape is exactly how
-    # this went quiet three times. A `git:` override is a legitimate entry whose
-    # own `path:` is a sub-directory rather than a checkout, and it sits one
-    # level deeper, so it is correctly ignored rather than reported.
+    # `bin/parse-overrides.py` is a separate file rather than a heredoc here for
+    # one reason: it can be tested, and `bin/parse-overrides-test.py` is its
+    # table. This guard was wrong four times in a row (PyYAML absent, flow form,
+    # four-space and tab indent, a flow-form `git:` override), each fix keyed to
+    # the shapes somebody had thought of and each one finding the next, because
+    # hand-exercising was the only instrument. A shape costs one row now.
     local missing status
-    missing="$(python3 - <<'PY'
-import os, re, sys
-
-try:
-    raw = open('pubspec_overrides.yaml', encoding='utf-8').read()
-except OSError as exc:
-    print(f"cannot read pubspec_overrides.yaml: {exc}", file=sys.stderr)
-    sys.exit(2)
-
-KEY = r'(?:"[^"]+"|\'[^\']+\'|[A-Za-z_][A-Za-z0-9_]*)'
-entry_re = re.compile(rf'^({KEY}):\s*(.*)$')
-flow_path_re = re.compile(r'(?:^|[{,])\s*(?:"path"|\'path\'|path)\s*:\s*([^,}]+)')
-
-
-def strip_comment(text: str) -> str:
-    """Drop a trailing ` # comment`, leaving a `#` that sits inside quotes alone."""
-    quote = None
-    for index, char in enumerate(text):
-        if quote:
-            if char == quote:
-                quote = None
-        elif char in '"\'':
-            quote = char
-        elif char == '#' and (index == 0 or text[index - 1] in ' \t'):
-            return text[:index]
-    return text
-
-
-def unquote(text: str) -> str:
-    text = text.strip()
-    if len(text) >= 2 and text[0] == text[-1] and text[0] in '"\'':
-        return text[1:-1]
-    return text
-
-
-def report(name: str, value: str) -> None:
-    path = unquote(strip_comment(value).strip())
-    if path and not os.path.isdir(path):
-        print(f"{name} -> {path}")
-
-
-# (indent, key) for every open mapping level, outermost first.
-stack: list[tuple[int, str]] = []
-
-for number, line in enumerate(raw.splitlines(), 1):
-    expanded = line.expandtabs(2)
-    if not expanded.strip() or expanded.lstrip().startswith('#'):
-        continue
-
-    indent = len(expanded) - len(expanded.lstrip(' '))
-    body = strip_comment(expanded.strip()).strip()
-    if not body:
-        continue
-
-    while stack and indent <= stack[-1][0]:
-        stack.pop()
-
-    path_of = [key for _, key in stack]
-
-    matched = entry_re.match(body)
-    if not matched:
-        # Only a line inside dependency_overrides can block the run; anything
-        # else in the file is none of this guard's business.
-        if path_of[:1] == ['dependency_overrides']:
-            print(f"unrecognised dependency_overrides line {number}: {line.strip()}", file=sys.stderr)
-            sys.exit(3)
-        continue
-
-    key, value = unquote(matched.group(1)), matched.group(2).strip()
-
-    # A package entry sits directly under dependency_overrides.
-    if path_of == ['dependency_overrides']:
-        if value.startswith('{'):
-            inner = flow_path_re.search(value)
-            if inner:
-                report(key, inner.group(1))
-            continue
-        if not value:
-            stack.append((indent, key))
-        continue
-
-    # `path:` directly under a package entry, at whatever indent it uses.
-    if len(path_of) == 2 and path_of[0] == 'dependency_overrides' and key == 'path' and value:
-        report(path_of[1], value)
-        continue
-
-    if not value:
-        stack.append((indent, key))
-PY
-)" && status=0 || status=$?
+    missing="$(python3 bin/parse-overrides.py pubspec_overrides.yaml)" && status=0 || status=$?
 
     # A parser that fell over must not read as "nothing is stale".
     if [ "$status" -ne 0 ]; then
@@ -398,6 +289,11 @@ run_lockfile() {
     fi
     echo "lockfile: hosted-only, no local paths"
 }
+# The overrides parser guards the guard. `require_local_siblings` above is the
+# only check whose failure mode is SILENCE (it reads a stale file and reports
+# nothing), and it was wrong four times in a row before it had a test. This runs
+# its shape table, so a fifth shape costs one row rather than another round.
+run_overrides_parser() { python3 bin/parse-overrides-test.py; }
 
 echo "check: ${SCOPES# } | $TOTAL_CORES cores, $LANE per suite$([ "$FAST" -eq 1 ] && echo ' | static only')"
 prepare
@@ -407,6 +303,7 @@ wants flutter && start "flutter-analyze" run_flutter_analyze
 wants flutter && start "design-tokens" run_design_tokens
 wants flutter && start "registry" run_registry
 wants flutter && start "lockfile" run_lockfile
+wants flutter && start "overrides-parser" run_overrides_parser
 wants backend && start "backend-pint" run_backend_pint
 wants worker && start "worker-typecheck" run_worker_typecheck
 
