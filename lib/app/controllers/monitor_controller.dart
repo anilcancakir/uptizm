@@ -19,7 +19,8 @@ import '../support/monitor_types.dart'
         analyzeStepStateFromWire;
 import '../enums/status_key.dart';
 import '../enums/ai_confidence.dart';
-import '../../resources/views/monitors/monitor_form_support.dart' show AiMetricSeed;
+import '../../resources/views/monitors/monitor_form_support.dart'
+    show AiMetricSeed, kHttpMethods, kMonitorTypes;
 
 /// The AI-derived monitor configuration returned by `POST /monitors/analyze`.
 ///
@@ -949,6 +950,86 @@ class MonitorController extends MagicController
     MagicRoute.to('/monitors');
   }
 
+  // ---------------------------------------------------------------------------
+  // The write path's client-side rules.
+  // ---------------------------------------------------------------------------
+
+  /// The `type` wire vocabulary, read off the form's own option list rather than
+  /// retyped here, so the rule and the control the operator uses cannot drift.
+  /// Mirrors the backend `MonitorType` enum, which has no Dart counterpart.
+  static final List<String> _monitorTypeValues = kMonitorTypes
+      .map((option) => option.value)
+      .toList();
+
+  /// The `method` wire vocabulary, same source and same reason as
+  /// [_monitorTypeValues]. Mirrors the backend `HttpMethod` enum.
+  static final List<String> _httpMethodValues = kHttpMethods
+      .map((option) => option.value)
+      .toList();
+
+  /// The client-side mirror of `StoreMonitorRequest::rules()` (`POST /monitors`).
+  ///
+  /// Only the rules magic ships EXACTLY are here. An approximation would refuse
+  /// a payload the server accepts, which is worse than leaving the server to
+  /// decide, so each of these is deliberately absent:
+  ///
+  ///  - `integer` / `numeric` / `string` / `boolean` / `nullable`: magic has no
+  ///    type rules at all. [Min] and [Max] dispatch on the RUNTIME type of the
+  ///    value instead (characters on a String, the value on a num, the count on
+  ///    a List). So every numeric bound below measures the right quantity only
+  ///    because `MonitorForm.buildFields()` parses before it sends: hand one of
+  ///    them the raw field string and it would silently count characters.
+  ///  - `regions.*` (`Rule::enum(MonitorRegion)`): [In] type-checks the WHOLE
+  ///    value, so it cannot address list ELEMENTS; on `regions` it would refuse
+  ///    every valid list. The server owns the region vocabulary.
+  ///  - `targetRules()`'s TCP-vs-HTTP regex: magic has no regex rule. The form
+  ///    keeps its own target-shape check for that one.
+  ///  - `escalation_policy_id`'s `Rule::exists`: every [AsyncRule] (including
+  ///    [Unique]) is skipped SILENTLY by the synchronous [validate], so a rule
+  ///    here would read as enforced and enforce nothing.
+  ///  - the plan gates in `withValidator()`: they read team state this client
+  ///    does not hold, and they come back as ordinary 422 field errors anyway.
+  ///
+  /// A fresh map per call rather than a shared constant, because [Min] and [Max]
+  /// remember the value type they last measured and `message()` reads it back;
+  /// one shared instance would let one submit's type pick another's message.
+  Map<String, List<Rule>> get _createRules => <String, List<Rule>>{
+    'name': [Required(), Max(200)],
+    'url': [Required(), Max(2048)],
+    'type': [Required(), In<String>(_monitorTypeValues)],
+    'method': [Required(), In<String>(_httpMethodValues)],
+    'check_interval_sec': [Required(), Min(30), Max(86400)],
+    'timeout_sec': [Required(), Min(1), Max(120)],
+    'regions': [Required(), Min(1)],
+    'expected_status_code': [Min(100), Max(599)],
+    'slo_target': [Min(0), Max(100)],
+  };
+
+  /// The client-side mirror of `UpdateMonitorRequest::rules()`
+  /// (`PUT /monitors/:id`).
+  ///
+  /// Every field there is `sometimes|required`, and magic has no `sometimes`, so
+  /// the `required` half is DROPPED rather than approximated: a bare [Required]
+  /// would refuse the partial payload the server explicitly accepts (an edit
+  /// that sends only the keys it changed is exactly that shape). What is left
+  /// are the bounds, and every one of them passes on a null, which is precisely
+  /// `sometimes` semantics for a rule that measures only a value it was given.
+  ///
+  /// The cost is that a blank field on an edit costs one round trip instead of
+  /// none; the server's 422 comes back through [validationErrors] and lands
+  /// under the same field either way.
+  Map<String, List<Rule>> get _updateRules => <String, List<Rule>>{
+    'name': [Max(200)],
+    'url': [Max(2048)],
+    'type': [In<String>(_monitorTypeValues)],
+    'method': [In<String>(_httpMethodValues)],
+    'check_interval_sec': [Min(30), Max(86400)],
+    'timeout_sec': [Min(1), Max(120)],
+    'regions': [Min(1)],
+    'expected_status_code': [Min(100), Max(599)],
+    'slo_target': [Min(0), Max(100)],
+  };
+
   /// Creates a monitor and returns to the monitors list.
   ///
   /// [fields] is the raw create-form field map (`name`, `url`, `type`,
@@ -967,34 +1048,41 @@ class MonitorController extends MagicController
   /// Falls back to the list when the save returned no id (and for the
   /// navigation-only call, which has no monitor to open).
   ///
-  /// Returns the backend per-field validation errors (single message per field,
-  /// keyed by the wire field name) so the form can render a server 422 inline;
-  /// an empty map means success (or a navigation-only call). A `false` save that
-  /// carries field errors ([Monitor.validationErrors]) STAYS on the form with no
-  /// toast so the user corrects the flagged fields; a `false` save with NO field
-  /// errors (a transport error / 500) keeps the generic save-failed toast and
-  /// returns an empty map. [Monitor.save] absorbs transport failures internally
-  /// and returns `false` rather than throwing.
-  Future<Map<String, String>> create([Map<String, dynamic>? fields]) async {
+  /// Answers whether the monitor was written. The per-field detail does NOT
+  /// travel in the return value any more: it is published in [validationErrors]
+  /// and the form reads it back through [hasError] / [getError]. So `false` with
+  /// a populated [validationErrors] means "stay on the form and correct the
+  /// flagged fields", and `false` with an EMPTY one means the generic
+  /// save-failed toast has already fired. A navigation-only call answers `true`.
+  ///
+  /// [fields] is checked against [_createRules] BEFORE anything is sent, so a
+  /// payload whose answer is already known never becomes a request.
+  /// [Monitor.save] absorbs transport failures internally and returns `false`
+  /// rather than throwing; a `false` that carries the Laravel 422 shape on
+  /// [Monitor.validationErrors] is republished here.
+  Future<bool> create([Map<String, dynamic>? fields]) async {
     if (fields != null) {
+      try {
+        validate(fields, _createRules);
+      } on ValidationException {
+        return false;
+      }
+
       final Monitor monitor = Monitor()..fill(fields, strict: true);
       final bool ok = await monitor.save();
-      if (!ok) {
-        final Map<String, String>? fieldErrors = _resolveFieldErrors(monitor);
-        if (fieldErrors != null) return fieldErrors;
-        return const {};
-      }
+      if (!ok) return _publishFieldErrors(monitor);
+
       await reload();
 
       final String id = monitor.id;
       MagicRoute.to(id.isEmpty ? '/monitors' : '/monitors/$id');
 
-      return const {};
+      return true;
     }
 
     MagicRoute.to('/monitors');
 
-    return const {};
+    return true;
   }
 
   /// Saves the monitor [id] and returns to its detail route.
@@ -1005,21 +1093,24 @@ class MonitorController extends MagicController
   /// edited fields, and persists it (`PUT /monitors/:id`), then reloads the
   /// inventory before navigating.
   ///
-  /// Returns the backend per-field validation errors (single message per field,
-  /// keyed by the wire field name) so the form can render a server 422 inline;
-  /// an empty map means success, a navigation-only call, or a missing monitor
-  /// (the id no longer resolves). A `false` save that carries field errors
-  /// ([Monitor.validationErrors]) STAYS on the form with no toast; a `false`
-  /// save with NO field errors (a transport error / 500) keeps the generic
-  /// save-failed toast and returns an empty map. [Monitor.save] absorbs
-  /// transport failures internally and returns `false` rather than throwing.
-  Future<Map<String, String>> save(
-    String id, [
-    Map<String, dynamic>? fields,
-  ]) async {
+  /// Answers whether the monitor was written, on the same contract [create]
+  /// documents: the per-field detail lives in [validationErrors], not in the
+  /// return value. `false` also covers a missing monitor (the id no longer
+  /// resolves), which writes nothing and flags nothing; a navigation-only call
+  /// answers `true`.
+  ///
+  /// [fields] is checked against [_updateRules] BEFORE the monitor is even
+  /// fetched, so a payload whose answer is already known costs no request at all.
+  Future<bool> save(String id, [Map<String, dynamic>? fields]) async {
     if (fields != null) {
+      try {
+        validate(fields, _updateRules);
+      } on ValidationException {
+        return false;
+      }
+
       final Monitor? monitor = await Monitor.find(id);
-      if (monitor == null) return const {};
+      if (monitor == null) return false;
 
       monitor.fill(fields, strict: true);
 
@@ -1038,36 +1129,43 @@ class MonitorController extends MagicController
       }
 
       final bool ok = await monitor.save();
-      if (!ok) {
-        final Map<String, String>? fieldErrors = _resolveFieldErrors(monitor);
-        if (fieldErrors != null) return fieldErrors;
-        return const {};
-      }
+      if (!ok) return _publishFieldErrors(monitor);
+
       await reload();
     }
     MagicRoute.to('/monitors/$id');
-    return const {};
+    return true;
   }
 
-  /// Resolves a failed [monitor] save into either its per-field validation
-  /// errors or a generic toast.
+  /// Publishes a failed [monitor] save as either per-field validation errors or
+  /// a generic toast, and answers `false` either way.
   ///
-  /// Returns the field errors (single message per field, keyed by the wire
-  /// field name) when the failed save carried the Laravel 422 shape via
-  /// [Monitor.validationErrors], so the caller hands them back to the form for
-  /// inline display and stays put. Returns `null` for a non-field failure (a
-  /// transport error / 500) after surfacing the generic save-failed toast and
-  /// logging the cause, so the caller falls back to its empty-map contract.
-  Map<String, String>? _resolveFieldErrors(Monitor monitor) {
+  /// The 422 is read off [Monitor.validationErrors] rather than a
+  /// [MagicResponse], because there is no response object in scope to read:
+  /// `Model.save()` consumes its own response internally and hands back a bare
+  /// bool, which is also why [setErrorsFromResponse] cannot serve this path.
+  /// Assigning [validationErrors] is what puts the messages where the form's
+  /// `getError` reads them.
+  ///
+  /// A failure carrying NO field errors is a transport error or a 500, so it
+  /// gets the generic toast and leaves [validationErrors] empty, which is the
+  /// signal the form uses to tell "stay and correct" apart from "already told".
+  bool _publishFieldErrors(Monitor monitor) {
     final Map<String, String> fieldErrors = fieldErrorsFromModel(monitor);
-    if (fieldErrors.isNotEmpty) return fieldErrors;
+    if (fieldErrors.isNotEmpty) {
+      validationErrors = fieldErrors;
+      refreshUI();
+
+      return false;
+    }
 
     Log.error('[MonitorController] save returned false with no field errors');
     Magic.error(
       trans('uptizm.monitors.toast_save_failed_title'),
       trans('uptizm.monitors.toast_save_failed_description'),
     );
-    return null;
+
+    return false;
   }
 
   /// Whether the last [analyze] was refused by a plan wall rather than failing.

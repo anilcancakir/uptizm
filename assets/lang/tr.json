@@ -28,6 +28,11 @@
     "email": ":attribute geçerli bir e-posta adresi olmalıdır.",
     "min": ":attribute en az :min karakter olmalıdır.",
     "max": ":attribute en fazla :max karakter olabilir.",
+    "max.string": ":attribute en fazla :max karakter olabilir.",
+    "max.numeric": ":attribute en fazla :max olabilir.",
+    "min.numeric": ":attribute en az :min olmalıdır.",
+    "min.list": ":attribute en az :min öğe içermelidir.",
+    "in": ":attribute için geçerli değerler: :values.",
     "confirmed": ":attribute onayı eşleşmiyor.",
     "accepted": ":attribute kabul edilmelidir.",
     "same": ":attribute ve :other eşleşmelidir."
@@ -45,7 +50,15 @@
     "phone": "Telefon Numarası",
     "phone_country": "Ülke Kodu",
     "role": "Rol",
-    "timezone": "Saat Dilimi"
+    "timezone": "Saat Dilimi",
+    "url": "URL",
+    "type": "İzleyici Türü",
+    "method": "Metot",
+    "check_interval_sec": "Kontrol Aralığı",
+    "timeout_sec": "Zaman Aşımı",
+    "regions": "Bölgeler",
+    "expected_status_code": "Beklenen Durum Kodu",
+    "slo_target": "Çalışma Süresi SLO Hedefi"
   },
   "auth": {
     "already_have_account": "Zaten bir hesabınız var mı?",

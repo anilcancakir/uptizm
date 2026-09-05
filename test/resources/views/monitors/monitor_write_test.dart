@@ -15,6 +15,7 @@ import 'package:magic_payments/magic_payments.dart'
         UsageStat;
 import 'package:uptizm/app/mocks/billing.dart' show plans;
 import 'package:uptizm/app/mocks/teams_data.dart' show planWireRows;
+import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/app/models/monitor.dart';
 import 'package:uptizm/app/support/billing_types.dart' show Plan, PlanLimits;
 import 'package:uptizm/resources/views/monitors/monitor_create_view.dart';
@@ -73,6 +74,12 @@ class _MonitorWriteLangLoader implements TranslationLoader {
   @override
   Future<Map<String, dynamic>> load(Locale locale) async {
     return {
+      // The two keys [MonitorController]'s `Required()` rule resolves through
+      // for a blank name, mirroring the real catalogue's values exactly
+      // (`assets/lang/en.json`).
+      'validation.required': 'The :attribute field is required.',
+      'attributes.name': 'Name',
+
       'uptizm.monitors.form_field_name_label': 'Name',
       'uptizm.monitors.form_field_name_placeholder': 'e.g. API gateway',
       'uptizm.monitors.form_type_label': 'Type',
@@ -90,7 +97,6 @@ class _MonitorWriteLangLoader implements TranslationLoader {
       'uptizm.monitors.form_url_hint_http': 'Must start with https://',
       'uptizm.monitors.form_url_hint_other': 'Hostname or IP',
       'uptizm.monitors.form_url_placeholder': 'https://example.com/health',
-      'uptizm.monitors.form_name_error_required': 'Name is required.',
       'uptizm.monitors.form_interval_label': 'Check interval',
       'uptizm.monitors.form_regions_label': 'Probe regions',
       'uptizm.monitors.form_regions_hint': 'Select at least one region.',
@@ -219,7 +225,7 @@ void main() {
             submitLabel: trans('uptizm.monitors.form_submit_create'),
             onSubmit: (fields) async {
               captured = fields;
-              return <String, String>{};
+              return true;
             },
             onCancel: () {},
           ),
@@ -276,13 +282,16 @@ void main() {
       await tester.pumpWidget(
         wrap(
           MonitorForm(
-            // A valid target but a blank Name: the client-side required check
-            // must block the round trip on Name before onSubmit fires.
+            // A valid target but a blank Name: onSubmit still fires (the form
+            // owns no client-side name check any more), and it is
+            // [MonitorController]'s own `Required()` rule that refuses the
+            // write and publishes the error onto the singleton the form's
+            // field stack reads through `getError`.
             initialUrl: 'https://api.example.com/health',
             submitLabel: trans('uptizm.monitors.form_submit_create'),
-            onSubmit: (_) async {
+            onSubmit: (fields) async {
               submitCalled = true;
-              return <String, String>{};
+              return MonitorController.instance.create(fields);
             },
             onCancel: () {},
           ),
@@ -300,11 +309,24 @@ void main() {
 
       expect(
         submitCalled,
-        isFalse,
-        reason: 'A blank Name must not fire a round trip',
+        isTrue,
+        reason: 'the client-side gate is gone; the controller\'s own rules '
+            'are what refuse the blank name now',
       );
       expect(
-        find.text(trans('uptizm.monitors.form_name_error_required')),
+        MonitorController.instance.hasError('name'),
+        isTrue,
+        reason: 'a blank Name must be refused by the Required() rule and '
+            'published on validationErrors',
+      );
+      expect(
+        find.textContaining('validation.'),
+        findsNothing,
+        reason: 'a missing catalogue key must never leak the raw key to the '
+            'operator',
+      );
+      expect(
+        find.text(MonitorController.instance.getError('name')!),
         findsOneWidget,
         reason: 'The required-name error must render inline under the field',
       );
@@ -321,12 +343,20 @@ void main() {
       await tester.pumpWidget(
         wrap(
           MonitorForm(
-            // A fully valid client-side form: the only rejection is the server's
-            // per-field 422, which must land under the Name field.
+            // A fully valid client-side form: the only rejection is the
+            // server's per-field 422, published on the controller the same
+            // way `MonitorController._publishFieldErrors` does, and read back
+            // by the form through `getError`.
             initialName: 'API gateway',
             initialUrl: 'https://api.example.com/health',
             submitLabel: trans('uptizm.monitors.form_submit_create'),
-            onSubmit: (_) async => const {'name': serverMessage},
+            onSubmit: (_) async {
+              MonitorController.instance.validationErrors = {
+                'name': serverMessage,
+              };
+              MonitorController.instance.refreshUI();
+              return false;
+            },
             onCancel: () {},
           ),
         ),
@@ -361,7 +391,7 @@ void main() {
             submitLabel: trans('uptizm.monitors.form_submit_create'),
             onSubmit: (_) async {
               submitCalled = true;
-              return <String, String>{};
+              return true;
             },
             onCancel: () => cancelCalled = true,
           ),
@@ -417,7 +447,7 @@ void main() {
             submitLabel: trans('uptizm.monitors.form_submit_create'),
             onSubmit: (fields) async {
               captured = fields;
-              return <String, String>{};
+              return true;
             },
             onCancel: () {},
           ),
@@ -542,7 +572,7 @@ void main() {
             submitLabel: trans('uptizm.monitors.form_submit_create'),
             onSubmit: (fields) async {
               captured = fields;
-              return <String, String>{};
+              return true;
             },
             onCancel: () {},
           ),
@@ -609,7 +639,7 @@ void main() {
               submitLabel: trans('uptizm.monitors.form_submit_create'),
               onSubmit: (fields) async {
                 captured = fields;
-                return <String, String>{};
+                return true;
               },
               onCancel: () {},
             ),
@@ -680,7 +710,7 @@ void main() {
               submitLabel: trans('uptizm.monitors.form_submit_create'),
               onSubmit: (fields) async {
                 captured = fields;
-                return <String, String>{};
+                return true;
               },
               onCancel: () {},
             ),
@@ -749,7 +779,7 @@ void main() {
               submitLabel: trans('uptizm.monitors.form_submit_create'),
               onSubmit: (fields) async {
                 captured = fields;
-                return <String, String>{};
+                return true;
               },
               onCancel: () {},
             ),
@@ -865,7 +895,7 @@ void main() {
               submitLabel: trans('uptizm.monitors.form_submit_create'),
               onSubmit: (fields) async {
                 captured = fields;
-                return <String, String>{};
+                return true;
               },
               onCancel: () {},
             ),
@@ -954,7 +984,7 @@ void main() {
               submitLabel: trans('uptizm.monitors.form_submit_create'),
               onSubmit: (fields) async {
                 captured = fields;
-                return <String, String>{};
+                return true;
               },
               onCancel: () {},
             ),
@@ -1016,7 +1046,7 @@ void main() {
               submitLabel: trans('uptizm.monitors.form_submit_create'),
               onSubmit: (fields) async {
                 captured = fields;
-                return <String, String>{};
+                return true;
               },
               onCancel: () {},
             ),
@@ -1086,7 +1116,7 @@ void main() {
               submitLabel: trans('uptizm.monitors.form_submit_create'),
               onSubmit: (fields) async {
                 captured = fields;
-                return <String, String>{};
+                return true;
               },
               onCancel: () {},
             ),
