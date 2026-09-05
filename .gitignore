@@ -63,6 +63,12 @@ pubspec_overrides.yaml
 
 CLAUDE.local.md
 
-# Nested worktrees. The convention is a sibling (../uptizm-<slug>), but an agent
-# tool may still create one here and it must never be committable.
+# Worktrees, which live here now: `pubspec.yaml` pins the siblings as hosted carets
+# rather than `path: ../<pkg>`, so nothing under this directory has to resolve a
+# relative parent path any more and `EnterWorktree` works. A worktree's contents are
+# real files git would otherwise offer to commit.
+#
+# `git clean -xdff` does not skip an ignored worktree: it wipes the checkout while
+# `.git/worktrees/<slug>` survives, leaving a registration `git worktree prune` then
+# has to clear.
 .claude/worktrees/

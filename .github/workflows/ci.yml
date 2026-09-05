@@ -3,11 +3,12 @@ name: CI
 # The gate on every pull request. `bin/check` is the same thing locally; these
 # jobs exist so a green claim is a measurement rather than a report.
 #
-# The Flutter job clones the twelve fluttersdk siblings because `pubspec.yaml`
-# resolves them by path (`../<pkg>`), which is how this app is developed. That
-# has one known and legitimate red: when a change here depends on a sibling API
-# that has not merged yet, the analyze step fails with "undefined". The fix is to
-# land the sibling PR, not to change this app.
+# The Flutter job resolves the twelve fluttersdk siblings from pub.dev, because
+# `pubspec.yaml` pins them as hosted carets and only a gitignored
+# `pubspec_overrides.yaml` points at the local working trees. That has one known
+# and legitimate red: when a change here depends on a sibling API that is not
+# PUBLISHED yet, the analyze step fails with "undefined". The fix is to release the
+# sibling and bump the caret, not to change this app.
 
 on:
   pull_request:
@@ -48,28 +49,34 @@ jobs:
       - name: .github mirrors are current
         run: bin/sync-instructions --check
 
+      # The siblings are not in this checkout, so the script falls back to verifying each copy
+      # against the sha256 it recorded. That catches a hand-edit here and says plainly that
+      # upstream freshness was not checked; only a local run with the working trees can do that.
+      - name: Package skill copies are unedited
+        run: bin/sync-skills --check
+
+      # Pure Python over lib/, so it needs no Flutter toolchain and belongs here rather than in
+      # the Flutter job. `bin/check` runs the same assertion locally.
+      - name: Component registry is current
+        run: bin/sync-registry --check
+
   flutter:
     name: Flutter (analyze + test)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
+      # The twelve siblings used to be cloned next to this checkout, because
+      # `pubspec.yaml` pointed at `../<pkg>`. It declares hosted carets now, so this
+      # job resolves them from pub.dev and measures what an adopter actually gets.
+      #
+      # The consequence is the point rather than a cost: work that depends on
+      # unreleased sibling code is green locally (a gitignored pubspec_overrides.yaml
+      # points at the working trees) and RED here, naming the undefined symbol. Publish
+      # the sibling and bump the caret; do not reshape this app around it.
       - name: Check out uptizm
         uses: actions/checkout@v7
         with:
           path: uptizm
-
-      # `pubspec.yaml` points at ../<pkg>, so the siblings have to sit next to the
-      # checkout. All twelve are public repositories in the fluttersdk org, and the
-      # directory name is what the path override expects (artisan, dusk, telescope
-      # and wind* differ from their package names).
-      - name: Check out the fluttersdk siblings
-        run: |
-          set -euo pipefail
-          for repo in magic magic_deeplink magic_devtools magic_notifications \
-                      magic_payments magic_social_auth magic_starter artisan \
-                      dusk telescope wind wind_diagnostics_contracts; do
-            git clone --depth 1 "https://github.com/fluttersdk/$repo.git" "$repo"
-          done
 
       - uses: subosito/flutter-action@v2
         with:

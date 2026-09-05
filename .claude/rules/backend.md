@@ -52,7 +52,7 @@ git ls-files backend/ | git -c core.excludesFile=<globs-as-a-gitignore> check-ig
 
 Run it per rule: two rules matching one file is the overlap this enumeration exists to prevent, and no rule matching a file is coverage nobody notices. What is deliberately claimed by nothing after that is the inert remainder: the `storage/**` gitignore stubs, `.editorconfig`, `.gitattributes`, `.gitignore`, `.npmrc`, `README.md`, and `public/` itself (`index.php` is the framework's front controller, `robots.txt` and `favicon.ico` are static, and `public/build/` is generated output). Claiming `backend/public/**` for the favicons would have pulled all of that in with them.
 
-It is built on `fluttersdk/magic-starter-laravel`, resolved from Packagist at a pinned version (`^0.0.5`). That package's conventions (teams, 2FA, Sanctum tokens, contract-action overrides, UUID-optional migrations) are authoritative for the auth and team surface, so they are not restated here.
+It is built on `fluttersdk/magic-starter-laravel`, resolved from Packagist at a pinned version (`^0.0.6`). That package's conventions (teams, 2FA, Sanctum tokens, contract-action overrides, UUID-optional migrations) are authoritative for the auth and team surface, so they are not restated here.
 
 The dependency used to be a symlinked `path` repository to `../../magic-starter-laravel`. It is not any more, because a path repo writes a `repositories` block into `composer.json` and a `"type": "path"` entry into `composer.lock`, both tracked, and neither installs on a machine without the sibling beside it: Composer throws rather than falling back. CI clones no siblings and the deploy runs `composer install` from those same two files on the box, so committing it breaks both, and it broke the server once already.
 
@@ -64,7 +64,9 @@ Prefer tagging and publishing the sibling when the work is done: its releases ar
 
 ## Stack
 
-PHP `^8.3`, Laravel 13, PostgreSQL (+ optional TimescaleDB), Redis + Horizon queues, Reverb (WebSocket broadcast), Octane (frankenphp), Cashier (billing), `laravel/ai`, Sanctum, Socialite, Filament.
+Laravel 13, PostgreSQL (+ optional TimescaleDB), Redis + Horizon queues, Reverb (WebSocket broadcast), Octane (frankenphp), Cashier (billing), `laravel/ai` (pinned to an exact `0.9.0`, not a caret, because it is pre-1.0), Sanctum, Socialite, Filament.
+
+Three PHP versions are in play and they are not interchangeable. `composer.json:9` declares `^8.4`; CI pins 8.5 and so does the server, because the committed lock resolves symfony 8.1 which requires `>=8.4.1` and an install on 8.3 dies in a wall of "Problem N" lines that read like a corrupt lock. Write for 8.4 as the floor and test on 8.5.
 
 ## Running and verifying it
 

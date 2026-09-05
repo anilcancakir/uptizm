@@ -113,13 +113,24 @@ Each of these is a blocker, and exactly one of them is measured: `bin/check`'s `
 | Anti-pattern | Correct approach |
 |-------------|-----------------|
 | `Color(0xFF...)` or `Colors.*` in component code | A semantic alias key from the table above |
-| Hardcoded pixels (`SizedBox(height: 13)`) | Wind spacing utilities on the 4px scale |
+| An OFF-scale pixel value (`SizedBox(height: 13)`) | Wind spacing utilities on the 4px scale. A `SizedBox(width: 8)` between a glyph and its label is on-scale and stays: the rule is the grid, not the widget |
 | A one-off widget when a library component exists | Check `docs/component-registry.md` first |
 | `Icons.*` inline in a component body | Extract as `static const IconData _icon = Icons.x;` |
 | Several preview classes in one `.preview.dart` | One preview class per file |
 | CSS-only Wind utilities (`box-shadow`, `filter`, `transform`, `group-*`) | Unsupported in wind; use Flutter animation APIs |
 | Hand-editing `lib/config/wind_theme.g.dart` | `dart run bin/dispatcher.dart design:sync` |
 | Shipping a component with no preview | Add the preview, run `previews:refresh` |
+
+## Two places to reach past Wind, and why
+
+Wind's flex makes children greedy, which is correct for a row of equals and wrong in two shapes that recur in this app. Both are settled; do not re-derive them as bugs.
+
+- **A glyph beside text that must wrap** uses plain Flutter `Row(crossAxisAlignment: CrossAxisAlignment.start)` with an `Expanded` around the text. Wind flex overflows here because the text never yields.
+- **A row of buttons that must reflow** uses `Wrap` with `spacing`/`runSpacing` rather than a flex row, so a narrow column drops the second button to its own line instead of overflowing.
+
+## The registry is generated
+
+`docs/component-registry.md` is written by `bin/sync-registry` from `lib/ui/components/`, `lib/ui/layouts/` and `lib/preview/`, and `bin/check`'s `registry` job fails when it is out of date. Run the script after adding or changing a component; never edit the file. It was hand-maintained once and drifted into documenting `magic_starter`'s library instead of this app's, which is worse than having no registry because the file is trusted.
 
 ## Release Boundary
 
