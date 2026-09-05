@@ -74,7 +74,28 @@ def first_prose_line(lines: list[str], class_line: int) -> str:
         if collected[-1].endswith((".", "!", "?", ":")):
             break
 
-    return " ".join(collected)
+    return first_sentence(" ".join(collected))
+
+
+def first_sentence(text: str) -> str:
+    """The opening sentence of [text], terminator included.
+
+    The paragraph is joined from wrapped lines, so a physical line can carry two sentences and the
+    per-line stop above overshoots: without this, a doc whose first line reads "An inline note,
+    tinted by intent. Demonstrates a" yields the whole paragraph. A table cell wants one sentence.
+
+    A terminator only counts when a space or the end of the string follows it, so `0.0.9`,
+    `magic_starter.` mid-word and an ellipsis do not split the line early.
+    """
+    for index, char in enumerate(text):
+        if char not in ".!?":
+            continue
+        if index + 1 < len(text) and text[index + 1] != " ":
+            continue
+        if index and text[index - 1].isdigit() and char == ".":
+            continue
+        return text[: index + 1]
+    return text
 
 
 def read_component(directory: Path) -> tuple[str, str, str, str, str, str] | None:
