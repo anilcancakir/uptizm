@@ -41,7 +41,6 @@ class _MonitorFormLangLoader implements TranslationLoader {
       'uptizm.monitors.form_url_hint_http': 'Must start with https://',
       'uptizm.monitors.form_url_hint_other': 'Hostname or IP',
       'uptizm.monitors.form_url_placeholder': 'https://example.com/health',
-      'uptizm.monitors.form_name_error_required': 'Name is required.',
       'uptizm.monitors.form_interval_label': 'Check interval',
       'uptizm.monitors.form_regions_label': 'Probe regions',
       'uptizm.monitors.form_regions_hint': 'Select at least one region.',

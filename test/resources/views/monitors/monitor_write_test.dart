@@ -326,7 +326,7 @@ void main() {
             'operator',
       );
       expect(
-        find.text(MonitorController.instance.getError('name')!),
+        find.text('The Name field is required.'),
         findsOneWidget,
         reason: 'The required-name error must render inline under the field',
       );

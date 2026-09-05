@@ -72,7 +72,6 @@ class _MetricsLangLoader implements TranslationLoader {
       'uptizm.monitors.metrics_form_key_hint':
           'Lowercase letters, digits, underscores.',
       'uptizm.monitors.metrics_form_key_error': 'Invalid key.',
-      'uptizm.monitors.form_name_error_required': 'Name required',
       'uptizm.monitors.metrics_form_key_error_required': 'Key required',
       'uptizm.monitors.metrics_form_path_error_required': 'Path required',
       'uptizm.monitors.toast_save_failed_title': "Couldn't save",

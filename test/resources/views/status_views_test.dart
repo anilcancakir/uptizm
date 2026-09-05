@@ -114,8 +114,13 @@ class _StatusViewsLangLoader implements TranslationLoader {
       'uptizm.status.editor_section_branding': 'Branding',
       'uptizm.status.editor_form_name_label': 'Name',
       'uptizm.status.editor_form_name_placeholder': 'Acme Status',
-      'uptizm.status.form_name_error_required': 'Name is required.',
-      'uptizm.status.form_slug_error_required': 'Slug is required.',
+      // Name/slug validation runs through magic's own `Required()` rule
+      // (StatusPageController._createRules), so the inline error resolves
+      // through the shared `validation.*`/`attributes.*` catalogue rather
+      // than a dedicated `uptizm.status.form_name_error_required` key.
+      'validation.required': 'The :attribute field is required.',
+      'attributes.name': 'Name',
+      'attributes.slug': 'Slug',
       'uptizm.status.form_components_error_required': 'Add a component.',
       'uptizm.status.editor_form_how_served_label': 'How is it served?',
       // Domain-mode segmented-control options (DomainMode.label). Missing keys
@@ -681,13 +686,12 @@ void main() {
         await tester.pump();
 
         expect(tester.takeException(), isNull);
-        // No translation is stubbed for `validation.required` here (that
-        // catalogue entry is out of this step's file scope, see the report's
-        // `### Missing translation keys`), so the raw message key renders
-        // verbatim; that verbatim text is exactly what proves the refusal
-        // reached the `name`/`slug` fields rather than being silently
-        // swallowed. Both fail, so it shows twice.
-        expect(find.text('validation.required'), findsNWidgets(2));
+        // The `name`/`slug` refusal renders through the real
+        // `validation.required` sentence for each field's own attribute
+        // label, proving the refusal reached both fields rather than being
+        // silently swallowed.
+        expect(find.text('The Name field is required.'), findsOneWidget);
+        expect(find.text('The Slug field is required.'), findsOneWidget);
         fake.assertNotSent(
           (r) =>
               (r.method == 'POST' || r.method == 'PUT') &&

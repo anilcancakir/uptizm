@@ -960,7 +960,10 @@ class _IncidentCreateViewState
   ///
   /// A `false` result repaints the view so the freshly populated
   /// [validationErrors] show; a non-field failure has already surfaced its
-  /// own generic toast from inside the controller.
+  /// own generic toast from inside the controller. What is left after that
+  /// repaint is whatever [_activeValidator]'s `validationErrors` carries that
+  /// no owned field ([_ownedFields]) renders, handed to
+  /// [_revealUnmappedError].
   Future<void> _onSubmit() async {
     if (_isMaintenance) {
       final String? affectedError = _affected.isEmpty
@@ -977,6 +980,53 @@ class _IncidentCreateViewState
     if (!mounted || ok) return;
 
     setState(() {});
+    _revealUnmappedError();
+  }
+
+  /// The wire fields this view renders a dedicated error slot for, per kind.
+  /// Used by [_revealUnmappedError] to tell a refusal already painted apart
+  /// from one this form owns no slot for.
+  ///
+  /// Incident mode reads `title` ([_buildTitleField]), `monitor_id` (via
+  /// [_affectedFieldError]) and `message` (the first-update field, via
+  /// [_firstUpdateKey]). Maintenance mode reads the same `title`,
+  /// `monitor_ids` (via [_affectedFieldError]), `status_page_id`
+  /// ([_buildStatusPageField]), `starts_at`/`ends_at`
+  /// ([_buildScheduleFields]) and `description` (the first-update field under
+  /// its maintenance key). `StoreIncidentRequest` can reject
+  /// `severity`/`notify`/`impact`, and `StoreScheduledMaintenanceRequest` can
+  /// reject `suppress_alerts`; none of those has a slot on either mode of
+  /// this form.
+  Set<String> get _ownedFields => _isMaintenance
+      ? const <String>{
+          'title',
+          'monitor_ids',
+          'status_page_id',
+          'starts_at',
+          'ends_at',
+          'description',
+        }
+      : const <String>{'title', 'monitor_id', 'message'};
+
+  /// Surfaces whatever a refused write's [_activeValidator] `validationErrors`
+  /// carries that no owned field ([_ownedFields]) already renders inline.
+  ///
+  /// Reads whichever controller [_activeValidator] resolves for the CURRENT
+  /// kind, mirroring [_affectedFieldError]'s own per-mode split. An EMPTY
+  /// result means the failure was not a per-field one (a transport error or a
+  /// 500), and the controller has already surfaced its own toast for it, so
+  /// this deliberately says nothing. Mirrors the fallback in
+  /// `status_page_editor_view`, `escalation_policy_editor_view` and
+  /// `monitor_metric_form`.
+  void _revealUnmappedError() {
+    final Iterable<String> unmapped = _activeValidator.validationErrors.entries
+        .where(
+          (MapEntry<String, String> entry) => !_ownedFields.contains(entry.key),
+        )
+        .map((MapEntry<String, String> entry) => entry.value);
+    if (unmapped.isEmpty) return;
+
+    Magic.error(trans('common.error_occurred'), unmapped.first);
   }
 
   /// Persists the maintenance window through [MaintenanceController.create],

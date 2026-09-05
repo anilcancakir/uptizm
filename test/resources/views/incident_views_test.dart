@@ -91,7 +91,6 @@ class _IncidentViewsLangLoader implements TranslationLoader {
       'uptizm.incidents.form_title_label': 'Title',
       'uptizm.incidents.form_title_placeholder_incident': '503s',
       'uptizm.incidents.form_title_placeholder_maintenance': 'Upgrade',
-      'uptizm.incidents.form_title_error_required': 'Title is required.',
       'uptizm.incidents.form_affected_error_required': 'Select a monitor.',
       'uptizm.incidents.form_affected_label': 'Affected monitors',
       'uptizm.incidents.form_affected_hint': 'Drives the status page.',

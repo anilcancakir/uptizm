@@ -410,8 +410,7 @@ void main() {
       final NotificationChannelController controller =
           NotificationChannelController.instance;
 
-      final bool ok = await controller.update('nc1', {
-        'channel_type': 'slack',
+      final bool ok = await controller.update('nc1', ChannelType.slack, {
         'is_enabled': false,
         'severity': 'critical',
       });
@@ -444,8 +443,7 @@ void main() {
         final NotificationChannelController controller =
             NotificationChannelController.instance;
 
-        final bool ok = await controller.update('nc2', {
-          'channel_type': 'webhook',
+        final bool ok = await controller.update('nc2', ChannelType.webhook, {
           'credentials': {'url': 'not-a-url'},
         });
 
@@ -456,6 +454,39 @@ void main() {
             'webhook.credentials.url':
                 'The credentials.url field must be a valid URL.',
           }),
+        );
+      },
+    );
+
+    test(
+      'a 422 from an enabled/severity-only update (no channel_type in the '
+      'payload, matching the real view call sites) namespaces under the '
+      'passed-in type, never falling back to slack',
+      () async {
+        Http.fake({
+          'notification-channels/nc5': Http.response({
+            'message': 'The severity field is invalid.',
+            'errors': {
+              'severity': ['The severity field is invalid.'],
+            },
+          }, 422),
+        });
+        final NotificationChannelController controller =
+            NotificationChannelController.instance;
+
+        // No `channel_type` key: `_setEnabled` and the severity `onChanged`
+        // in `NotificationChannelsView` never send one, and the record's own
+        // type is passed as [type] instead of being re-derived from [fields].
+        final bool ok = await controller.update('nc5', ChannelType.pagerduty, {
+          'severity': 'bogus',
+        });
+
+        expect(ok, isFalse);
+        expect(
+          controller.validationErrors,
+          equals({'pagerduty.severity': 'The severity field is invalid.'}),
+          reason: 'an update with no channel_type must namespace under the '
+              "passed-in type, never the slack fallback",
         );
       },
     );

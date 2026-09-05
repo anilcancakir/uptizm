@@ -177,7 +177,6 @@ class _TeamsViewsLangLoader implements TranslationLoader {
       'uptizm.teams.escalation_editor_create_button': 'Create policy',
       'uptizm.teams.escalation_editor_name_label': 'Name',
       'uptizm.teams.escalation_editor_name_placeholder': 'Critical path',
-      'uptizm.teams.form_targets_error_required': 'Add a target.',
       // Escalation name validation now runs through magic's own `Required`/
       // `Max` rules (EscalationController._createRules), so the inline error
       // resolves through the shared `validation.*`/`attributes.*` catalogue
@@ -488,6 +487,64 @@ void main() {
           (r) =>
               (r.method == 'POST' || r.method == 'PUT') &&
               r.url.contains('escalation-policies'),
+        );
+      },
+    );
+
+    testWidgets(
+      'create mode: a 422 naming a field this editor owns no slot for '
+      'toasts instead of the submit silently doing nothing',
+      (tester) async {
+        // The regression this pins: `repeat_last_step`/`is_default` (and, more
+        // generally, any key `StoreEscalationPolicyRequest` can reject that
+        // this editor renders no slot for) used to leave the operator tapping
+        // Create with no message, no toast, and no request retried. `_save`
+        // now reads the leftover `validationErrors` through
+        // `_revealUnmappedError` and toasts it.
+        //
+        // This harness's `wrap()` mounts a plain `MaterialApp`, so
+        // `Magic.error` reaches no navigator-backed Overlay (see this file's
+        // `setUp` comment on `MagicFeedback`); the observable proxy is the
+        // warning `MagicFeedback` itself logs when it cannot find one, since
+        // that warning only fires when something actually called
+        // `Magic.error`.
+        await tester.binding.setSurfaceSize(const Size(1280, 6000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final FakeLogManager log = Log.fake();
+        Http.fake({
+          'escalation-policies': Http.response({
+            'message': 'The given data was invalid.',
+            'errors': {
+              'is_default': ['The is default field must be a boolean.'],
+            },
+          }, 422),
+        });
+
+        await tester.pumpWidget(
+          wrap(const EscalationPolicyEditorView(), size: const Size(1280, 6000)),
+        );
+        await tester.pump();
+
+        await tester.enterText(
+          find.widgetWithText(
+            MSInput,
+            trans('uptizm.teams.escalation_editor_name_placeholder'),
+          ),
+          'Critical path',
+        );
+        await tester.pump();
+
+        await tester.tap(
+          find.text(trans('uptizm.teams.escalation_editor_create_button')),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        log.assertLogged(
+          'warning',
+          'MagicFeedback: Cannot show snackbar - context not mounted',
         );
       },
     );

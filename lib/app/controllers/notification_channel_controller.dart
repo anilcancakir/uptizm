@@ -338,8 +338,17 @@ class NotificationChannelController extends MagicController
     }
   }
 
-  /// Updates the team notification channel [id] via `PUT
+  /// Updates the team notification channel [id], of channel [type], via `PUT
   /// /notification-channels/:id` and reloads the roster on success.
+  ///
+  /// [type] is the record's OWN type, not derived from [fields]: an
+  /// enabled/severity-only toggle sends a payload with no `channel_type` key
+  /// at all (see `NotificationChannelsView._setEnabled` and its severity
+  /// `onChanged`), and deriving the type from an absent key fell back to
+  /// [ChannelType.slack] every time, namespacing a PagerDuty or Teams
+  /// refusal's fields under `slack.*` and painting it on the wrong card. The
+  /// caller already holds the record ([NotificationChannelRecord.type]), so
+  /// it is passed rather than re-derived.
   ///
   /// [fields] carries only the wire keys the caller intends to change (a
   /// partial `credentials` object REPLACES the whole stored blob
@@ -351,10 +360,9 @@ class NotificationChannelController extends MagicController
   /// Answers whether the channel was written, mirroring [create]'s contract.
   Future<bool> update(
     String id,
+    ChannelType type,
     Map<String, dynamic> fields,
   ) async {
-    final ChannelType type = _typeFromWire(fields['channel_type'] as String?);
-
     try {
       final response = await Http.put(
         '/notification-channels/$id',
@@ -498,7 +506,7 @@ class NotificationChannelController extends MagicController
 
   /// Prefixes every key of [raw] with `<type>.`, so a client rejection (the
   /// view's own `validate()` call, before this method is ever reached) and a
-  /// server 422 ([_resolveFieldErrors]) publish under the identical
+  /// server 422 ([_publishFieldErrors]) publish under the identical
   /// namespaced shape [NotificationChannelsView] reads via [getError].
   ///
   /// Needed because [NotificationChannelsView] holds one draft PER

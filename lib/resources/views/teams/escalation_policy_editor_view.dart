@@ -290,17 +290,26 @@ class _EscalationPolicyEditorViewState
     });
   }
 
+  /// The wire fields this editor renders a dedicated error slot for. Used by
+  /// [_revealUnmappedError] to tell a refusal already painted (`name`, via
+  /// [_buildDetailsCard]'s `getError`) apart from one this editor owns no
+  /// slot for.
+  static const Set<String> _ownedFields = <String>{'name'};
+
   /// Saves the draft: [EscalationController.create] in create mode,
   /// [EscalationController.save] in edit mode. Both persist through to
   /// `api/v1/escalation-policies` and navigate back to the list on success.
   ///
-  /// Neither controller call is guarded here: both validate the policy name
-  /// against magic's own rules BEFORE any request, and on a refusal populate
-  /// [EscalationController.validationErrors] and call `refreshUI()`
-  /// themselves, which the [ListenableBuilder] in [_buildDetailsCard] repaints
-  /// against. There is no client-only check left to run first: every rung
-  /// always carries a valid target (the picker defaults to the on-call
-  /// rotation and can never be cleared).
+  /// Both validate the policy name against magic's own rules BEFORE any
+  /// request, and on a refusal populate [EscalationController.validationErrors]
+  /// and call `refreshUI()` themselves, which the [ListenableBuilder] in
+  /// [_buildDetailsCard] repaints against. There is no client-only check left
+  /// to run first: every rung always carries a valid target (the picker
+  /// defaults to the on-call rotation and can never be cleared). What is left
+  /// after a `false` result is whatever [validationErrors] carries that no
+  /// owned field renders (`repeat_last_step`/`is_default`, which this editor's
+  /// switches never surface an inline error for), handed to
+  /// [_revealUnmappedError].
   Future<void> _save() async {
     setState(() => _saving = true);
     final String name = _nameController.text.trim();
@@ -314,26 +323,51 @@ class _EscalationPolicyEditorViewState
         ),
     ];
 
-    if (_isEdit) {
-      await controller.save(
-        widget.id!,
-        name,
-        rungs,
-        _originalStepIds,
-        repeatLastStep: _repeatLastStep,
-        isDefault: _isDefault,
-      );
-    } else {
-      await controller.create(
-        name,
-        rungs,
-        repeatLastStep: _repeatLastStep,
-        isDefault: _isDefault,
-      );
-    }
+    final bool written = _isEdit
+        ? await controller.save(
+            widget.id!,
+            name,
+            rungs,
+            _originalStepIds,
+            repeatLastStep: _repeatLastStep,
+            isDefault: _isDefault,
+          )
+        : await controller.create(
+            name,
+            rungs,
+            repeatLastStep: _repeatLastStep,
+            isDefault: _isDefault,
+          );
 
     if (!mounted) return;
     setState(() => _saving = false);
+    if (!written) _revealUnmappedError();
+  }
+
+  /// Surfaces whatever a refused write's
+  /// [EscalationController.validationErrors] carries that no owned field
+  /// ([_ownedFields]) already renders inline.
+  ///
+  /// `StoreEscalationPolicyRequest` can reject `repeat_last_step` and
+  /// `is_default`; neither has a slot on this editor, so without this the
+  /// operator hit Save, the policy was not written, and the screen said
+  /// nothing at all. An EMPTY result means the failure was not a per-field
+  /// one (a transport error or a 500), and the controller has already
+  /// surfaced its own toast for it, so this deliberately says nothing.
+  /// Mirrors the fallback in `status_page_editor_view` and
+  /// `monitor_metric_form`.
+  void _revealUnmappedError() {
+    final Iterable<String> unmapped = controller.validationErrors.entries
+        .where(
+          (MapEntry<String, String> entry) => !_ownedFields.contains(entry.key),
+        )
+        .map((MapEntry<String, String> entry) => entry.value);
+    if (unmapped.isEmpty) return;
+
+    Magic.error(
+      trans('uptizm.teams.escalation_toast_error_title'),
+      unmapped.first,
+    );
   }
 
   @override

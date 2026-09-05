@@ -423,8 +423,12 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
   /// Flips [record]'s enabled state via `PUT .../:id` (no credentials in the
   /// payload, so the stored credential is untouched). Fire-and-forget: the
   /// controller's own reload rebuilds this view through the [ListenableBuilder].
+  ///
+  /// Passes [record.type] explicitly: this payload carries no `channel_type`
+  /// key, and the controller no longer derives the type from the payload (see
+  /// [NotificationChannelController.update]'s docblock).
   void _setEnabled(NotificationChannelRecord record, bool value) {
-    NotificationChannelController.instance.update(record.id, {
+    NotificationChannelController.instance.update(record.id, record.type, {
       'is_enabled': value,
     });
   }
@@ -584,9 +588,13 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
           final String value = _severityValues[index];
           setState(() => draft.severity = value);
           if (record != null) {
-            NotificationChannelController.instance.update(record.id, {
-              'severity': value,
-            });
+            // No `channel_type` in this payload either; [record.type] carries
+            // it explicitly for the same reason as [_setEnabled].
+            NotificationChannelController.instance.update(
+              record.id,
+              record.type,
+              {'severity': value},
+            );
           }
         },
       ),
@@ -682,7 +690,7 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
     final Map<String, dynamic> fields = _buildFields(type, record, draft);
     final bool ok = record == null
         ? await controller.create(fields)
-        : await controller.update(record.id, fields);
+        : await controller.update(record.id, type, fields);
 
     if (!mounted || ok) return;
 

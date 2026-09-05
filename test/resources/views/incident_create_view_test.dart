@@ -109,7 +109,6 @@ class _IncidentCreateLangLoader implements TranslationLoader {
       'uptizm.incidents.form_title_label': 'Title',
       'uptizm.incidents.form_title_placeholder_incident': '503s',
       'uptizm.incidents.form_title_placeholder_maintenance': 'Upgrade',
-      'uptizm.incidents.form_title_error_required': 'Title is required.',
       'uptizm.incidents.form_affected_error_required': 'Select a monitor.',
       'uptizm.incidents.form_affected_label': 'Affected monitors',
       'uptizm.incidents.form_affected_empty': 'You have no monitors yet.',
@@ -981,6 +980,109 @@ void main() {
         );
         fake.assertNotSent(
           (r) => r.method == 'POST' && r.url == '/scheduled-maintenances',
+        );
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // A refusal naming a field neither mode renders a slot for must not be
+  // silent (the defect the whole unmapped-field fallback exists to close).
+  // ---------------------------------------------------------------------------
+
+  group('IncidentCreateView unmapped field refusal', () {
+    /// The regression this pins: `StoreIncidentRequest` can reject
+    /// `severity`/`notify`/`impact`, none of which has an inline error slot
+    /// on this form, so a submit refused on one of them used to leave the
+    /// button doing nothing at all (no message, no toast, no request
+    /// retried). `_onSubmit` now reads the leftover `validationErrors`
+    /// through `_revealUnmappedError` and toasts it.
+    ///
+    /// This harness's `wrap()` mounts a plain `MaterialApp`, so `Magic.error`
+    /// reaches no navigator-backed `Overlay`; the observable proxy is the
+    /// warning `MagicFeedback` itself logs when it cannot find one, since
+    /// that warning only fires when something actually called
+    /// `Magic.error`.
+    testWidgets(
+      'incident kind: a 422 naming a field this form owns no slot for '
+      'toasts instead of the submit silently doing nothing',
+      (tester) async {
+        final FakeLogManager log = Log.fake();
+        Http.fake({
+          'incidents': Http.response({
+            'message': 'The given data was invalid.',
+            'errors': {
+              'severity': ['The selected severity is invalid.'],
+            },
+          }, 422),
+        });
+
+        MonitorController.instance.seedForTest(monitorFixtures);
+        addTearDown(() => MonitorController.instance.seedForTest(const []));
+
+        await tester.binding.setSurfaceSize(const Size(1280, 3200));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        await tester.pumpWidget(wrap(const IncidentCreateView()));
+        await tester.pump();
+
+        await tester.enterText(
+          find.widgetWithText(
+            MSInput,
+            trans('uptizm.incidents.form_title_placeholder_incident'),
+          ),
+          'Checkout returning 503s',
+        );
+        await tester.pump();
+
+        await tester.tap(find.text(monitorFixtures.first.name ?? ''));
+        await tester.pump();
+
+        final Finder button = find.widgetWithText(
+          MSButton,
+          trans('uptizm.incidents.submit_open'),
+        );
+        await tester.ensureVisible(button);
+        await tester.pump();
+        await tester.tap(button);
+        await tester.pump();
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        log.assertLogged(
+          'warning',
+          'MagicFeedback: Cannot show snackbar - context not mounted',
+        );
+      },
+    );
+
+    /// The maintenance-kind half of the same regression:
+    /// `StoreScheduledMaintenanceRequest` can reject `suppress_alerts`,
+    /// which has no control (and so no slot) on this form either.
+    testWidgets(
+      'maintenance kind: a 422 naming a field this form owns no slot for '
+      'toasts instead of the submit silently doing nothing',
+      (tester) async {
+        final FakeLogManager log = Log.fake();
+        Http.fake({
+          'scheduled-maintenances': Http.response({
+            'message': 'The given data was invalid.',
+            'errors': {
+              'suppress_alerts': [
+                'The suppress alerts field must be true or false.',
+              ],
+            },
+          }, 422),
+        });
+        registerRoutes();
+
+        await pumpFilledMaintenanceForm(tester);
+        await submit(tester);
+
+        expect(tester.takeException(), isNull);
+        log.assertLogged(
+          'warning',
+          'MagicFeedback: Cannot show snackbar - context not mounted',
         );
       },
     );

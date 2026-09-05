@@ -36,7 +36,6 @@ class _EscalationEditorLangLoader implements TranslationLoader {
       'uptizm.teams.escalation_editor_repeat_label': 'Repeat last rung',
       'uptizm.teams.escalation_editor_default_label': 'Use as default',
       'uptizm.teams.escalation_toast_error_title': 'Could not save',
-      'uptizm.teams.form_name_error_required': 'Name is required.',
     };
   }
 }
