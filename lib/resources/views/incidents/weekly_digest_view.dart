@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/controllers/digest_controller.dart';
 import '../../../app/enums/ai_confidence.dart';
 import '../../../app/support/digest_types.dart';
 import '../../../ui/components/ai_insight/index.dart';
@@ -26,7 +27,8 @@ import '../../../ui/components/kpi_stat_card/index.dart';
 /// // Registered as the routed `/incidents/digest` content (wrapped by the shell):
 /// MagicStarter.view.makeLayout('layout.app', child: const WeeklyDigestView())
 /// ```
-class WeeklyDigestView extends StatefulWidget {
+@immutable
+class WeeklyDigestView extends MagicStatefulView<DigestController> {
   /// Creates the [WeeklyDigestView].
   const WeeklyDigestView({super.key});
 
@@ -34,58 +36,14 @@ class WeeklyDigestView extends StatefulWidget {
   State<WeeklyDigestView> createState() => _WeeklyDigestViewState();
 }
 
-/// The four render phases of the digest fetch.
-enum _DigestPhase { loading, ready, empty, error, gated }
-
-class _WeeklyDigestViewState extends State<WeeklyDigestView> {
-  _DigestPhase _phase = _DigestPhase.loading;
-  WeeklyDigest? _digest;
-
-  /// The plan wall the digest read hit, when it did.
-  ///
-  /// A plan refusal is not a read failure: the generic error state offered a
-  /// Retry that could never succeed, so [_DigestPhase.gated] renders the wall
-  /// with its upgrade action instead.
-  PlanUpgradeRequirement? _gate;
-
+class _WeeklyDigestViewState
+    extends MagicStatefulViewState<DigestController, WeeklyDigestView> {
   @override
   void initState() {
+    // Register before the base state resolves it via Magic.find<T>(), which
+    // throws when unregistered. Idempotent.
+    Magic.findOrPut(DigestController.new);
     super.initState();
-    _load();
-  }
-
-  /// Fetches the live digest. A 404 means no digest has been generated yet (an
-  /// honest empty state, not an error); any other non-2xx or a thrown transport
-  /// error surfaces the error state so the read failure is never swallowed into
-  /// a misleading "no digest" claim.
-  Future<void> _load() async {
-    setState(() => _phase = _DigestPhase.loading);
-    try {
-      final MagicResponse response = await Http.get('/incidents/digest');
-      if (!mounted) return;
-      final Object? payload = response.data;
-      final Object? data =
-          payload is Map<String, dynamic> ? payload['data'] : null;
-      if (response.successful && data is Map<String, dynamic>) {
-        setState(() {
-          _digest = WeeklyDigest.fromMap(data);
-          _phase = _DigestPhase.ready;
-        });
-      } else if (response.statusCode == 404) {
-        setState(() => _phase = _DigestPhase.empty);
-      } else {
-        final PlanUpgradeRequirement? gate = PlanUpgradeRequirement.fromResponse(
-          response,
-        );
-        setState(() {
-          _gate = gate;
-          _phase = gate != null ? _DigestPhase.gated : _DigestPhase.error;
-        });
-      }
-    } catch (e, stackTrace) {
-      Log.error('[WeeklyDigestView._load] $e\n$stackTrace');
-      if (mounted) setState(() => _phase = _DigestPhase.error);
-    }
   }
 
   @override
@@ -109,7 +67,7 @@ class _WeeklyDigestViewState extends State<WeeklyDigestView> {
   /// The header subtitle: the covered week range once a digest is loaded,
   /// otherwise the generic description.
   String _headerSubtitle() {
-    final WeeklyDigest? d = _digest;
+    final WeeklyDigest? d = controller.digest;
     if (d != null && d.weekStart != null && d.weekEnd != null) {
       return trans('uptizm.digest.week_range', {
         'start': d.weekStart!,
@@ -120,15 +78,15 @@ class _WeeklyDigestViewState extends State<WeeklyDigestView> {
   }
 
   List<Widget> _buildBody() {
-    switch (_phase) {
-      case _DigestPhase.loading:
+    switch (controller.phase) {
+      case DigestPhase.loading:
         return const [
           WDiv(
             className: 'py-16 flex items-center justify-center',
             child: CircularProgressIndicator(),
           ),
         ];
-      case _DigestPhase.empty:
+      case DigestPhase.empty:
         return [
           MSEmptyState(
             icon: Icons.auto_awesome_outlined,
@@ -136,20 +94,20 @@ class _WeeklyDigestViewState extends State<WeeklyDigestView> {
             description: trans('uptizm.digest.empty_description'),
           ),
         ];
-      case _DigestPhase.error:
+      case DigestPhase.error:
         return [
           MSErrorState(
             title: trans('uptizm.digest.error_title'),
             description: trans('uptizm.digest.error_description'),
             action: MSButton(
               size: ButtonSize.sm,
-              onPressed: _load,
+              onPressed: controller.load,
               child: WText(trans('uptizm.digest.error_retry')),
             ),
           ),
         ];
-      case _DigestPhase.gated:
-        final PlanUpgradeRequirement gate = _gate!;
+      case DigestPhase.gated:
+        final PlanUpgradeRequirement gate = controller.gate!;
         return [
           MSUpgradeNudge(
             message: gate.message,
@@ -157,8 +115,8 @@ class _WeeklyDigestViewState extends State<WeeklyDigestView> {
             onUpgrade: () => UpgradePrompt.startUpgrade(gate.requiredPlan),
           ),
         ];
-      case _DigestPhase.ready:
-        return _buildDigest(_digest!);
+      case DigestPhase.ready:
+        return _buildDigest(controller.digest!);
     }
   }
 
