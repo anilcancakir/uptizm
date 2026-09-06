@@ -38,6 +38,69 @@ class BillingTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * The catalog is COPY as much as it is prices, and it is the page someone
+     * reads before entering a card.
+     *
+     * `config/plans.php` is authored in English and used to be served verbatim,
+     * so a Turkish operator opened the one screen in the app that spoke no
+     * Turkish: every tagline, every feature bullet and every AI line. The
+     * English strings are the translation keys, which is this backend's
+     * convention, so the numbers the config docblock protects still come from
+     * one place.
+     */
+    public function test_plans_are_served_in_the_callers_language(): void
+    {
+        [$user] = $this->makeTeam();
+        $user->forceFill(['locale' => 'tr'])->save();
+        Sanctum::actingAs($user);
+
+        $free = collect($this->getJson('/api/v1/billing/plans')->json('data'))
+            ->firstWhere('id', 'free');
+
+        $this->assertSame(
+            __('Kick the tires, solo projects.', [], 'tr'),
+            $free['tagline'],
+            'the tagline must come back translated, not as the English source'
+        );
+        $this->assertSame(
+            __('AI anomaly inbox, plus 3 free AI monitor setups.', [], 'tr'),
+            $free['ai_line']
+        );
+        $this->assertContains(
+            __('1 status page · 100 subscribers', [], 'tr'),
+            $free['features'],
+            'every feature bullet is translated, not only the first'
+        );
+
+        // Read from the catalogue rather than asserted as a literal, so this
+        // agrees with the product rather than with the test author. The guard
+        // that makes it able to fail: the Turkish entry must actually DIFFER
+        // from its key, otherwise a missing translation would pass silently.
+        $this->assertNotSame(
+            'Kick the tires, solo projects.',
+            $free['tagline'],
+            'a missing Turkish entry would make every assertion above vacuous'
+        );
+    }
+
+    /**
+     * An English caller keeps the source strings, so the translation layer
+     * cannot quietly change what a paying customer was promised.
+     */
+    public function test_plans_keep_their_english_copy_for_an_english_caller(): void
+    {
+        [$user] = $this->makeTeam();
+        $user->forceFill(['locale' => 'en'])->save();
+        Sanctum::actingAs($user);
+
+        $free = collect($this->getJson('/api/v1/billing/plans')->json('data'))
+            ->firstWhere('id', 'free');
+
+        $this->assertSame('Kick the tires, solo projects.', $free['tagline']);
+        $this->assertContains('1 status page · 100 subscribers', $free['features']);
+    }
+
     public function test_plans_returns_the_static_catalog_cheapest_first(): void
     {
         [$user] = $this->makeTeam();
