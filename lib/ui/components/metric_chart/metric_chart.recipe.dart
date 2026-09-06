@@ -44,7 +44,7 @@ class _ToneHex {
 /// The anomaly-dot red is resolved separately by [metricChartAnomalyColor] since
 /// `down` is not a [ChartTone] (the design contract omits it from chart tones).
 const Map<ChartTone, _ToneHex> _toneHexes = {
-  ChartTone.primary: _ToneHex(0xFF009A6F, 0xFF00C292),
+  ChartTone.primary: _ToneHex(0xFF008560, 0xFF00C292),
   ChartTone.up: _ToneHex(0xFF30A556, 0xFF45C06A),
   ChartTone.info: _ToneHex(0xFF207FE8, 0xFF53A0FF),
   ChartTone.degraded: _ToneHex(0xFFE69825, 0xFFF5AE39),

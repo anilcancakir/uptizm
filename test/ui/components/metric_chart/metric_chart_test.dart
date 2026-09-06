@@ -30,9 +30,14 @@ void main() {
 
   group('metricChartToneColor', () {
     test('resolves the light hex for each tone in light mode', () {
+      // These are DESIGN.md's values, not "whatever the recipe currently
+      // holds". Deriving them from the recipe is how the primary drifted to
+      // #009A6F and stayed there: the assertion moved with the constant it was
+      // meant to guard. `primary` is the brand green `wind_theme.g.dart` emits
+      // for `bg-primary`; the other four are the status families.
       expect(
         metricChartToneColor(ChartTone.primary, Brightness.light),
-        const Color(0xFF009A6F),
+        const Color(0xFF008560),
       );
       expect(
         metricChartToneColor(ChartTone.up, Brightness.light),

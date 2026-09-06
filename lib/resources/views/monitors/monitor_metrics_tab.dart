@@ -388,7 +388,7 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
       className: 'flex flex-col gap-2',
       children: [
         WDiv(
-          className: 'flex flex-row flex-wrap items-center gap-2',
+          className: 'wrap items-center gap-2',
           children: [for (final AiMetricSeed seed in seeds) _buildSeedPill(seed)],
         ),
         WText(

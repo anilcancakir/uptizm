@@ -130,34 +130,37 @@ class AiInboxItem extends StatelessWidget {
   }
 
   /// Builds the header row: sparkle glyph, monitor name, [AiConfidenceBadge],
-  /// and relative timestamp pushed to the trailing edge via `ml-auto`.
+  /// and the relative age.
   ///
-  /// Uses a `WDiv(flex flex-wrap)` container so the badge stays shrink-wrap
-  /// (non-greedy) and the row reflows on narrow columns instead of overflowing.
+  /// The age follows the badge after a `gap-2`; it is NOT pushed to the
+  /// trailing edge. It never was: this row carried `ml-auto` on the age, and
+  /// Wind's margin parser skips the `auto` value for every side except `mx`,
+  /// so the token was inert and the comment describing a trailing time column
+  /// described something that has never rendered. The token is gone rather
+  /// than replaced, because the shape that would earn a trailing edge is a
+  /// flex row with the name as the greedy child, and swapping this `wrap` for
+  /// one overflows by ~2px at the preview's width. Reflow is load-bearing
+  /// here: [Wrap] is what lets the row break onto a second line on a narrow
+  /// column instead of overflowing, which a flex row cannot do.
   Widget _buildHeader() {
-    // `flex flex-wrap items-center gap-2` mirrors the React `slots.header()`.
-    // `ml-auto` on the time span pushes it to the trailing edge within the
-    // wrap row, matching the React `ml-auto` on the time slot.
-    // A plain Flutter Row would make the Wind-badge a greedy Expanded child
-    // and overflow; Wind `wrap` reflows on a narrow column instead.
     return WDiv(
       className: 'wrap items-center gap-2',
       children: [
         // Sparkle glyph marking the row as AI-generated.
         WText('✦', className: 'text-sm text-ai'),
 
-        // Monitor name: grows to fill available space.
+        // Monitor name.
         WText(incident.monitorName, className: 'text-sm font-medium text-fg'),
 
         // Confidence badge: shrink-wrap pill; non-greedy inside the wrap row.
         AiConfidenceBadge(incident.ai!.confidence),
 
-        // Relative age ("4 dk önce"): pushed to the end via ml-auto. The bare
-        // age, not the incident meta line: these rows are pending anomalies, so
-        // "started"/"resolved" would name a lifecycle they do not have.
+        // Relative age ("4 dk önce"): the bare age, not the incident meta line,
+        // because these rows are pending anomalies and "started"/"resolved"
+        // would name a lifecycle they do not have.
         WText(
           incident.startedAge,
-          className: 'ml-auto font-mono text-xs tabular-nums text-fg-muted',
+          className: 'font-mono text-xs tabular-nums text-fg-muted',
         ),
       ],
     );

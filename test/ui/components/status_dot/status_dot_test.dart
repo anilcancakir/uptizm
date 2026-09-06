@@ -18,6 +18,42 @@ void main() {
   }
 
   // ---------------------------------------------------------------------------
+  // Rendered geometry
+  // ---------------------------------------------------------------------------
+
+  // The dot carried its diameter twice: once as the recipe's `size-*` token and
+  // once as a Dart switch feeding a SizedBox. They agreed, so nothing failed,
+  // and editing the token alone would have changed nothing. This pins the
+  // rendered box against the token so one source can be removed safely.
+  testWidgets('each size renders the box its recipe token names', (
+    tester,
+  ) async {
+    for (final (StatusDotSize size, double expected) in <(
+      StatusDotSize,
+      double,
+    )>[
+      (StatusDotSize.sm, 8),
+      (StatusDotSize.md, 10),
+      (StatusDotSize.lg, 12),
+    ]) {
+      await tester.pumpWidget(
+        wrap(
+          Align(
+            alignment: Alignment.topLeft,
+            child: StatusDot(StatusKey.up, size: size),
+          ),
+        ),
+      );
+
+      expect(
+        tester.getSize(find.byType(StatusDot)),
+        Size(expected, expected),
+        reason: '${size.name} should render at $expected logical pixels',
+      );
+    }
+  });
+
+  // ---------------------------------------------------------------------------
   // Recipe variant-class assertions
   // ---------------------------------------------------------------------------
 

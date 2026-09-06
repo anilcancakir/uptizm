@@ -44,6 +44,12 @@ Map<String, String> uptimeBarRecipe({
         'down': {'segment': 'bg-down'},
         'degraded': {'segment': 'bg-degraded'},
         'paused': {'segment': 'bg-paused'},
+        // Awaiting a first check. Mapped to the paused palette so the three
+        // components that own the status vocabulary agree; without an entry a
+        // slot recipe appends NOTHING for an unmatched value (it does not fall
+        // back to defaultVariants), so the segment would render as a
+        // transparent hole rather than a neutral one.
+        'pending': {'segment': 'bg-paused'},
         'info': {'segment': 'bg-info'},
         'ai': {'segment': 'bg-ai'},
         // No check ran that day: a neutral surface segment, distinct from the

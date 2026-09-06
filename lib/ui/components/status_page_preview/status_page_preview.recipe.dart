@@ -26,10 +26,14 @@ const String statusPagePreviewComponentsBoxClassName =
 
 /// Dashed empty placeholder className when no components are assigned.
 ///
-/// Mirrors
-/// `rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground`.
+/// The design source reaches for `border-dashed` here, which Wind recognises
+/// only as a TEXT decoration style and never wires as a border style, so the
+/// placeholder rendered with the same solid hairline as
+/// [statusPagePreviewComponentsBoxClassName] two lines above it and an empty
+/// draft was indistinguishable from a configured page. It carries the
+/// difference as a tone instead: a subtle hairline over a tinted fill.
 const String statusPagePreviewEmptyPlaceholderClassName =
-    'rounded-xl border border-dashed border-color-border px-4 py-8 text-center text-sm text-fg-muted';
+    'rounded-xl border border-color-border-subtle bg-surface-container-high px-4 py-8 text-center text-sm text-fg-muted';
 
 /// Subscribe panel shell className.
 ///
