@@ -477,7 +477,13 @@ class _MonitorsListViewState
   /// The dashed-border container mirrors `rounded-xl border-dashed border-border`
   /// from the React source.
   Widget _buildEmptyState() {
-    final bool noMonitorsAtAll = controller.monitors.isEmpty;
+    // Gated on the FILTER, not on the page. `_visible` IS `controller.monitors`
+    // since filtering moved server-side, so this method is only ever reached
+    // when that list is empty and `controller.monitors.isEmpty` was true by
+    // construction: the no-match branch below was unreachable, and a team with
+    // forty monitors selecting a tab with nothing in it was told it has no
+    // monitors at all and offered "New monitor" as the only way out.
+    final bool noMonitorsAtAll = _filterIndex == 0;
 
     return WDiv(
       className: 'rounded-xl border border-dashed border-color-border',
@@ -495,7 +501,14 @@ class _MonitorsListViewState
               )
             : MSButton(
                 intent: ButtonIntent.secondary,
-                onPressed: () => setState(() => _filterIndex = 0),
+                // Both halves: the tab AND the request. Filtering travels as
+                // `?status=`, so resetting only `_filterIndex` moved the
+                // segmented control to "All" while the roster stayed filtered
+                // and this empty state stayed on screen.
+                onPressed: () {
+                  setState(() => _filterIndex = 0);
+                  unawaited(controller.setStatusFilter(null));
+                },
                 child: WText(trans('uptizm.monitors.empty_no_match_clear')),
               ),
       ),

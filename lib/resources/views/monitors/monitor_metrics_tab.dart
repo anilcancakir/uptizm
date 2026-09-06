@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter/material.dart' show Icons;
 import 'package:magic/magic.dart';
@@ -624,6 +626,18 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
         // read answered.
         if (_controller.isFirstLoad(widget.monitorId))
           _buildSkeleton()
+        // Failure is not emptiness. The two rendered identically while only one
+        // is a fact about the monitor, so a monitor with eight configured
+        // metrics was told it has none and invited to create its first for the
+        // length of a backend outage. Mirrors `monitors_list_view`'s error
+        // phase.
+        //
+        // Gated on having nothing to show, not on the failure alone: the
+        // controller deliberately keeps the last-known-good catalogue across a
+        // failed refresh, and replacing a list the operator can read with an
+        // error banner would trade one wrong answer for another.
+        else if (_metrics.isEmpty && _controller.loadFailed(widget.monitorId))
+          _buildLoadError()
         else if (_metrics.isEmpty)
           _buildEmptyState()
         else
@@ -680,6 +694,23 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
           onPressed: _openCreate,
           child: WText(trans('uptizm.monitors.metrics_create')),
         ),
+      ),
+    );
+  }
+
+  /// Builds the branch shown when the metric catalogue could not be read.
+  ///
+  /// Says so, and offers the retry, rather than letting the emptiness check
+  /// below answer for a read that never landed.
+  Widget _buildLoadError() {
+    return MSErrorState(
+      title: trans('uptizm.monitors.metrics_load_error_title'),
+      description: trans('uptizm.monitors.metrics_load_error_description'),
+      action: MSButton(
+        intent: ButtonIntent.secondary,
+        size: ButtonSize.sm,
+        onPressed: () => unawaited(_controller.reload(widget.monitorId)),
+        child: WText(trans('uptizm.common.retry')),
       ),
     );
   }

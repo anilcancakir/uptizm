@@ -140,14 +140,16 @@ class IncidentCard extends StatelessWidget {
           // Operator severity tier label.
           WText(incident.severity.label),
         ] else
-          // Count of affected monitors (mirrors the design lab).
+          // Count of affected monitors (mirrors the design lab). No plural
+          // branch: `single` above is `affectedCount <= 1`, so this arm is
+          // reached only from two upwards. The ternary that used to sit here
+          // tested for exactly one and could never be true, which left
+          // `affected_count_one` reading as live copy while nothing rendered
+          // it and made a plural guard look handled when it was not.
           WText(
-            trans(
-              incident.affectedCount == 1
-                  ? 'uptizm.incidents.affected_count_one'
-                  : 'uptizm.incidents.affected_count_other',
-              {'count': '${incident.affectedCount}'},
-            ),
+            trans('uptizm.incidents.affected_count_other', {
+              'count': '${incident.affectedCount}',
+            }),
           ),
 
         // Separator dot.
