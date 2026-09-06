@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart' show Icons, Material, MaterialType;
@@ -5,47 +6,14 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
 import '../../../app/controllers/assistant_controller.dart';
+import '../../../app/support/assistant_types.dart';
+
+// Re-exported so the barrel's public surface is unchanged: the two types moved
+// to `support/` because the controller owns the conversation now, and a
+// controller importing a UI component would invert the layering.
+export '../../../app/support/assistant_types.dart'
+    show AssistantMessage, AssistantRole;
 import 'assistant.recipe.dart';
-
-/// The author of an assistant chat message.
-enum AssistantRole {
-  /// A message typed by the operator.
-  user,
-
-  /// A reply from Uptizm AI.
-  assistant,
-
-  /// The product speaking, not the assistant.
-  ///
-  /// Used when the backend answered without a model behind it, which today means
-  /// the team is over its daily AI allowance. That sentence used to arrive as an
-  /// [assistant] message, so an operator read a canned line as something Uptizm
-  /// AI had worked out for them; the backend now marks it with a
-  /// `degrade_reason` and this role is how the panel shows the difference.
-  system,
-}
-
-/// A single message in the assistant conversation.
-@immutable
-class AssistantMessage {
-  /// Who authored the message.
-  final AssistantRole role;
-
-  /// The message body.
-  final String text;
-
-  /// Creates an [AssistantMessage].
-  const AssistantMessage({required this.role, required this.text});
-}
-
-/// The opening greeting shown when the assistant surface first opens.
-///
-/// A getter (not a `const`) so the copy resolves through [trans] at the current
-/// locale.
-AssistantMessage get _greeting => AssistantMessage(
-  role: AssistantRole.assistant,
-  text: trans('uptizm.assistant.greeting'),
-);
 
 /// The quick-prompt chips offered before the first user message.
 ///
@@ -117,62 +85,55 @@ class _AssistantState extends State<Assistant> {
   /// Whether the floating surface is open. Always shown in embedded mode.
   bool _open = false;
 
-  /// The running conversation, seeded from [Assistant.initialMessages] or the
-  /// greeting.
-  late final List<AssistantMessage> _messages = List.of(
-    widget.initialMessages ?? [_greeting],
-  );
-
-  /// The composer text controller.
+  /// The composer text controller. The only state that stays local: it is a
+  /// typing buffer, not part of the conversation.
   final TextEditingController _input = TextEditingController();
+
+  /// The controller owning the conversation, so it survives the shell swap at
+  /// the `lg` breakpoint that used to discard this State mid-triage.
+  AssistantController get _controller => AssistantController.instance;
+
+  /// The conversation, read from the controller.
+  List<AssistantMessage> get _messages => _controller.messages;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onControllerChanged);
+    // A preview seeds its own script; the app seeds the greeting once.
+    final List<AssistantMessage>? seed = widget.initialMessages;
+    if (seed != null) {
+      _controller.seedConversation(seed);
+    } else {
+      _controller.ensureGreeted();
+    }
+  }
 
   @override
   void dispose() {
+    _controller.removeListener(_onControllerChanged);
     _input.dispose();
     super.dispose();
+  }
+
+  /// Rebuilds when the conversation or the in-flight flag moves.
+  void _onControllerChanged() {
+    if (mounted) setState(() {});
   }
 
   /// Whether the quick-prompt chips should still be shown (pre-first-reply).
   bool get _showChips => _messages.length <= 1;
 
-  /// Appends the user message, then asks the live assistant and appends its
-  /// grounded reply once it resolves.
+  /// Hands [text] to the controller, which appends it, guards against a second
+  /// question while one is in flight, and appends the reply.
   void _send(String text) {
+    if (_controller.isAsking) return;
+
     final String trimmed = text.trim();
     if (trimmed.isEmpty) return;
 
-    setState(() {
-      _messages.add(AssistantMessage(role: AssistantRole.user, text: trimmed));
-      _input.clear();
-    });
-
-    _ask(trimmed);
-  }
-
-  /// Fires the live `POST /assistant` round-trip via [AssistantController]
-  /// and appends the grounded answer. On failure, [AssistantController.ask]
-  /// already surfaced an error toast and logged the failure, so this leaves
-  /// the conversation unchanged rather than appending a placeholder reply.
-  Future<void> _ask(String question) async {
-    final AssistantReply? reply = await AssistantController.instance.ask(
-      question,
-    );
-    if (!mounted || reply == null) return;
-
-    setState(() {
-      _messages.add(
-        AssistantMessage(
-          // A sentence the backend produced without a model is the SYSTEM
-          // speaking, not the assistant. It used to arrive as an assistant
-          // reply, so an operator over their daily AI allowance read a canned
-          // line as something Uptizm AI had reasoned out for them.
-          role: reply.degraded
-              ? AssistantRole.system
-              : AssistantRole.assistant,
-          text: reply.answer,
-        ),
-      );
-    });
+    _input.clear();
+    unawaited(_controller.send(trimmed));
   }
 
   @override
@@ -461,7 +422,11 @@ class _AssistantState extends State<Assistant> {
           ),
         ),
         WButton(
-          onTap: () => _send(_input.text),
+          // Disabled while a question is in flight, so the controller's guard
+          // is visible rather than only defensive: the panel used to show
+          // nothing at all for the seconds a model round-trip takes, and each
+          // extra tap spent another unit of the team's daily AI allowance.
+          onTap: _controller.isAsking ? null : () => _send(_input.text),
           semanticLabel: trans('uptizm.assistant.send_label'),
           // Padding-based sizing (like the Button component): a WButton ignores
           // size-N and shrink-wraps to its icon, which rendered a tiny circle.
