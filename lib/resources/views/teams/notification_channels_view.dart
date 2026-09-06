@@ -98,6 +98,13 @@ class _ChannelDraft {
 }
 
 class _NotificationChannelsViewState extends State<NotificationChannelsView> {
+  /// Channel types whose save is currently in flight.
+  ///
+  /// A set rather than one bool, because this screen hosts four independent
+  /// forms and freezing all of them while one saves would be a worse answer
+  /// than the double-submit it guards against.
+  final Set<ChannelType> _saving = <ChannelType>{};
+
   /// The channel types this screen configures, in display order.
   static const List<ChannelType> _types = [
     ChannelType.slack,
@@ -610,7 +617,11 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
       children: [
         MSButton(
           size: ButtonSize.sm,
-          onPressed: () => _save(type, record),
+          // Disabled while this channel's own write is in flight, so the guard
+          // in `_save` is visible rather than only defensive.
+          onPressed: _saving.contains(type)
+              ? null
+              : () => _save(type, record),
           child: WText(trans('uptizm.teams.channels_save_button')),
         ),
         if (record != null)
@@ -662,6 +673,34 @@ class _NotificationChannelsViewState extends State<NotificationChannelsView> {
   /// `false`: a `true` means it was written and there is nothing left to
   /// surface.
   Future<void> _save(ChannelType type, NotificationChannelRecord? record) async {
+    // Per type, not one flag for the screen: this page hosts four independent
+    // channel forms and a single `isSubmitting` would freeze the other three
+    // while one saves. That is why `SubmitsOnce` does not fit here.
+    //
+    // The guard is not cosmetic. `POST /notification-channels` creates
+    // unconditionally and the table carries only an index, no unique
+    // constraint, on (team_id, channel_type), so a double tap on Connect gave
+    // the team two Slack channels: every incident then paged Slack twice, and
+    // `channelOfType` returns only the first, so the duplicate was invisible in
+    // the UI and could not be deleted from it.
+    if (_saving.contains(type)) return;
+    setState(() => _saving.add(type));
+
+    try {
+      await _saveInner(type, record);
+    } finally {
+      // Released on every exit, including the two early returns the validation
+      // legs take, or a refused save would lock its own Connect button.
+      if (mounted) setState(() => _saving.remove(type));
+    }
+  }
+
+  /// The body of [_save], separated so the in-flight guard above can release on
+  /// every path without threading a flag through five early returns.
+  Future<void> _saveInner(
+    ChannelType type,
+    NotificationChannelRecord? record,
+  ) async {
     final _ChannelDraft draft = _drafts[type]!;
     final NotificationChannelController controller =
         NotificationChannelController.instance;

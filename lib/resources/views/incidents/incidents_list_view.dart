@@ -427,6 +427,28 @@ class _IncidentsListViewState
       return _buildSkeleton();
     }
 
+    // Failure is not emptiness, and on THIS screen the conflation is the worst
+    // in the product: the empty state reads "All clear / Uptizm will open one
+    // automatically the moment something goes wrong", so a failed roster read
+    // during a backend outage told an operator on the incident console that
+    // nothing was wrong. `MonitorsListView` and `DashboardView` already read
+    // their controller's failure ahead of emptiness; this one never did.
+    //
+    // Gated on having nothing to show, so a failed refresh does not replace a
+    // roster the operator can still read.
+    if (controller.isError && visible.isEmpty) {
+      return MSErrorState(
+        title: trans('uptizm.incidents.load_error_title'),
+        description: trans('uptizm.incidents.load_error_description'),
+        action: MSButton(
+          intent: ButtonIntent.secondary,
+          size: ButtonSize.sm,
+          onPressed: controller.reload,
+          child: WText(trans('uptizm.common.retry')),
+        ),
+      );
+    }
+
     if (visible.isEmpty) {
       return _buildEmptyState();
     }

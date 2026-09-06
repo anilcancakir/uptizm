@@ -1266,7 +1266,7 @@ class IncidentController extends MagicController
   /// a call site with no text has nothing honest to send (the backend
   /// requires a non-empty `message`), so it degrades to the toast-only
   /// notice instead of posting an empty or invented note.
-  Future<void> postUpdate(
+  Future<bool> postUpdate(
     Incident incident, {
     String? message,
     bool isPublic = true,
@@ -1277,7 +1277,7 @@ class IncidentController extends MagicController
         trans('uptizm.incidents.detail_composer_post'),
         incident.displayTitle,
       );
-      return;
+      return true;
     }
 
     try {
@@ -1301,7 +1301,7 @@ class IncidentController extends MagicController
           trans('common.error_occurred'),
           response.errorMessage ?? trans('common.error_occurred'),
         );
-        return;
+        return false;
       }
 
       await reload();
@@ -1309,6 +1309,8 @@ class IncidentController extends MagicController
         trans('uptizm.incidents.detail_composer_post'),
         incident.displayTitle,
       );
+
+      return true;
     } catch (error) {
       Log.error(
         '[IncidentController.postUpdate] ${incident.id} failed: $error',
@@ -1317,6 +1319,8 @@ class IncidentController extends MagicController
         trans('common.error_occurred'),
         trans('common.error_occurred'),
       );
+
+      return false;
     }
   }
 

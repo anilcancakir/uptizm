@@ -101,6 +101,23 @@ class _EscalationPoliciesViewState
           // index call, so that window is two round trips wide here).
           if (controller.isFirstLoad)
             _buildSkeleton()
+          // Failure is not emptiness. `EscalationController.loadFailed` was
+          // written for this screen and had no reader, so a failed read told a
+          // team with a configured ladder that it had none: on an alerting
+          // product, the screen that says who gets paged.
+          else if (controller.loadFailed)
+            MSErrorState(
+              title: trans('uptizm.teams.escalation_load_error_title'),
+              description: trans(
+                'uptizm.teams.escalation_load_error_description',
+              ),
+              action: MSButton(
+                intent: ButtonIntent.secondary,
+                size: ButtonSize.sm,
+                onPressed: controller.reload,
+                child: WText(trans('uptizm.common.retry')),
+              ),
+            )
           else if (policies.isEmpty)
             // A loaded, empty list used to render an empty `WDiv`: a team with
             // no policy saw a hairline, a gap, and the on-call footnote, which

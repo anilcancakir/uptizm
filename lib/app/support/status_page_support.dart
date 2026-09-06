@@ -89,19 +89,41 @@ StatusKey? worstStatus(List<PublicComponent> components) {
     return null;
   }
 
-  int rank(StatusKey s) => switch (s) {
+  // `paused` and `pending` carry NO rank, because neither is a reading. A
+  // paused monitor is a switch the operator threw and a pending one has not
+  // been probed yet, so ranking either above `up` let one paused component flip
+  // a healthy page's badge off "Operational", and attaching a freshly created
+  // monitor made the whole page read "Pending" until its first probe landed.
+  // Both are claims about health derived from a value that is not one.
+  int? rank(StatusKey s) => switch (s) {
     StatusKey.down => 4,
     StatusKey.degraded => 3,
     StatusKey.info => 2,
-    StatusKey.paused => 1,
-    StatusKey.pending => 1,
     StatusKey.up => 0,
     StatusKey.ai => 0,
+    StatusKey.paused => null,
+    StatusKey.pending => null,
   };
 
-  StatusKey worst = StatusKey.up;
+  StatusKey? worst;
+  int worstRank = -1;
   for (final PublicComponent c in components) {
-    if (rank(c.status) > rank(worst)) worst = c.status;
+    final int? r = rank(c.status);
+    if (r == null) continue;
+    if (r > worstRank) {
+      worstRank = r;
+      worst = c.status;
+    }
   }
+
+  // `ai` and `up` share rank 0 and both mean operational, so a page holding
+  // only those reports `up`. Preserved from the previous implementation, which
+  // got it by seeding `worst` with `up`; the seed is gone now that a page can
+  // legitimately have no rankable component at all.
+  if (worstRank == 0) return StatusKey.up;
+
+  // Null when nothing rankable remains, which is the same answer the empty-list
+  // branch above gives: a page whose every component is paused or unprobed has
+  // no health to report, and saying "Operational" would be inventing one.
   return worst;
 }

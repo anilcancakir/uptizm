@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
 import '../../../app/models/incident.dart';
+import '../../../app/support/incident_types.dart' show IncidentAi;
 import '../ai_confidence_badge/index.dart';
 import 'ai_inbox_item.recipe.dart';
 
@@ -87,6 +88,15 @@ class AiInboxItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 0. The AI payload, read ONCE and proven non-null here rather than force
+    //    unwrapped three times further down. `Incident.ai` answers null
+    //    whenever the wire `ai` key is absent or not a Map, and this widget's
+    //    public constructor accepts any Incident, so a row without one used to
+    //    throw a null check inside build and take the whole dashboard with it.
+    //    Rendering nothing is the honest answer for a row with no analysis.
+    final IncidentAi? ai = incident.ai;
+    if (ai == null) return const SizedBox.shrink();
+
     // 1. Resolve the outer card className from the recipe.
     final String rootClass = aiInboxItemRecipe();
 
@@ -103,16 +113,16 @@ class AiInboxItem extends StatelessWidget {
             className: 'w-full flex flex-col gap-2 p-4 pl-5',
             children: [
               // Header: sparkle glyph + monitor name + confidence + time.
-              _buildHeader(),
+              _buildHeader(ai),
               // AI summary paragraph (tldr from the IncidentAi payload).
-              _buildSummary(),
+              _buildSummary(ai),
               // The model's caveat, present ONLY when it disputed the anomaly.
               // Conditionally in the list rather than conditionally visible: a
               // wind flex gap reserves a slot for a child that renders nothing,
               // so an empty widget here would open a double gap on every other
               // row. `== false` and not `!`, because null is "no model ran" and
               // must stay silent.
-              if (incident.ai!.confirmed == false) _buildVerdict(),
+              if (ai.confirmed == false) _buildVerdict(),
               // Action row: open-incident + dismiss (explicit tap only).
               _buildActions(),
             ],
@@ -142,7 +152,7 @@ class AiInboxItem extends StatelessWidget {
   /// one overflows by ~2px at the preview's width. Reflow is load-bearing
   /// here: [Wrap] is what lets the row break onto a second line on a narrow
   /// column instead of overflowing, which a flex row cannot do.
-  Widget _buildHeader() {
+  Widget _buildHeader(IncidentAi ai) {
     return WDiv(
       className: 'wrap items-center gap-2',
       children: [
@@ -153,7 +163,7 @@ class AiInboxItem extends StatelessWidget {
         WText(incident.monitorName, className: 'text-sm font-medium text-fg'),
 
         // Confidence badge: shrink-wrap pill; non-greedy inside the wrap row.
-        AiConfidenceBadge(incident.ai!.confidence),
+        AiConfidenceBadge(ai.confidence),
 
         // Relative age ("4 dk önce"): the bare age, not the incident meta line,
         // because these rows are pending anomalies and "started"/"resolved"
@@ -167,8 +177,8 @@ class AiInboxItem extends StatelessWidget {
   }
 
   /// Builds the AI summary paragraph from [IncidentAi.tldr].
-  Widget _buildSummary() {
-    return WText(incident.ai!.tldr, className: 'text-sm text-fg-muted');
+  Widget _buildSummary(IncidentAi ai) {
+    return WText(ai.tldr, className: 'text-sm text-fg-muted');
   }
 
   /// Builds the model's own caveat line: this anomaly fired statistically, and
