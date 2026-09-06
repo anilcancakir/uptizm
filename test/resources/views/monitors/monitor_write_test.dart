@@ -342,6 +342,62 @@ void main() {
       );
     });
 
+    testWidgets('an all-blank form reports every required field at once, not '
+        'the target alone', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 1600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      bool submitCalled = false;
+
+      await tester.pumpWidget(
+        wrap(
+          MonitorForm(
+            // Nothing filled in at all, which is what a first-time operator
+            // presses the button on.
+            submitLabel: trans('uptizm.monitors.form_submit_create'),
+            onSubmit: (fields) async {
+              submitCalled = true;
+              return MonitorController.instance.create(fields);
+            },
+            onCancel: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final Finder submitButton = find.widgetWithText(
+        MSButton,
+        trans('uptizm.monitors.form_submit_create'),
+      );
+      await tester.ensureVisible(submitButton);
+      await tester.tap(submitButton);
+      await tester.pump();
+
+      // The form's own target check still stops the request: a payload whose
+      // answer is already known never becomes one.
+      expect(
+        submitCalled,
+        isFalse,
+        reason: 'a blank target must not reach the write path',
+      );
+
+      // The regression this pins. `_submitIfValid` returned the moment the
+      // target check failed, so the controller's rules never ran and the name
+      // slot stayed empty: the operator filled the url, pressed the button a
+      // second time, and only then learned the name was required.
+      expect(
+        MonitorController.instance.hasError('name'),
+        isTrue,
+        reason: 'the controller rules must still paint when a local shape '
+            'check already failed',
+      );
+      expect(
+        find.text('The Name field is required.'),
+        findsOneWidget,
+        reason: 'both errors must be readable on the same submit',
+      );
+    });
+
     testWidgets('a server 422 renders the message under the matching field', (
       tester,
     ) async {

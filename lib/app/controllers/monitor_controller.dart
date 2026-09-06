@@ -1071,6 +1071,28 @@ class MonitorController extends MagicController
   /// [Monitor.save] absorbs transport failures internally and returns `false`
   /// rather than throwing; a `false` that carries the Laravel 422 shape on
   /// [Monitor.validationErrors] is republished here.
+  /// Paints the rule failures for [fields] onto [validationErrors] without
+  /// writing anything, and answers whether they all passed.
+  ///
+  /// The form owns two shape checks magic has no rule for (the type-dependent
+  /// target and the credential block), and they run first and stop the submit.
+  /// That left the controller's own rules unrun on that submit, so an all-blank
+  /// create form reported ONLY the target: the operator filled the url, pressed
+  /// the button again, and only then learned the name was required. A form is
+  /// meant to report everything it already knows in one pass.
+  ///
+  /// Same rule set the matching write uses, chosen by [creating], so the two can
+  /// never disagree about what is required.
+  bool paintRuleErrors(Map<String, dynamic> fields, {required bool creating}) {
+    try {
+      validate(fields, creating ? _createRules : _updateRules);
+
+      return true;
+    } on ValidationException {
+      return false;
+    }
+  }
+
   Future<bool> create([Map<String, dynamic>? fields]) async {
     if (fields != null) {
       try {

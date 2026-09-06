@@ -1200,7 +1200,20 @@ class _MonitorFormState extends State<MonitorForm>
   /// flagged field is inside it (an inline error nobody can see is not a
   /// message), and toast whatever this form owns no slot for.
   Future<void> _submitIfValid() async {
-    if (!_checkTargetAndCredential()) return;
+    final bool shapeOk = _checkTargetAndCredential();
+
+    if (!shapeOk) {
+      // Ask the controller to paint its own rule failures on THIS submit as
+      // well. The two shape checks above stop the request, and they used to
+      // stop the controller's rules with it: an all-blank create form reported
+      // only the target, so the operator filled the url, pressed the button
+      // again, and only then learned the name was required. A form reports
+      // everything it already knows in one pass.
+      _monitor.paintRuleErrors(buildFields(), creating: !widget.isEdit);
+      _revealRefusedFields();
+
+      return;
+    }
 
     final bool written = await widget.onSubmit(buildFields());
     if (!mounted || written) return;
@@ -1251,6 +1264,18 @@ class _MonitorFormState extends State<MonitorForm>
       setState(() => _advanced = true);
     }
 
+    // An inline error nobody can see is not a message, and that applies to a
+    // field scrolled off the top as much as to one hidden in a collapsed
+    // section. The submit button sits at the FOOT of a form taller than the
+    // viewport, so a refused submit painted `Ad` and `URL` about seven hundred
+    // pixels above the finger that pressed it and read as a dead button.
+    //
+    // The page top rather than the offending field: every error the local
+    // checks and the required-field rules can produce lands on the first two
+    // fields, because the rest either carry a default or live in the advanced
+    // section the block above expands.
+    if (errors.isNotEmpty || _urlError != null) _scrollToTop();
+
     final Iterable<MapEntry<String, String>> unmapped = errors.entries.where(
       (MapEntry<String, String> entry) =>
           !_ownedFields.contains(entry.key) && !_isCredentialKey(entry.key),
@@ -1260,6 +1285,22 @@ class _MonitorFormState extends State<MonitorForm>
     Magic.error(
       trans('uptizm.monitors.toast_save_failed_title'),
       unmapped.first.value,
+    );
+  }
+
+  /// Brings the page top into view, so a freshly painted error slot is on
+  /// screen rather than above it.
+  ///
+  /// A no-op when this form is not inside a scroll view, which is the case in
+  /// the widget tests that pump it bare.
+  void _scrollToTop() {
+    final ScrollableState? scrollable = Scrollable.maybeOf(context);
+    if (scrollable == null) return;
+
+    scrollable.position.animateTo(
+      0,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
     );
   }
 
