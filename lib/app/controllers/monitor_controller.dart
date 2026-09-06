@@ -17,7 +17,8 @@ import '../support/monitor_types.dart'
         UptimeSegment,
         analyzeRunStatusFromWire,
         analyzeStepStateFromWire;
-import '../support/wire_reads.dart' show idOrNull, intOr, stringOrNull;
+import '../support/wire_reads.dart'
+    show idOrNull, intOr, intOrNull, stringOr, stringOrNull;
 import '../enums/status_key.dart';
 import '../enums/ai_confidence.dart';
 import '../../resources/views/monitors/monitor_form_support.dart'
@@ -101,28 +102,32 @@ class MonitorAnalysis {
   /// /monitors/analyze` response.
   factory MonitorAnalysis.fromMap(Map<String, dynamic> map) {
     return MonitorAnalysis(
-      url: map['url'] as String? ?? '',
-      name: map['name'] as String? ?? '',
+      url: stringOr(map['url'], ''),
+      name: stringOr(map['name'], ''),
       recommendedIntervalSeconds:
-          (map['recommended_interval_seconds'] as num?)?.toInt() ?? 30,
+          intOr(map['recommended_interval_seconds'], 30),
       recommendedWarnThresholdMs:
-          (map['recommended_warn_threshold_ms'] as num?)?.toInt() ?? 0,
+          intOr(map['recommended_warn_threshold_ms'], 0),
       recommendedCriticalThresholdMs:
-          (map['recommended_critical_threshold_ms'] as num?)?.toInt() ?? 0,
-      recommendedRegions:
-          (map['recommended_regions'] as List?)?.whereType<String>().toList() ??
-          const [],
-      rationale: map['rationale'] as String? ?? '',
-      suggestedMetrics:
-          (map['suggested_metrics'] as List?)
-              ?.whereType<Map<String, dynamic>>()
-              .map(AiMetricSeed.fromMap)
-              .toList() ??
-          const [],
-      confidence: aiConfidenceFromWire(map['confidence'] as String?),
-      serviceClass: map['service_class'] as String? ?? 'unknown',
-      regionBasis: map['region_basis'] as String? ?? 'default',
-      recommendedSloTarget: map['recommended_slo_target'] as String? ?? 'none',
+          intOr(map['recommended_critical_threshold_ms'], 0),
+      // Type tests, not `as List?`. `whereType` already drops a wrongly-typed
+      // ELEMENT, so the only gap was the container itself: a backend sending an
+      // object where the array belongs threw and lost the whole analysis, the
+      // regions and the metrics along with the rationale that explains them.
+      recommendedRegions: map['recommended_regions'] is List
+          ? (map['recommended_regions'] as List).whereType<String>().toList()
+          : const <String>[],
+      rationale: stringOr(map['rationale'], ''),
+      suggestedMetrics: map['suggested_metrics'] is List
+          ? (map['suggested_metrics'] as List)
+                .whereType<Map<String, dynamic>>()
+                .map(AiMetricSeed.fromMap)
+                .toList()
+          : const <AiMetricSeed>[],
+      confidence: aiConfidenceFromWire(stringOrNull(map['confidence'])),
+      serviceClass: stringOr(map['service_class'], 'unknown'),
+      regionBasis: stringOr(map['region_basis'], 'default'),
+      recommendedSloTarget: stringOr(map['recommended_slo_target'], 'none'),
     );
   }
 }
@@ -729,7 +734,7 @@ class MonitorController extends MagicController
   int _retryAfterSeconds(MagicResponse response) {
     final Object? data = response.data;
     if (data is! Map<String, dynamic>) return 1;
-    return (data['retry_after_seconds'] as num?)?.toInt() ?? 1;
+    return intOr(data['retry_after_seconds'], 1);
   }
 
   // ---------------------------------------------------------------------------
@@ -1647,7 +1652,7 @@ class MonitorController extends MagicController
     final Object? meta = result is Map<String, dynamic> ? result['meta'] : null;
     if (meta is Map<String, dynamic>) {
       EntitlementController.instance.noteAiAnalysisTrialsRemaining(
-        (meta['ai_analysis_trials_remaining'] as num?)?.toInt(),
+        intOrNull(meta['ai_analysis_trials_remaining']),
       );
     }
 
@@ -1811,7 +1816,7 @@ class MonitorController extends MagicController
 
     for (final Map<String, dynamic> row in rows) {
       final DateTime? checkedAt = DateTime.tryParse(
-        (row['checked_at'] as String?) ?? '',
+        stringOr(row['checked_at'], ''),
       )?.toLocal();
       if (checkedAt == null) continue;
 
@@ -1820,7 +1825,7 @@ class MonitorController extends MagicController
 
       final int index = 89 - daysAgo;
       final StatusKey status = statusKeyFromWire(
-        row['status'] as String?,
+        stringOrNull(row['status']),
         fallback: StatusKey.up,
       );
       days[index] = _worseOf(days[index], status);

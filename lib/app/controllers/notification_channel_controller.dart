@@ -4,6 +4,7 @@ import 'package:magic_starter/magic_starter.dart';
 
 import '../enums/channel_type.dart' show ChannelType;
 import '../support/field_errors.dart';
+import '../support/wire_reads.dart' show boolOr, stringOr, stringOrNull;
 
 /// Resolves the wire `channel_type` string into a [ChannelType].
 ///
@@ -70,7 +71,7 @@ class NotificationChannelRecord {
   /// Decodes a [NotificationChannelRecord] from a `NotificationChannelResource`
   /// wire map.
   factory NotificationChannelRecord.fromMap(Map<String, dynamic> map) {
-    final ChannelType type = _typeFromWire(map['channel_type'] as String?);
+    final ChannelType type = _typeFromWire(stringOrNull(map['channel_type']));
     final Map<String, dynamic> credentials =
         map['credentials'] is Map<String, dynamic>
         ? map['credentials'] as Map<String, dynamic>
@@ -79,9 +80,9 @@ class NotificationChannelRecord {
     return NotificationChannelRecord(
       id: map['id']?.toString() ?? '',
       type: type,
-      name: (map['name'] as String?) ?? '',
-      isEnabled: (map['is_enabled'] as bool?) ?? true,
-      severity: (map['severity'] as String?) ?? 'all',
+      name: stringOr(map['name'], ''),
+      isEnabled: boolOr(map['is_enabled'], true),
+      severity: stringOr(map['severity'], 'all'),
       hasCredentials: switch (type) {
         ChannelType.slack => credentials['has_token'] == true,
         ChannelType.webhook => credentials['has_url'] == true,
@@ -89,11 +90,11 @@ class NotificationChannelRecord {
         ChannelType.teams => credentials['has_url'] == true,
       },
       detail: switch (type) {
-        ChannelType.slack => credentials['channel'] as String?,
-        ChannelType.webhook => credentials['url_host'] as String?,
+        ChannelType.slack => stringOrNull(credentials['channel']),
+        ChannelType.webhook => stringOrNull(credentials['url_host']),
         // PagerDuty exposes only a presence boolean, never a display hint.
         ChannelType.pagerduty => null,
-        ChannelType.teams => credentials['url_host'] as String?,
+        ChannelType.teams => stringOrNull(credentials['url_host']),
       },
     );
   }
@@ -314,7 +315,7 @@ class NotificationChannelController extends MagicController
   /// fields", and `false` with an EMPTY one means the generic error toast has
   /// already fired (a transport error / 500).
   Future<bool> create(Map<String, dynamic> fields) async {
-    final ChannelType type = _typeFromWire(fields['channel_type'] as String?);
+    final ChannelType type = _typeFromWire(stringOrNull(fields['channel_type']));
 
     try {
       final response = await Http.post(
@@ -455,7 +456,7 @@ class NotificationChannelController extends MagicController
   /// namespace has no dedicated connect/save success copy and the lang assets
   /// are out of this step's file scope.
   void _notifySuccess(String buttonKey, Map<String, dynamic> fields) {
-    Magic.success(trans(buttonKey), (fields['name'] as String?) ?? '');
+    Magic.success(trans(buttonKey), stringOr(fields['name'], ''));
   }
 
   /// Publishes a failed write [response] as either per-field validation
