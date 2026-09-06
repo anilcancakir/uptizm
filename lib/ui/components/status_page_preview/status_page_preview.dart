@@ -65,7 +65,7 @@ class StatusPagePreview extends StatelessWidget {
         children: [
           _buildBrandHeader(),
           const SizedBox(height: 32),
-          _buildBanner(overall),
+          _buildBanner(overall, components),
           const SizedBox(height: 32),
           _buildComponents(components),
           if (config.subscriptionsEnabled) ...[
@@ -123,8 +123,17 @@ class StatusPagePreview extends StatelessWidget {
   /// A page with no components has measured nothing, so it must not borrow the
   /// operational tone. Falling back to [StatusKey.up] here is what let an
   /// unconfigured page announce "All systems operational".
-  Widget _buildBanner(StatusKey? overall) {
+  Widget _buildBanner(StatusKey? overall, List<PublicComponent> components) {
     if (overall == null) {
+      // TWO different absences, and they used to share one sentence. `null`
+      // means nothing rankable: either the page has no components at all, or
+      // it has some and every one of them is paused or unprobed. Since
+      // `worstStatus` stopped ranking `paused`/`pending` (they are not
+      // readings), a page whose monitors were all freshly attached rendered
+      // "No components published yet" directly above the list of those
+      // components.
+      final bool hasComponents = components.isNotEmpty;
+
       return WDiv(
         className:
             'flex flex-row items-center gap-3 rounded-xl border '
@@ -133,7 +142,11 @@ class StatusPagePreview extends StatelessWidget {
         // overflowing the row: the Turkish string is longer than the English
         // one, and a fixed-width child would clip whichever is longer.
         child: WText(
-          trans('uptizm.status.preview_no_components_banner'),
+          trans(
+            hasComponents
+                ? 'uptizm.status.preview_awaiting_first_checks_banner'
+                : 'uptizm.status.preview_no_components_banner',
+          ),
           className: 'flex-1 text-sm font-semibold text-fg-muted',
         ),
       );

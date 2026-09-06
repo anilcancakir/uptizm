@@ -74,8 +74,13 @@ StatusPage cloneStatusPage(
 /// Worst component status, for the overall banner tone, or `null` when there is
 /// nothing to report.
 ///
-/// Ranks the statuses `down` (4) > `degraded` (3) > `info` (2) > `paused` (1)
-/// > `up`/`ai` (0) and returns the highest-ranked status among [components].
+/// Ranks `down` (4) > `degraded` (3) > `info` (2) > `up`/`ai` (0) and returns
+/// the highest-ranked status among [components].
+///
+/// `paused` and `pending` carry NO rank and are skipped, because neither is a
+/// reading: pausing is a switch the operator threw, and pending means nothing
+/// has been probed yet. Ranking them let one paused monitor flip a healthy
+/// page off "Operational".
 ///
 /// An empty list answers `null`, NOT [StatusKey.up]. A page with no components
 /// has made no measurement, so claiming "Operational" would be an unearned

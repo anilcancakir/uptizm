@@ -1000,6 +1000,7 @@
       "preview_past_incidents_heading": "Past incidents",
       "preview_updated_ago": "updated 2m ago",
       "preview_no_components_banner": "No components published yet",
+      "preview_awaiting_first_checks_banner": "Awaiting the first checks",
       "preview_powered_by": "powered by Uptizm",
       "preview_subscribe_heading": "Subscribe to updates",
       "preview_subscribe_description": "Get notified by email when an incident is opened, updated, or resolved.",
