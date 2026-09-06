@@ -1698,9 +1698,9 @@ class _StatusPageEditorViewState
         WDiv(
           className: 'flex flex-row gap-1',
           children: <Widget>[
-            WDiv(className: 'size-2.5 rounded-full bg-surface-container-high'),
-            WDiv(className: 'size-2.5 rounded-full bg-surface-container-high'),
-            WDiv(className: 'size-2.5 rounded-full bg-surface-container-high'),
+            WDiv(className: 'size-2.5 rounded-full bg-fg-disabled'),
+            WDiv(className: 'size-2.5 rounded-full bg-fg-disabled'),
+            WDiv(className: 'size-2.5 rounded-full bg-fg-disabled'),
           ],
         ),
         WDiv(

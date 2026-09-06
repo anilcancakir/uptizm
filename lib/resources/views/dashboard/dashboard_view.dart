@@ -200,7 +200,7 @@ class _DashboardViewState
           className: 'flex flex-col lg:flex-row gap-6 items-start',
           children: [
             WDiv(
-              className: 'flex flex-col gap-6 lg:flex-[2] min-w-0 w-full',
+              className: 'flex flex-col gap-6 lg:flex-2 min-w-0 w-full',
               children: [MSSkeleton(height: 180), MSSkeleton(height: 180)],
             ),
             WDiv(

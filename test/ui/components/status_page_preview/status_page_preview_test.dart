@@ -130,10 +130,22 @@ void main() {
       );
     });
 
-    test('the empty placeholder className is dashed', () {
+    test('the empty placeholder is distinguishable from the components box', () {
+      // It used to assert `border-dashed`, a token Wind recognises only as a
+      // text-decoration style and never wires as a border, so the test passed
+      // on a placeholder that rendered identically to the box below. What
+      // matters is that the two differ at all, so that is what this pins.
       expect(
         statusPagePreviewEmptyPlaceholderClassName,
-        contains('border-dashed'),
+        isNot(contains('border-dashed')),
+      );
+      expect(
+        statusPagePreviewEmptyPlaceholderClassName,
+        contains('bg-surface-container-high'),
+      );
+      expect(
+        statusPagePreviewEmptyPlaceholderClassName,
+        isNot(equals(statusPagePreviewComponentsBoxClassName)),
       );
     });
   });
