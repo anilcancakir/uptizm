@@ -6,6 +6,7 @@ import '../../../app/enums/chart_tone.dart' show ChartTone;
 import '../../../app/support/metric_types.dart'
     show MetricAnomaly, MetricDatum, MetricSeries;
 import 'metric_chart.recipe.dart';
+import '../../../app/support/formatters.dart' show formatCount;
 
 /// Series stroke width in logical pixels. Chart geometry literal (PORTING.md §1
 /// documented exception): geometry is not a color decision, so it does not pass
@@ -357,7 +358,7 @@ class MetricChart extends StatelessWidget {
               if (_isSeriesBar(spot.bar))
                 LineTooltipItem(
                   '${_seriesLabelFor(spot.barIndex)}  '
-                  '${spot.y.toStringAsFixed(0)}${unit ?? ''}',
+                  '${formatCount(spot.y.round())}${unit ?? ''}',
                   TextStyle(color: spot.bar.color ?? labelColor, fontSize: 12),
                 )
               else
