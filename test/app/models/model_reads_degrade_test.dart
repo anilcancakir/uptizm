@@ -29,9 +29,17 @@ void main() {
   });
 
   test('a fractional int field reads null rather than throwing', () {
-    // `last_response_ms` carries no cast, so the wire value arrives raw. A
-    // backend that ever sends a fractional millisecond (an average rather than
-    // a sample) used to throw inside MonitorDetailView's build.
+    // `last_response_ms` DOES carry an `'int'` cast (`monitor.dart`'s casts
+    // map), and that is precisely why this reaches the reader: magic's built-in
+    // int cast is `int.tryParse(value.toString()) ?? value`, so a value it
+    // cannot parse passes through UNCHANGED rather than being coerced or
+    // rejected. A backend that ever sends a fractional millisecond (an average
+    // rather than a sample) therefore hands a double to the accessor, and the
+    // old `as int?` threw inside MonitorDetailView's build.
+    //
+    // The PR that introduced this test said the field carried no cast. It was
+    // wrong about the mechanism and right about the outcome; the corrected
+    // reason is above, because a wrong why is what gets copied.
     final Monitor monitor = Monitor.fromMap(const <String, dynamic>{
       'id': 'api',
       'name': 'API',

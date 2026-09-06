@@ -7,7 +7,7 @@ import 'monitor_metrics_support.dart';
 import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/controllers/escalation_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
-import '../../../app/mocks/monitors.dart';
+import '../../../app/support/monitor_types.dart';
 import '../../../app/models/escalation_policy.dart';
 import '../../../app/support/submits_once.dart';
 import '../../../ui/components/form_actions/index.dart';
@@ -959,28 +959,37 @@ class _MonitorFormState extends State<MonitorForm>
     );
   }
 
-  /// Builds the Escalation policy field over the team's REAL policy roster.
-  ///
-  /// Previously this select was fed the `escalationPolicies` design-lab fixture,
-  /// so it offered "Standard" / "Critical path" to teams that owned neither, and
-  /// the pick was never posted. Both halves mattered: the backend's
-  /// The pinned escalation policy id, or null when it no longer exists.
+  /// The pinned escalation policy id, or null when the roster says it is gone.
   ///
   /// The form's contract is that it writes back what it shows, and the select
   /// renders "Team default" for a pin the roster has lost. Sending the dead id
   /// anyway made a rename fail on the backend's `exists` rule, blaming a field
   /// the operator had not touched and could not see.
-  ///
-  /// An empty roster answers null for the same reason: the control is not
-  /// rendered at all in that branch, so there is nothing on screen for a pinned
-  /// id to correspond to.
   String? _livePolicyId() {
     final String? pinned = _policy;
     if (pinned == null) return null;
 
+    // An EMPTY roster is not the same as a roster that says this policy is
+    // gone. `initState` fires `_escalation.reload()` unawaited, so the list is
+    // empty while the read is in flight and again if it failed, and answering
+    // null for either would silently unpin the monitor's paging ladder: the
+    // next outage would climb the team default instead of the one the operator
+    // chose, and nothing on screen would have said so. Keep the pin until the
+    // roster has actually answered.
+    if (_escalation.isFirstLoad || _escalation.loadFailed) return pinned;
+
     return _escalation.policies.any((p) => p.id == pinned) ? pinned : null;
   }
 
+  /// Builds the Escalation policy field over the team's REAL policy roster.
+  ///
+  /// Previously this select was fed the `escalationPolicies` design-lab fixture,
+  /// so it offered "Standard" / "Critical path" to teams that owned neither, and
+  /// the pick was never posted. Both halves mattered: the backend's
+  /// `EscalationDispatcher` reads this column to choose the paging ladder, so a
+  /// selection that was never written meant the operator configured one ladder
+  /// and an outage climbed another.
+  ///
   /// `EscalationDispatcher::resolvePolicy()` reads `monitors.escalation_policy_id`
   /// to choose the paging ladder, so a fabricated-then-dropped selection meant
   /// the operator configured one ladder and an outage paged another.

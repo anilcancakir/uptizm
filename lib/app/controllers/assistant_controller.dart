@@ -117,6 +117,10 @@ class AssistantController extends MagicController
     // refetch: the next question starts the next conversation.
     _messages.clear();
     _asking = false;
+    // Re-seeded here, not left to the widget: `ensureGreeted` runs from
+    // `initState` and the shell does not remount on a team switch, so clearing
+    // alone left the panel blank for the rest of the session.
+    _messages.add(assistantGreeting);
     refreshUI();
   }
 

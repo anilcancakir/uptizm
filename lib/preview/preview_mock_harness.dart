@@ -252,11 +252,23 @@ final class PreviewMockHarness {
 
   static PreviewState? _installed;
 
+  /// The real `network` and `auth` instances, held from the first [install] so
+  /// [uninstall] can restore exactly what was there rather than rebuilding.
+  static Object? _realNetwork;
+  static Object? _realAuth;
+
   /// Bind the mock network for [state] and seed the sample auth session.
   ///
   /// Returns the bound driver so a caller can inspect the recorded request.
   static PreviewMockNetworkDriver install(PreviewState state) {
     final driver = PreviewMockNetworkDriver(state);
+
+    // 0. Keep the REAL instances so [uninstall] can put them back. Rebuilding
+    //    them from their factories is not the same thing: the app's network
+    //    driver carries interceptors wired once at boot (Sentry's among them),
+    //    and a fresh one would come back without them.
+    _realNetwork ??= Magic.make<Object>('network');
+    _realAuth ??= Magic.make<Object>('auth');
 
     // 1. Rebind the network layer so every controller request is mocked.
     Magic.singleton('network', () => driver);
@@ -275,6 +287,30 @@ final class PreviewMockHarness {
     }
 
     return driver;
+  }
+
+  /// Releases the preview session, restoring BOTH real bindings.
+  ///
+  /// Without this the mocks stayed installed for the life of the process once
+  /// `/preview` had been opened: navigating back into the app ran as the sample
+  /// user against a driver that answers canned data, and a dusk walk that
+  /// followed a preview visit in the same process silently measured that
+  /// instead of the real app. An instrument reading the wrong thing costs more
+  /// than the bug it was pointed at, which is why this is worth closing in
+  /// debug-only code.
+  ///
+  /// The saved instances go back rather than the factories: `Auth.unfake()` is
+  /// `removeInstance('auth')`, which rebuilds a fresh manager with no session,
+  /// and re-registering the network factory would rebuild a driver without the
+  /// interceptors boot wired into it.
+  static void uninstall() {
+    _installed = null;
+
+    final Object? network = _realNetwork;
+    if (network != null) Magic.app.setInstance('network', network);
+
+    final Object? auth = _realAuth;
+    if (auth != null) Magic.app.setInstance('auth', auth);
   }
 
   /// Seed [Auth] with the sample user so authenticated previews render filled.

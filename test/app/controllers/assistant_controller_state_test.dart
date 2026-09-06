@@ -108,7 +108,16 @@ void main() {
     // exchange belongs to the identity that had it.
     await controller.resetForSession();
 
-    expect(controller.messages, isEmpty);
+    // The greeting alone, not an empty list: the shell does not remount on a
+    // team switch and `ensureGreeted` only runs from `initState`, so clearing
+    // without re-seeding left the panel blank for the rest of the session.
+    expect(controller.messages, hasLength(1));
+    expect(controller.messages.first.role, AssistantRole.assistant);
+    expect(
+      controller.messages.where((m) => m.role == AssistantRole.user),
+      isEmpty,
+      reason: 'the outgoing team question must not survive the switch',
+    );
     expect(controller.isAsking, isFalse);
   });
 }

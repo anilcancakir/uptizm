@@ -1117,10 +1117,9 @@ class _MonitorDetailViewState
         WDiv(
           className: 'flex flex-col gap-3',
           children: [
-            // Heading row: title + range picker (only when there is a series to
-            // scope). Uses `wrap` so the picker stays beside the heading on a
-            // wide surface but flows onto its own line on a narrow phone instead
-            // of overflowing the row.
+            // Heading row: title + range picker. Uses `wrap` so the picker
+            // stays beside the heading on a wide surface but flows onto its own
+            // line on a narrow phone instead of overflowing the row.
             WDiv(
               className: 'wrap items-center gap-3',
               children: [

@@ -88,6 +88,17 @@ class _ScreenPreviewScaffoldState extends State<ScreenPreviewScaffold> {
   }
 
   @override
+  void dispose() {
+    // Release the fake auth session the harness installed. Without this it
+    // stayed for the life of the process, so leaving the catalog left the
+    // developer signed in as the sample user with unauthenticated requests,
+    // and a dusk walk after a preview visit measured that session rather than
+    // the real one.
+    PreviewMockHarness.uninstall();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     if (!_mounted) {
       // First frame: a sized placeholder so the column does not jump when the

@@ -4,7 +4,7 @@ import 'package:magic/magic.dart';
 import 'package:uptizm/app/controllers/monitor_controller.dart';
 import 'package:uptizm/app/support/billing_types.dart' show Plan;
 import 'package:uptizm/app/mocks/billing.dart';
-import 'package:uptizm/app/mocks/monitors.dart';
+import 'package:uptizm/app/support/monitor_types.dart';
 import 'package:uptizm/app/mocks/oncall.dart';
 import 'package:uptizm/resources/views/monitors/monitor_form_support.dart';
 import 'package:uptizm/ui/components/region_picker/region_picker.dart';

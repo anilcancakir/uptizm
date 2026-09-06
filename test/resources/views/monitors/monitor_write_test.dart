@@ -99,6 +99,16 @@ class _MonitorWriteLangLoader implements TranslationLoader {
       'uptizm.monitors.form_url_placeholder': 'https://example.com/health',
       'uptizm.monitors.form_interval_label': 'Check interval',
       'uptizm.monitors.form_regions_label': 'Probe regions',
+      // The region names resolve through the catalogue now: they used to be
+      // English literals living in `lib/app/mocks/`, which a Turkish operator
+      // read untranslated inside an otherwise translated form. Without these
+      // entries the picker renders raw keys and these tests fail as a missing
+      // widget rather than as the missing translation it would actually be.
+      'uptizm.monitors.region_us_east': 'US East',
+      'uptizm.monitors.region_us_west': 'US West',
+      'uptizm.monitors.region_eu_west': 'EU West',
+      'uptizm.monitors.region_eu_central': 'EU Central',
+      'uptizm.monitors.region_ap': 'Asia Pacific',
       'uptizm.monitors.form_regions_hint': 'Select at least one region.',
       'uptizm.monitors.form_slo_label': 'Uptime SLO',
       'uptizm.monitors.form_slo_hint': 'Set an error-budget target.',

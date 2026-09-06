@@ -1,6 +1,6 @@
 import '../enums/status_key.dart' show StatusKey;
 import '../models/monitor.dart';
-import '../support/monitor_types.dart' show CheckRow, ProbeRegion, UptimeSegment;
+import '../support/monitor_types.dart' show CheckRow, UptimeSegment;
 
 // ---------------------------------------------------------------------------
 // Uptime history factory
@@ -164,19 +164,6 @@ const List<CheckRow> recentChecks = [
     responseMs: 203,
     statusCode: 200,
   ),
-];
-
-/// All available probe regions for the monitor creation/edit form.
-const List<ProbeRegion> allRegions = [
-  ProbeRegion(value: 'us-east', label: 'US East', flag: '\u{1F1FA}\u{1F1F8}'),
-  ProbeRegion(value: 'us-west', label: 'US West', flag: '\u{1F1FA}\u{1F1F8}'),
-  ProbeRegion(value: 'eu-west', label: 'EU West', flag: '\u{1F1EE}\u{1F1EA}'),
-  ProbeRegion(
-    value: 'eu-central',
-    label: 'EU Central',
-    flag: '\u{1F1E9}\u{1F1EA}',
-  ),
-  ProbeRegion(value: 'ap', label: 'Asia Pacific', flag: '\u{1F30F}'),
 ];
 
 /// Find a monitor fixture by [id]. Returns `null` when none matches.

@@ -501,20 +501,26 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
   /// Oldest-first, matching what the sheet expects: it reads `points.last` for
   /// the hero value and plots the list in order.
   Future<List<MetricSeriesPoint>> _loadResponseSeries() async {
-    final response = await Http.get(
-      '/monitors/${widget.monitorId}/response-times?range=24h',
-    );
-    if (!response.successful) return const [];
+    // Read through the controller, which answers null for a read that did not
+    // land, and inside a try. This used to issue its own bare `Http.get` with
+    // no catch at all: a thrown request rejected the future that
+    // `monitor_metric_detail` awaits without one either, so the system-metric
+    // sheet spun forever on an unhandled error. The custom-metric path beside
+    // it has always caught.
+    try {
+      final List<Map<String, dynamic>>? rows = await MonitorController.instance
+          .loadResponseBuckets(widget.monitorId, range: '24h');
+      if (rows == null) return const [];
 
-    final Object? raw = response.data is Map<String, dynamic>
-        ? (response.data as Map<String, dynamic>)['data']
-        : null;
-    if (raw is! List) return const [];
+      return [
+        for (final Map<String, dynamic> row in rows)
+          if (row['response_ms'] != null) _checkAsReading(row),
+      ];
+    } catch (error) {
+      Log.error('[MonitorMetricsTab] response-times load failed: \$error');
 
-    return [
-      for (final Map<String, dynamic> row in raw.whereType<Map<String, dynamic>>())
-        if (row['response_ms'] != null) _checkAsReading(row),
-    ];
+      return const [];
+    }
   }
 
   /// One check row, read as a reading of the response-time metric.
