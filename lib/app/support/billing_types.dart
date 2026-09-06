@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../enums/ai_level.dart' show AiLevel;
+import 'wire_reads.dart' show boolOr, intOr, intOrNull, stringOr, stringOrNull;
 
 /// The hard caps and capability flags a billing tier enforces in-product.
 ///
@@ -74,16 +75,16 @@ class PlanLimits {
   /// `fromWire` decoder in this codebase uses.
   factory PlanLimits.fromMap(Map<String, dynamic> map) {
     return PlanLimits(
-      monitors: (map['monitors'] as num?)?.toInt(),
-      checkIntervalSec: (map['check_interval_sec'] as num?)?.toInt() ?? 0,
-      statusPages: (map['status_pages'] as num?)?.toInt(),
-      subscribers: (map['subscribers'] as num?)?.toInt(),
-      responders: (map['responders'] as num?)?.toInt(),
-      regions: (map['regions'] as num?)?.toInt(),
-      ai: _aiLevelFromWire(map['ai'] as String?),
-      whiteLabel: (map['white_label'] as bool?) ?? false,
-      privatePages: (map['private_pages'] as bool?) ?? false,
-      sso: (map['sso'] as bool?) ?? false,
+      monitors: intOrNull(map['monitors']),
+      checkIntervalSec: intOr(map['check_interval_sec'], 0),
+      statusPages: intOrNull(map['status_pages']),
+      subscribers: intOrNull(map['subscribers']),
+      responders: intOrNull(map['responders']),
+      regions: intOrNull(map['regions']),
+      ai: _aiLevelFromWire(stringOrNull(map['ai'])),
+      whiteLabel: boolOr(map['white_label'], false),
+      privatePages: boolOr(map['private_pages'], false),
+      sso: boolOr(map['sso'], false),
     );
   }
 }
@@ -163,17 +164,17 @@ class Plan {
     final Object? rawFeatures = map['features'];
 
     return Plan(
-      id: (map['id'] as String?) ?? '',
-      name: (map['name'] as String?) ?? '',
-      tagline: (map['tagline'] as String?) ?? '',
-      monthly: (map['monthly'] as num?)?.toInt(),
-      annual: (map['annual'] as num?)?.toInt(),
-      aiLine: (map['ai_line'] as String?) ?? '',
+      id: stringOr(map['id'], ''),
+      name: stringOr(map['name'], ''),
+      tagline: stringOr(map['tagline'], ''),
+      monthly: intOrNull(map['monthly']),
+      annual: intOrNull(map['annual']),
+      aiLine: stringOr(map['ai_line'], ''),
       features: rawFeatures is List
           ? rawFeatures.whereType<String>().toList()
           : const [],
-      responderAddOn: map['responder_add_on'] as String?,
-      recommended: (map['recommended'] as bool?) ?? false,
+      responderAddOn: stringOrNull(map['responder_add_on']),
+      recommended: boolOr(map['recommended'], false),
       limits: PlanLimits.fromMap(
         rawLimits is Map<String, dynamic> ? rawLimits : const {},
       ),

@@ -9,6 +9,7 @@ import '../enums/signal_source.dart' show SignalSource;
 import '../enums/status_key.dart' show StatusKey, statusKeyFromWire;
 import '../enums/timeline_actor.dart' show TimelineActor, timelineActorFromWire;
 import 'formatters.dart' show formatHourMinute;
+import 'wire_reads.dart' show stringOr, stringOrNull;
 
 /// A monitor affected by an incident, with its status at open time and now.
 @immutable
@@ -42,12 +43,12 @@ class AffectedMonitor {
   factory AffectedMonitor.fromMap(Map<String, dynamic> map) {
     return AffectedMonitor(
       id: map['monitor_id']?.toString() ?? '',
-      name: (map['name'] as String?) ?? '',
+      name: stringOr(map['name'], ''),
       statusAtStart: statusKeyFromWire(
-        map['component_status_at_start'] as String?,
+        stringOrNull(map['component_status_at_start']),
       ),
       statusCurrent: statusKeyFromWire(
-        map['component_status_current'] as String?,
+        stringOrNull(map['component_status_current']),
       ),
     );
   }
@@ -97,13 +98,13 @@ class TimelineEntry {
   /// decodes to `null`, which the UI already renders as an unattributed system
   /// entry. The client never substitutes a name of its own here.
   factory TimelineEntry.fromMap(Map<String, dynamic> map) {
-    final String author = (map['author'] as String?)?.trim() ?? '';
+    final String author = stringOrNull(map['author'])?.trim() ?? '';
 
     return TimelineEntry(
-      actor: timelineActorFromWire(map['actor'] as String?),
+      actor: timelineActorFromWire(stringOrNull(map['actor'])),
       author: author.isEmpty ? null : author,
-      status: (map['status'] as String?) ?? '',
-      message: (map['message'] as String?) ?? '',
+      status: stringOr(map['status'], ''),
+      message: stringOr(map['message'], ''),
       time: formatHourMinute(
         (map['display_at'] ?? map['created_at']) as String?,
       ),
@@ -133,9 +134,9 @@ class AiEvidence {
   /// string since the client only ever displays it as a citation tag).
   factory AiEvidence.fromMap(Map<String, dynamic> map) {
     return AiEvidence(
-      label: (map['label'] as String?) ?? '',
-      detail: (map['detail'] as String?) ?? '',
-      source: map['source'] as String?,
+      label: stringOr(map['label'], ''),
+      detail: stringOr(map['detail'], ''),
+      source: stringOrNull(map['source']),
     );
   }
 }
@@ -155,8 +156,8 @@ class AiSuggestedAction {
   /// (`{title, rationale}` snake_case keys).
   factory AiSuggestedAction.fromMap(Map<String, dynamic> map) {
     return AiSuggestedAction(
-      title: (map['title'] as String?) ?? '',
-      rationale: (map['rationale'] as String?) ?? '',
+      title: stringOr(map['title'], ''),
+      rationale: stringOr(map['rationale'], ''),
     );
   }
 }
