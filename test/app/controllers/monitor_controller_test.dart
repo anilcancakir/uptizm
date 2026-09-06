@@ -1476,6 +1476,82 @@ void main() {
     });
   });
 
+  group('loadResponseBuckets', () {
+    // What this pins: null and an empty list are different answers. The monitor
+    // detail view used to run this read itself and degrade every failure to
+    // `const []`, and its response surface renders empty as "this monitor has
+    // no response data", so a backend blip told an operator that on the screen
+    // they opened to find out why the monitor was down.
+
+    test('a resolved payload answers its rows', () async {
+      Http.fake({
+        'monitors/api/response-times*': Http.response({
+          'data': [
+            {'checked_at': '2026-09-06T10:00:00Z', 'response_ms': 120},
+          ],
+        }),
+      });
+      final MonitorController controller = Magic.findOrPut(
+        MonitorController.new,
+      );
+
+      final rows = await controller.loadResponseBuckets('api', range: '24h');
+
+      expect(rows, isNotNull);
+      expect(rows!.length, 1);
+    });
+
+    test('a monitor with no readings answers an EMPTY list, not null', () {
+      Http.fake({
+        'monitors/api/response-times*': Http.response({
+          'data': <Map<String, dynamic>>[],
+        }),
+      });
+      final MonitorController controller = Magic.findOrPut(
+        MonitorController.new,
+      );
+
+      expectLater(
+        controller.loadResponseBuckets('api', range: '24h'),
+        completion(isEmpty),
+      );
+    });
+
+    test('a failed read answers NULL, so the view can say so', () async {
+      Http.fake({
+        'monitors/api/response-times*': Http.response(
+          <String, dynamic>{'message': 'down'},
+          500,
+        ),
+      });
+      final MonitorController controller = Magic.findOrPut(
+        MonitorController.new,
+      );
+
+      final rows = await controller.loadResponseBuckets('api', range: '24h');
+
+      expect(
+        rows,
+        isNull,
+        reason: 'a read that did not land is not a monitor with no readings',
+      );
+    });
+
+    test('a malformed envelope answers null too', () async {
+      Http.fake({
+        'monitors/api/response-times*': Http.response({'data': 'not-a-list'}),
+      });
+      final MonitorController controller = Magic.findOrPut(
+        MonitorController.new,
+      );
+
+      expect(
+        await controller.loadResponseBuckets('api', range: '24h'),
+        isNull,
+      );
+    });
+  });
+
   group('loadUptime90', () {
     test('decodes bucketed response-times into 90 daily segments', () async {
       // `loadUptime90` buckets against the live `DateTime.now()` (it does not

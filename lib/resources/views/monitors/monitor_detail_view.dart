@@ -157,6 +157,13 @@ class _MonitorDetailViewState
   /// single line (not the design-lab p50/p95/p99 trio).
   List<MetricDatum> _responseData = const [];
 
+  /// Whether the last response-times read failed to land.
+  ///
+  /// A separate fact from `_responseData` being empty, and the one this screen
+  /// was missing: the two render identically while only one of them says
+  /// anything about the monitor.
+  bool _responseLoadFailed = false;
+
   /// Live 90-day uptime history from `GET
   /// /monitors/:id/response-times?range=90d`, bucketed into daily segments by
   /// [MonitorController.loadUptime90]. Empty while loading or on failure, in
@@ -289,6 +296,7 @@ class _MonitorDetailViewState
     _checks?.dispose();
     _checks = null;
     _responseData = const [];
+    _responseLoadFailed = false;
     _uptimeSegments = const [];
     // Seed the refetch marker with what the mount fetch is about to read, so
     // the controller notify this same `refreshOne` triggers is recognised as
@@ -320,7 +328,7 @@ class _MonitorDetailViewState
     // snapshot that silently stops updating) is the worse of the two.
     final MagicPaginator<CheckRow> checks = _checks ?? _paginatorFor(id);
     await checks.refresh();
-    final List<MetricDatum> series = await _loadResponseSeries(id);
+    final List<MetricDatum>? series = await _loadResponseSeries(id);
     final List<UptimeSegment> uptimeSegments = await controller.loadUptime90(
       id,
     );
@@ -334,7 +342,8 @@ class _MonitorDetailViewState
     }
     setState(() {
       _checks = checks;
-      _responseData = series;
+      _responseLoadFailed = series == null;
+      _responseData = series ?? const [];
       _uptimeSegments = uptimeSegments;
       _loading = false;
     });
@@ -352,35 +361,32 @@ class _MonitorDetailViewState
     );
   }
 
-  /// Loads `GET /monitors/:id/response-times` (one bucketed `response_ms` per
-  /// point) into a single-series [MetricDatum] list. Degrades to empty on error.
-  Future<List<MetricDatum>> _loadResponseSeries(String id) async {
-    try {
-      final response = await Http.get(
-        '/monitors/$id/response-times?range=$_range',
+  /// Projects the controller's response buckets into the chart's series shape.
+  ///
+  /// Answers `null` when the READ did not land, which is a different fact from
+  /// an empty series and is why this no longer issues its own `Http.get`: the
+  /// old version degraded a non-2xx, a malformed envelope and a thrown request
+  /// alike to `const []`, and the surface below renders empty as "this monitor
+  /// has no response data". An operator opening a monitor during a backend blip
+  /// was told that, on the screen they opened to find out why it was down.
+  Future<List<MetricDatum>?> _loadResponseSeries(String id) async {
+    final List<Map<String, dynamic>>? rows = await controller
+        .loadResponseBuckets(id, range: _range);
+    if (rows == null) return null;
+
+    final List<MetricDatum> out = [];
+    for (final Map<String, dynamic> row in rows) {
+      final num? ms = row['response_ms'] as num?;
+      if (ms == null) continue;
+      out.add(
+        MetricDatum(
+          label: _formatHourMinute(row['checked_at'] as String?),
+          values: {'response': ms},
+        ),
       );
-      if (!response.successful) return const [];
-      final Object? raw = response.data is Map<String, dynamic>
-          ? (response.data as Map<String, dynamic>)['data']
-          : null;
-      if (raw is! List) return const [];
-      final List<MetricDatum> out = [];
-      for (final Map<String, dynamic> row
-          in raw.whereType<Map<String, dynamic>>()) {
-        final num? ms = row['response_ms'] as num?;
-        if (ms == null) continue;
-        out.add(
-          MetricDatum(
-            label: _formatHourMinute(row['checked_at'] as String?),
-            values: {'response': ms},
-          ),
-        );
-      }
-      return out;
-    } catch (error) {
-      Log.error('[MonitorDetailView] response-times load failed: $error');
-      return const [];
     }
+
+    return out;
   }
 
   /// Reduces an ISO-8601 timestamp to a local `HH:mm` chart-axis label.
@@ -1124,14 +1130,20 @@ class _MonitorDetailViewState
                   }),
                   className: 'text-sm font-medium text-fg',
                 ),
-                if (series != null)
-                  DateRangePicker(
-                    value: _range,
-                    onChanged: (next) {
-                      setState(() => _range = next);
-                      unawaited(_fetchData());
-                    },
-                  ),
+                // Unconditional. It used to render only `if (series != null)`,
+                // and `series` is null whenever the CURRENT range answered
+                // nothing, so switching to 7d on a monitor created two days ago
+                // removed the only control that could switch back: `_range` is
+                // state-local, so the operator was stuck on "no response data"
+                // until they left the screen. The picker scopes the request,
+                // not the result.
+                DateRangePicker(
+                  value: _range,
+                  onChanged: (next) {
+                    setState(() => _range = next);
+                    unawaited(_fetchData());
+                  },
+                ),
               ],
             ),
 
@@ -1232,6 +1244,17 @@ class _MonitorDetailViewState
       return _buildBorderedState(
         trans('uptizm.monitors.paused_title'),
         trans('uptizm.monitors.paused_description'),
+      );
+    }
+
+    // Read BEFORE the no-data state, because the two rendered identically while
+    // only one of them says anything about the monitor. A backend blip used to
+    // report "No response data" on the screen an operator opened to find out
+    // why the monitor was down.
+    if (_responseLoadFailed) {
+      return _buildBorderedState(
+        trans('uptizm.monitors.response_load_error_title'),
+        trans('uptizm.monitors.response_load_error_description'),
       );
     }
 

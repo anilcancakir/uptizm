@@ -714,6 +714,8 @@
       "section_recent_checks": "Son kontroller",
       "paused_title": "İzleme duraklatıldı",
       "paused_description": "Uptizm şu anda bu izleyiciyi kontrol etmiyor. Yanıt sürelerini yeniden toplamak için devam ettirin.",
+      "response_load_error_title": "Yanıt süreleri yüklenemedi",
+      "response_load_error_description": "Bu izleyicinin yanıt geçmişine şu anda ulaşılamıyor. Bu, hiç veri olmadığı anlamına gelmez.",
       "no_response_data_title": "Yanıt verisi yok",
       "no_response_data_description": "Bu izleyici şu anda bir yanıt süresi döndürmüyor, bu yüzden bu pencere için gösterilecek bir şey yok.",
       "incidents_failed_title": "Olaylar yüklenemedi",

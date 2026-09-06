@@ -964,6 +964,23 @@ class _MonitorFormState extends State<MonitorForm>
   /// Previously this select was fed the `escalationPolicies` design-lab fixture,
   /// so it offered "Standard" / "Critical path" to teams that owned neither, and
   /// the pick was never posted. Both halves mattered: the backend's
+  /// The pinned escalation policy id, or null when it no longer exists.
+  ///
+  /// The form's contract is that it writes back what it shows, and the select
+  /// renders "Team default" for a pin the roster has lost. Sending the dead id
+  /// anyway made a rename fail on the backend's `exists` rule, blaming a field
+  /// the operator had not touched and could not see.
+  ///
+  /// An empty roster answers null for the same reason: the control is not
+  /// rendered at all in that branch, so there is nothing on screen for a pinned
+  /// id to correspond to.
+  String? _livePolicyId() {
+    final String? pinned = _policy;
+    if (pinned == null) return null;
+
+    return _escalation.policies.any((p) => p.id == pinned) ? pinned : null;
+  }
+
   /// `EscalationDispatcher::resolvePolicy()` reads `monitors.escalation_policy_id`
   /// to choose the paging ladder, so a fabricated-then-dropped selection meant
   /// the operator configured one ladder and an outage paged another.
@@ -987,7 +1004,8 @@ class _MonitorFormState extends State<MonitorForm>
         }
 
         // Drop a pin the roster no longer contains (a deleted policy) rather
-        // than rendering a selection that resolves to nothing.
+        // than rendering a selection that resolves to nothing. [_livePolicyId]
+        // applies the same rule to the payload, so the two cannot disagree.
         final bool pinIsLive = policies.any((p) => p.id == _policy);
 
         return MSFormField(
@@ -1371,7 +1389,15 @@ class _MonitorFormState extends State<MonitorForm>
       // Always sent, including as an explicit null: null is the operator's way
       // to UNPIN a policy, and an omitted key on an update would leave a stale
       // pin in place. The backend validates it against the team's own policies.
-      'escalation_policy_id': _policy,
+      // Resolved against the LIVE roster, so the payload carries what the form
+      // showed. The select already drops a pin the roster no longer contains
+      // and renders "Team default", but `_policy` kept the dead id and this
+      // line sent it: a teammate deletes a policy, the operator opens the
+      // monitor, renames it, and the PUT is refused by the backend's `exists`
+      // rule. `escalation_policy_id` is not in `_ownedFields`, so the rename
+      // failed with a toast about an escalation policy the form had just told
+      // them was not set.
+      'escalation_policy_id': _livePolicyId(),
       if (!widget.isEdit) 'ssl_tracking': _url.startsWith('https://'),
       if (!widget.isEdit) 'ssl_alert_threshold_days': 14,
     };
