@@ -68,17 +68,24 @@ dependencies:
   fl_chart: ^1.1.1
 
 
-# The only tracked override, and it is not a path one. Every sibling now resolves
-# from pub.dev, so nothing has to be forced onto a local source here.
+# No tracked dependency_overrides block. There used to be one pinning
+# `file_picker: ^11.0.2`, and it is worth recording why it went rather than
+# leaving the next person to rediscover it.
 #
-# A gitignored pubspec_overrides.yaml REPLACES this block rather than merging with
-# it, so the entry below has to be mirrored there too. That file says the same thing
-# from its own side; changing one without the other drops file_picker from
-# "direct overridden" to "transitive" in pubspec.lock, which is the only symptom.
-dependency_overrides:
-  # Pin to the stable line: magic's ">=11.0.2 <13.0.0" otherwise lets the
-  # 12.0.0-beta prerelease resolve, whose non-null saveFile params break magic.
-  file_picker: ^11.0.2
+# It existed because magic once declared `>=11.0.2 <13.0.0`, which let the
+# 12.0.0-beta prerelease resolve and break magic's own Pick facade. magic has
+# since ported that facade to the file_picker 12 API and now declares
+# `^12.2.0`, so the thing the pin protected against is gone and the pin itself
+# became the hazard: an override does not narrow a constraint, it REPLACES
+# constraint checking, so pub happily resolved file_picker 11 against a magic
+# that needs 12. Nothing complained. `flutter pub get` succeeded, `flutter
+# analyze` was clean (it does not analyse a path dependency's own source), and
+# the mismatch only surfaced when a test compiled magic:
+# `The method 'length' isn't defined for the type 'PlatformFile'`.
+#
+# So: do not reintroduce an override to hold a transitive dependency back. If a
+# sibling needs a version this app cannot take, that is a conversation with the
+# sibling, not a local pin that hides the disagreement until link time.
 
 dev_dependencies:
   flutter_test:
