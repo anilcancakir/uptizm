@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:magic/magic.dart';
 
 import '../support/escalation_support.dart' show EscalationStepWire;
+import '../support/wire_reads.dart'
+    show idOrNull, intOr, stringOr, stringOrNull;
 
 /// **An escalation policy.**
 ///
@@ -103,19 +105,20 @@ class EscalationPolicy extends Model
   /// `position`/`delay_minutes`/`target_*` field mapping for the whole domain.
   static EscalationStepWire _stepFromWire(Map<String, dynamic> m) {
     return EscalationStepWire(
-      // The one field here that used to be an unguarded cast, while
-      // `position`/`delay_minutes`/`target_type`/`target_id` all carried a
-      // fallback. A backend that omits it (or sends null) threw and took the
-      // whole policy decode with it, so one odd step blanked the editor rather
-      // than degrading. Null, not `''`: the editor's save-diff branches on a
-      // null id to mean "create this step", while an empty string would look
-      // like an existing step and send a reorder naming a step that is not
-      // there.
-      id: m['id'] as String?,
-      position: (m['position'] as num?)?.toInt() ?? 0,
-      delayMinutes: (m['delay_minutes'] as num?)?.toInt() ?? 0,
-      targetType: (m['target_type'] as String?) ?? 'on_call',
-      targetId: m['target_id'] as String?,
+      // Read through [idOrNull] rather than cast. `EscalationPolicyResource`
+      // emits `$step->id` raw and the column is uuid-or-bigint depending on
+      // `magic-starter.use_uuids`, so an int id here is a configuration away
+      // rather than a malformed payload, and `as String?` threw on it and took
+      // the whole policy decode with it. A number stringifies; only a value
+      // that is neither reads as null. Null, not `''`: the editor's save-diff
+      // branches on a null id to mean "create this step", while an empty string
+      // would look like an existing step and send a reorder naming a step that
+      // is not there.
+      id: idOrNull(m['id']),
+      position: intOr(m['position'], 0),
+      delayMinutes: intOr(m['delay_minutes'], 0),
+      targetType: stringOr(m['target_type'], 'on_call'),
+      targetId: stringOrNull(m['target_id']),
     );
   }
 

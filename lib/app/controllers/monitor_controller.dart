@@ -17,6 +17,7 @@ import '../support/monitor_types.dart'
         UptimeSegment,
         analyzeRunStatusFromWire,
         analyzeStepStateFromWire;
+import '../support/wire_reads.dart' show idOrNull, intOr, stringOrNull;
 import '../enums/status_key.dart';
 import '../enums/ai_confidence.dart';
 import '../../resources/views/monitors/monitor_form_support.dart'
@@ -637,8 +638,13 @@ class MonitorController extends MagicController
   /// its `_fetchedAgainstCheckedAt` guard refetches the check-derived lists on a
   /// notify whose `last_checked_at` moved, which is exactly what just happened.
   void noteCheckRecorded(Map<String, dynamic> payload) {
-    final String? id = payload['monitor_id'] as String?;
-    final String? checkedAt = payload['last_checked_at'] as String?;
+    // Type tests, not casts: this runs in a Reverb frame callback, where no
+    // caller holds a try, so a wrong-typed field would throw out of the socket
+    // listener rather than degrade. `idOrNull` over `stringOrNull` because
+    // [Monitor.id] stringifies its own attribute, so a numeric id off the wire
+    // still MATCHES the cached row instead of silently dropping the patch.
+    final String? id = idOrNull(payload['monitor_id']);
+    final String? checkedAt = stringOrNull(payload['last_checked_at']);
     if (id == null || checkedAt == null) return;
 
     final int index = _monitors.indexWhere((Monitor m) => m.id == id);
@@ -1523,17 +1529,18 @@ class MonitorController extends MagicController
     if (runId == null || current == null) return;
     if (payload['run_id'] != runId) return;
 
-    final int sequence = (payload['sequence'] as num?)?.toInt() ?? 0;
+    // Type tests, not casts: same Reverb frame callback with no try above it.
+    final int sequence = intOr(payload['sequence'], 0);
     if (sequence <= _analyzeSequence) return;
     _analyzeSequence = sequence;
 
     final AnalyzeRunStatus reported = analyzeRunStatusFromWire(
-      payload['status'] as String?,
+      stringOrNull(payload['status']),
     );
     _publishAnalyzeProgress(
       current.withTick(
-        step: (payload['step'] as num?)?.toInt() ?? current.step,
-        state: analyzeStepStateFromWire(payload['state'] as String?),
+        step: intOr(payload['step'], current.step),
+        state: analyzeStepStateFromWire(stringOrNull(payload['state'])),
         status: reported.isTerminal ? AnalyzeRunStatus.analyzing : reported,
       ),
     );

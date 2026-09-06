@@ -214,6 +214,40 @@ void main() {
     expect(driver.recorded, isNotEmpty);
   });
 
+  test('a numeric monitor_id still finds its row rather than throwing', () async {
+    // The frame handler runs in a Reverb callback with no try above it, so a
+    // wrong-typed field throws out of the socket listener instead of degrading.
+    // A numeric id is not a malformed payload here: `MigrationHelper::primaryKey`
+    // picks uuid or bigint off `magic-starter.use_uuids`, so this is one config
+    // flag away on a real deployment.
+    //
+    // Matching, not merely surviving, is the point. `Monitor.id` stringifies its
+    // own attribute, so reading the frame's id the same way makes the patch land;
+    // degrading it to null would keep the screen up and silently drop every
+    // realtime reading for that monitor.
+    final Map<String, MagicResponse> stubs = dashboardStubs();
+    stubs['dashboard/monitors-snapshot'] = Http.response({
+      'data': [
+        {'id': 7, 'name': 'API', 'last_status': 'up'},
+      ],
+    });
+    Http.fake(stubs);
+
+    final DashboardController controller = DashboardController.instance;
+    await controller.reload();
+
+    controller.noteCheckRecorded(<String, dynamic>{
+      'monitor_id': 7,
+      'last_status': 'degraded',
+      'last_checked_at': '2026-08-19T09:30:00+00:00',
+      'last_response_ms': 512,
+    });
+
+    final Monitor patched = controller.monitorsSnapshot.single;
+    expect(patched.status, equals(StatusKey.degraded));
+    expect(patched.responseMs, equals(512));
+  });
+
   test(
     'a burst of readings costs at most one extra stats read per throttle window',
     () async {

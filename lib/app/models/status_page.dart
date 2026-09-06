@@ -8,6 +8,7 @@ import '../enums/status_key.dart' show StatusKey, statusKeyFromWire;
 import '../enums/status_page_preview_status.dart'
     show StatusPagePreviewStatus, statusPagePreviewStatusFromWire;
 import '../support/status_page_types.dart' show PublicComponent;
+import '../support/wire_reads.dart' show intOr, stringOr, stringOrNull;
 
 /// **A public status page.**
 ///
@@ -240,8 +241,8 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
         )
         .toList()
       ..sort((a, b) {
-        final int left = (a['display_order'] as num?)?.toInt() ?? 0;
-        final int right = (b['display_order'] as num?)?.toInt() ?? 0;
+        final int left = intOr(a['display_order'], 0);
+        final int right = intOr(b['display_order'], 0);
         return left.compareTo(right);
       });
 
@@ -250,14 +251,11 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
         PublicComponent(
           // `custom_label` is the operator's public override; the monitor's own
           // name is the fallback, matching what the public page renders.
-          name:
-              (row['custom_label'] as String?)?.trim().isNotEmpty == true
-              ? row['custom_label'] as String
-              : (row['name'] as String? ?? ''),
+          name: _labelOf(row),
           // A monitor with no check yet reads as Pending, never as up: the
           // absence of a measurement is not evidence of health.
           status: statusKeyFromWire(
-            row['last_status'] as String?,
+            stringOrNull(row['last_status']),
             fallback: StatusKey.pending,
           ),
           // Trailing uptime and the 90-day history are not carried on the pivot.
@@ -268,6 +266,17 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
           segments: const [],
         ),
     ];
+  }
+
+  /// The public label for one component row: the operator's `custom_label`
+  /// when they set a non-blank one, otherwise the monitor's own name.
+  ///
+  /// A helper rather than a conditional expression because the label is read
+  /// twice (test for blank, then take), and reading a nested wire field twice
+  /// through a type test reads worse than naming it once.
+  static String _labelOf(Map<String, dynamic> row) {
+    final String custom = stringOr(row['custom_label'], '').trim();
+    return custom.isNotEmpty ? custom : stringOr(row['name'], '');
   }
 
   // ---------------------------------------------------------------------------
