@@ -1423,8 +1423,11 @@ class _MonitorDetailViewState
     return _range;
   }
 
-  /// Formats an SLO target as a trimmed percentage string (e.g. `99.9` →
-  /// `"99.9"`, `99.0` → `"99"`), dropping a trailing `.0`.
+  /// Formats an SLO target as a trimmed percentage string, dropping a trailing
+  /// zero: `99.9` renders as `"99,9"` in Turkish and `"99.9"` in English, and
+  /// `99.0` as `"99"` in both. The mark comes from the catalogue, so the example
+  /// is language-dependent and this docblock says which is which rather than
+  /// naming one and reading as a promise the other locale breaks.
   String _formatSloTarget(double target) {
     if (target == target.roundToDouble()) return formatDecimal(target, places: 0);
 

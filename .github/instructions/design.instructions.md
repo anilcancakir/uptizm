@@ -122,6 +122,26 @@ Each of these is a blocker, and exactly one of them is measured: `bin/check`'s `
 | Hand-editing `lib/config/wind_theme.g.dart` | `dart run bin/dispatcher.dart design:sync` |
 | Shipping a component with no preview | Add the preview, run `previews:refresh` |
 
+## Casing and number marks are locale DATA
+
+Turkish is a first-class language here, and two Dart primitives ignore the
+locale. `String.toUpperCase()` maps `i` to `I` where Turkish needs `İ`, and
+`toStringAsFixed` writes a full stop where Turkish writes a comma and groups
+thousands with the stop. Both produced live defects: `ÇALIŞAN IZLEYICILER` on the
+dashboard, `%99.9` on an SLO target.
+
+Use `upperCase()` and `formatDecimal()` from `lib/app/support/formatters.dart`
+for anything a person reads. `formatDecimal` routes its whole part through
+`formatCount`, so pass `grouped: false` where the caller does its own magnitude
+handling; the metric formatter is the one case.
+
+Wind's `uppercase` utility calls the locale-aware transform as of wind 1.5.1, so
+the className is correct on its own again and is the default for new code. The
+existing `upperCase()` wrappers stay: they are idempotent over a correct result
+(`İ.toUpperCase()` is `İ`), and reverting fifteen files for a byte-identical
+render is not worth a PR. Drop a wrapper only in a file you are opening anyway.
+Reach for `upperCase()` directly on any path that is not a `WText`.
+
 ## Two places to reach past Wind, and why
 
 Wind's flex makes children greedy, which is correct for a row of equals and wrong in two shapes that recur in this app. Both are settled; do not re-derive them as bugs.
