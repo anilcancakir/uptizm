@@ -714,6 +714,8 @@
       "section_recent_checks": "Recent checks",
       "paused_title": "Monitoring paused",
       "paused_description": "Uptizm isn't probing this monitor right now. Resume it to collect response times again.",
+      "response_load_error_title": "Could not load response times",
+      "response_load_error_description": "This monitor's response history is unreachable right now. This does not mean it has none.",
       "no_response_data_title": "No response data",
       "no_response_data_description": "This monitor isn't returning a response time right now, so there's nothing to chart for this window.",
       "incidents_failed_title": "Could not load incidents",

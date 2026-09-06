@@ -1736,6 +1736,48 @@ class MonitorController extends MagicController
     }
   }
 
+  /// Reads `GET /monitors/:id/response-times` for [range] as raw bucket rows.
+  ///
+  /// Answers `null` when the read did NOT land (a non-2xx, a malformed
+  /// envelope, or a thrown transport error) and a list otherwise, empty
+  /// included. That distinction is the whole point: the monitor detail view
+  /// used to run this request itself and degrade every failure to `const []`,
+  /// so a backend blip told an operator the monitor had no response data on the
+  /// screen they opened to find out why it was down.
+  ///
+  /// Lives here beside [loadUptime90], which reads the same endpoint family,
+  /// rather than in the view: the view had no vocabulary for "the read failed"
+  /// because it held three network-derived lists behind one `bool _loading`.
+  Future<List<Map<String, dynamic>>?> loadResponseBuckets(
+    String id, {
+    required String range,
+  }) async {
+    try {
+      final response = await Http.get(
+        '/monitors/$id/response-times?range=$range',
+      );
+      if (!response.successful) {
+        Log.error(
+          '[MonitorController.loadResponseBuckets] $id: '
+          '${response.errorMessage}',
+        );
+
+        return null;
+      }
+
+      final Object? raw = response.data is Map<String, dynamic>
+          ? (response.data as Map<String, dynamic>)['data']
+          : null;
+      if (raw is! List) return null;
+
+      return raw.whereType<Map<String, dynamic>>().toList();
+    } catch (error) {
+      Log.error('[MonitorController.loadResponseBuckets] $id failed: $error');
+
+      return null;
+    }
+  }
+
   /// Maps bucketed `MonitorCheckResource` rows (as returned by `GET
   /// /monitors/:id/response-times?range=90d`) into 90 daily [UptimeSegment]s,
   /// oldest-first (index 0, ~89 days ago) to newest-last (index 89, today),
