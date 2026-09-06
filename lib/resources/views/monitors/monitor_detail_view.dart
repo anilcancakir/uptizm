@@ -12,6 +12,7 @@ import '../../../app/models/incident.dart';
 import '../../../app/models/monitor.dart';
 import '../../../app/enums/incident_lifecycle.dart' show IncidentLifecycle;
 import '../../../app/support/formatters.dart' show formatRelativeAge;
+import '../../../app/support/wire_reads.dart' show numOrNull, stringOrNull;
 import '../../../app/support/metric_types.dart'
     show MetricAnomaly, MetricDatum, MetricSeries;
 import '../../../app/support/monitor_types.dart' show CheckRow, UptimeSegment;
@@ -376,11 +377,15 @@ class _MonitorDetailViewState
 
     final List<MetricDatum> out = [];
     for (final Map<String, dynamic> row in rows) {
-      final num? ms = row['response_ms'] as num?;
+      // Type tests, not casts. Nothing above this holds a try: the read it
+      // wraps already answers null on a failed fetch, so a throw here would
+      // escape as an unhandled future rather than reaching that null and
+      // showing the surface's "could not read" branch.
+      final num? ms = numOrNull(row['response_ms']);
       if (ms == null) continue;
       out.add(
         MetricDatum(
-          label: _formatHourMinute(row['checked_at'] as String?),
+          label: _formatHourMinute(stringOrNull(row['checked_at'])),
           values: {'response': ms},
         ),
       );

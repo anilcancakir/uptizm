@@ -12,6 +12,7 @@ import '../../../app/enums/ai_level.dart' show AiLevel;
 import '../../../app/enums/incident_lifecycle.dart'
     show IncidentLifecycle, lifecycleFromWire;
 import '../../../app/support/formatters.dart' show formatMonthDayTime;
+import '../../../app/support/wire_reads.dart' show stringOr;
 import '../../../app/support/incident_types.dart'
     show AffectedMonitor, IncidentAcknowledgement, IncidentAi, TimelineEntry;
 import '../../../app/models/incident.dart';
@@ -498,11 +499,16 @@ class _IncidentDetailViewState
 
   /// The member's display name, falling back to their email and then their id
   /// so an option is never blank.
+  /// Type tests rather than casts, matching [_memberId] directly above. These
+  /// rows are raw wire maps held by a sibling package's controller, and this
+  /// runs inside a `ValueListenableBuilder` builder, so a member whose `name`
+  /// is not a string threw the whole incident detail screen rather than
+  /// falling through to the email the docblock promises.
   String _memberName(Map<String, dynamic> member, String id) {
-    final String name = (member['name'] as String?)?.trim() ?? '';
+    final String name = stringOr(member['name'], '').trim();
     if (name.isNotEmpty) return name;
 
-    final String email = (member['email'] as String?)?.trim() ?? '';
+    final String email = stringOr(member['email'], '').trim();
     return email.isNotEmpty ? email : id;
   }
 

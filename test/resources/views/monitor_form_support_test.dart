@@ -344,4 +344,51 @@ void main() {
       expect(defaultEscalationPolicy.isDefault, isTrue);
     });
   });
+
+  group('a wrong-typed wire value degrades instead of throwing', () {
+    // These decoders run off `auth_config` and `suggested_metrics`, both raw
+    // sub-objects the backend attaches rather than model attributes, so nothing
+    // coerces them and `as String?` was a hard cast. `AiMetricSeed.fromMap`'s
+    // own docblock promised the opposite: "defaults to '' rather than throwing
+    // on a missing or unexpected wire value". It did that for a MISSING key and
+    // threw on an unexpected type, so the sentence covered half of what it said.
+
+    test('fromRedactedMap answers defaults for non-string descriptors', () {
+      final MonitorCredential credential = MonitorCredential.fromRedactedMap(
+        <String, dynamic>{'type': 7, 'username': false, 'header': <int>[1]},
+      );
+
+      expect(credential.type, kAuthTypeNone);
+      expect(credential.username, '');
+      expect(credential.header, '');
+    });
+
+    test('fromPendingMap keeps a readable secret beside an odd descriptor', () {
+      final MonitorCredential credential = MonitorCredential.fromPendingMap(
+        <String, dynamic>{'type': 'basic', 'username': 9, 'password': 's3cret'},
+      );
+
+      // The point of degrading rather than throwing: the field that IS readable
+      // still arrives, so the operator loses one input and not the form.
+      expect(credential.type, 'basic');
+      expect(credential.username, '');
+      expect(credential.password, 's3cret');
+    });
+
+    test('AiMetricSeed.fromMap keeps the docblock promise it stated', () {
+      final AiMetricSeed seed = AiMetricSeed.fromMap(<String, dynamic>{
+        'label': 'Queue depth',
+        'key': 42,
+        'type': 'numeric',
+        'unit': <String, dynamic>{},
+        'threshold_direction': 3,
+      });
+
+      expect(seed.label, 'Queue depth');
+      expect(seed.type, 'numeric');
+      expect(seed.key, '');
+      expect(seed.unit, '');
+      expect(seed.thresholdDirection, '');
+    });
+  });
 }

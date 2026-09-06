@@ -30,6 +30,26 @@ int intOr(Object? value, int fallback) {
   return fallback;
 }
 
+/// Reads [value] as a number, answering null when it is not one.
+///
+/// A numeric string does NOT parse here, unlike [intOr]. The fields this serves
+/// are measurements and money, where the caller's own `?? fallback` decides what
+/// an unreadable value means, and quietly inventing a number from a string the
+/// backend was not supposed to send would put a made-up figure on a chart.
+num? numOrNull(Object? value) => value is num ? value : null;
+
+/// Reads [value] as an int, answering null when it is not a number.
+int? intOrNull(Object? value) => value is num ? value.toInt() : null;
+
+/// Reads [value] as a double, answering null when it is not a number.
+double? doubleOrNull(Object? value) => value is num ? value.toDouble() : null;
+
+/// Reads [value] as a bool, answering [fallback] when it is anything else.
+bool boolOr(Object? value, bool fallback) => value is bool ? value : fallback;
+
+/// Reads [value] as a bool, answering null when it is anything else.
+bool? boolOrNull(Object? value) => value is bool ? value : null;
+
 /// Reads [value] as a record id, answering null when it is neither a string
 /// nor a number.
 ///
