@@ -266,16 +266,49 @@ class BillingController extends Controller
     }
 
     /**
-     * Return the static plan catalog, cheapest tier first.
+     * Return the static plan catalog, cheapest tier first, in the caller's
+     * language.
      *
-     * Served verbatim from config/plans.php (the single price + limits source),
-     * with no Stripe call and no per-team state, so it is safe on the hot path.
+     * Structure, prices and limits come from config/plans.php (the single price
+     * + limits source), with no Stripe call and no per-team state, so this is
+     * still safe on the hot path. What it no longer does is serve the COPY
+     * verbatim: the config array is authored in English, and it was reaching a
+     * Turkish operator untranslated, so the entire billing screen (every
+     * tagline, every feature bullet and every AI line) was the one page in the
+     * app that spoke no Turkish. It is also the page someone reads before
+     * entering a card.
+     *
+     * The English strings stay in config and are used as the translation KEYS,
+     * which is this backend's existing convention (`lang/tr.json` maps an
+     * English source string to its Turkish). That keeps the number invariant the
+     * config docblock states intact: the `$freeRegionAllowance` sprintf still
+     * composes the English bullet, and the Turkish entry is keyed by its result.
+     *
+     * A tier with no translation for a given string falls through to the English
+     * one, which is what `__()` does and is the right answer here: a missing
+     * translation should show the claim in the language we have, never a key.
      */
     public function plans(): JsonResponse
     {
-        return response()->json([
-            'data' => config('plans.tiers'),
-        ]);
+        $tiers = array_map(
+            static function (array $tier): array {
+                foreach (['tagline', 'ai_line', 'responder_add_on'] as $key) {
+                    if (is_string($tier[$key] ?? null)) {
+                        $tier[$key] = __($tier[$key]);
+                    }
+                }
+
+                $tier['features'] = array_map(
+                    static fn (string $feature): string => __($feature),
+                    $tier['features'] ?? [],
+                );
+
+                return $tier;
+            },
+            (array) config('plans.tiers', []),
+        );
+
+        return response()->json(['data' => $tiers]);
     }
 
     /**
