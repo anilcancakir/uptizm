@@ -6,6 +6,8 @@ import '../../resources/views/monitors/monitor_form_support.dart'
     show AiMetricSeed;
 import '../../resources/views/monitors/monitor_metrics_support.dart';
 import '../support/field_errors.dart';
+import '../support/wire_reads.dart'
+    show intOrNull, numOrNull, stringOr, stringOrNull;
 
 // ---------------------------------------------------------------------------
 // Wire <-> form vocabulary maps.
@@ -182,7 +184,7 @@ class MonitorMetricRecord {
   factory MonitorMetricRecord.fromMap(Map<String, dynamic> map) {
     final Object? latest = map['latest'];
     final num? latestValue = latest is Map
-        ? latest['numeric_value'] as num?
+        ? numOrNull(latest['numeric_value'])
         : null;
 
     final Map<String, dynamic>? latestMap = latest is Map
@@ -191,9 +193,9 @@ class MonitorMetricRecord {
 
     return MonitorMetricRecord(
       id: map['id']?.toString() ?? '',
-      latestStatus: latestMap?['status_value'] as String?,
-      latestString: latestMap?['string_value'] as String?,
-      latestBand: latestMap?['band'] as String?,
+      latestStatus: stringOrNull(latestMap?['status_value']),
+      latestString: stringOrNull(latestMap?['string_value']),
+      latestBand: stringOrNull(latestMap?['band']),
       // `as String?` would THROW on a payload where `recorded_at` arrives as
       // anything else, and a decoder that crashes on a malformed field is worse
       // than one that treats it as absent: the tab would show nothing at all
@@ -203,19 +205,19 @@ class MonitorMetricRecord {
         _ => null,
       },
       form: MetricForm(
-        label: (map['label'] as String?) ?? '',
-        key: (map['key'] as String?) ?? '',
-        type: (map['type'] as String?) ?? 'numeric',
-        source: _sourceFromWire(map['source'] as String?),
-        path: (map['extraction_path'] as String?) ?? '',
-        unit: _unitFromWire(map['unit'] as String?),
-        direction: _directionFromWire(map['threshold_direction'] as String?),
-        warn: (map['warn_bound'] as num?)?.toString() ?? '',
-        critical: (map['critical_bound'] as num?)?.toString() ?? '',
+        label: stringOr(map['label'], ''),
+        key: stringOr(map['key'], ''),
+        type: stringOr(map['type'], 'numeric'),
+        source: _sourceFromWire(stringOrNull(map['source'])),
+        path: stringOr(map['extraction_path'], ''),
+        unit: _unitFromWire(stringOrNull(map['unit'])),
+        direction: _directionFromWire(stringOrNull(map['threshold_direction'])),
+        warn: numOrNull(map['warn_bound'])?.toString() ?? '',
+        critical: numOrNull(map['critical_bound'])?.toString() ?? '',
         okValues: _stringListFromWire(map['ok_values']),
         warnValues: _stringListFromWire(map['warn_values']),
         criticalValues: _stringListFromWire(map['critical_values']),
-        unmatchedBand: (map['unmatched_band'] as String?) ?? '',
+        unmatchedBand: stringOr(map['unmatched_band'], ''),
         value: latestValue,
       ),
     );
@@ -998,15 +1000,15 @@ class MetricPreviewResult {
     return MetricPreviewResult(
       value: map['extracted_value']?.toString(),
       typeValid: map['type_valid'] == true,
-      error: map['error'] as String?,
-      band: map['band'] as String?,
+      error: stringOrNull(map['error']),
+      band: stringOrNull(map['band']),
       // Absent defaults to true so an older backend that predates the flag is
       // read as "a sample was used", matching its behaviour.
       hasSample: map['has_sample'] != false,
       sampleCheckedAt: checkedAt is String
           ? DateTime.tryParse(checkedAt)
           : null,
-      sampleStatusCode: (map['sample_status_code'] as num?)?.toInt(),
+      sampleStatusCode: intOrNull(map['sample_status_code']),
     );
   }
 
@@ -1077,7 +1079,7 @@ class MetricCandidate {
 
     return MetricCandidate(
       ref: map['ref']?.toString() ?? '',
-      source: _sourceFromWire(map['src'] as String?),
+      source: _sourceFromWire(stringOrNull(map['src'])),
       path: map['path']?.toString() ?? '',
       value: map['value']?.toString() ?? '',
       label: map['label']?.toString(),
@@ -1170,10 +1172,10 @@ class MetricSeriesPoint {
 
     return MetricSeriesPoint(
       recordedAt: at is String ? DateTime.tryParse(at) : null,
-      numericValue: map['numeric_value'] as num?,
-      statusValue: map['status_value'] as String?,
-      stringValue: map['string_value'] as String?,
-      band: map['band'] as String?,
+      numericValue: numOrNull(map['numeric_value']),
+      statusValue: stringOrNull(map['status_value']),
+      stringValue: stringOrNull(map['string_value']),
+      band: stringOrNull(map['band']),
     );
   }
 }
