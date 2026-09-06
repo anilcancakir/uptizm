@@ -67,7 +67,16 @@ class IncidentCard extends StatelessWidget {
       return cardContent;
     }
 
-    return GestureDetector(onTap: onTap, child: cardContent);
+    // WAnchor, not a bare GestureDetector: the anchor is what publishes the
+    // button role to a screen reader and what gives web and desktop a pointer
+    // cursor and a press affordance. MonitorListRow already uses it for the
+    // identical job, so the two rows behaved differently under the same
+    // gesture.
+    return WAnchor(
+      onTap: onTap,
+      semanticLabel: incident.displayTitle,
+      child: cardContent,
+    );
   }
 
   Widget _buildCardContent() {

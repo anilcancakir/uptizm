@@ -557,18 +557,24 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
       metric.direction == MetricDirection.low ? 'low' : 'high',
     );
 
-    return GestureDetector(
+    return WAnchor(
       // Opens the same sheet a custom metric opens, in read-only mode. This row
       // used to be the one metric on the screen you could not look into, even
       // though it is the one every monitor has: the chart and the paged history
       // behind it are `response-times` and `checks`, both of which already
       // existed and were already on the Overview tab.
+      //
+      // WAnchor rather than a bare GestureDetector, for the reason this file
+      // already gives forty lines below about the custom rows: a GestureDetector
+      // gives neither cursor nor hover affordance, so the one row whose
+      // tappability had to be discovered was also the one giving no sign of it.
       onTap: () => _openSystemDetail(metric),
-      behavior: HitTestBehavior.opaque,
+      semanticLabel: metric.label,
       child: WDiv(
       className:
           'flex flex-row items-center justify-between gap-3 '
-          'rounded-lg border border-color-border bg-surface p-3',
+          'rounded-lg border border-color-border bg-surface p-3 '
+          'hover:bg-surface-container',
       children: [
         WDiv(
           className: 'flex-1 flex flex-col',

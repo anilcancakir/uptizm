@@ -509,7 +509,7 @@ void main() {
       );
     });
 
-    testWidgets('custom metric rows are WAnchor-backed (cursor + hover)', (
+    testWidgets('every tappable metric row is WAnchor-backed (cursor + hover)', (
       tester,
     ) async {
       await tester.binding.setSurfaceSize(const Size(1280, 2400));
@@ -531,8 +531,12 @@ void main() {
       );
       expect(
         hoverRows,
-        findsNWidgets(3),
-        reason: 'Each custom metric row must carry the hover-surface token',
+        findsNWidgets(4),
+        // Four, not three: the SYSTEM row is tappable too (it opens the same
+        // read-only detail sheet) and used to be a bare GestureDetector, so the
+        // one row whose tappability had to be discovered was also the only one
+        // giving no sign of it.
+        reason: 'Every tappable metric row must carry the hover-surface token',
       );
     });
 

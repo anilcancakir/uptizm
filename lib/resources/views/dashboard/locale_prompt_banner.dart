@@ -226,7 +226,11 @@ class _LocalePromptBannerState extends State<LocalePromptBanner> {
     return WButton(
       key: const ValueKey('locale-banner-dismiss'),
       onTap: _busy ? null : _dismiss,
-      className: 'shrink-0 p-1',
+      // p-3, not p-1: this is the control that permanently resolves the
+      // first-run banner, it sits at the trailing edge where a thumb is least
+      // accurate, and 4px around a 16px glyph is roughly a 24px target against
+      // a 44dp floor.
+      className: 'shrink-0 rounded-md p-3',
       child: WIcon(
         Icons.close,
         className: 'text-fg-muted text-base',

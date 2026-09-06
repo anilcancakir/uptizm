@@ -32,7 +32,8 @@ void main() {
     test('root stacks rows; remove is a square ghost', () {
       final slots = keyValueEditorRecipe(variants: const {});
       expect(slots['root'], contains('flex flex-col'));
-      expect(slots['remove'], contains('size-10'));
+      // size-11 is the 44dp floor, which this control was one step short of.
+      expect(slots['remove'], contains('size-11'));
       expect(slots['remove'], contains('rounded-md'));
     });
   });

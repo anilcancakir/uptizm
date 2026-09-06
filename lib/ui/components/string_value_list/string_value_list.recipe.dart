@@ -32,8 +32,14 @@ const WindSlotRecipe stringValueListRecipe = WindSlotRecipe(
     // leaves the axis at the default, so the chips would stack vertically.
     'chips': 'flex flex-row wrap gap-2',
     'chip': '',
+    // size-9 rather than size-4. The glyph inside stays small; what grows is
+    // the box around it, because 16pt of tap target on a phone is a
+    // repeated-miss interaction and the chips sit in a wrap row, so a miss
+    // lands on the neighbouring chip's remove control. Still short of the 44dp
+    // floor `header_action` holds, and deliberately: a full-height control
+    // would set the height of every chip in the row.
     'remove':
-        'flex flex-row items-center justify-center size-4 shrink-0 rounded-full',
+        'flex flex-row items-center justify-center size-9 shrink-0 rounded-full',
   },
   variants: {
     kStringValueListToneAxis: {
