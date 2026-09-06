@@ -60,7 +60,7 @@ class EscalationPolicy extends Model
   String get id => getAttribute('id')?.toString() ?? '';
 
   /// The policy display name.
-  String? get name => getAttribute('name') as String?;
+  String? get name => get<String>('name');
 
   /// Set the policy display name.
   set name(String? value) => setAttribute('name', value);

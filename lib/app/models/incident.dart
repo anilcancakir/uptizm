@@ -125,7 +125,7 @@ class Incident extends Model with HasTimestamps, InteractsWithPersistence {
   /// this column from its own `en` catalogue so search, the LLM prompts and any
   /// reader without a locale still see a real sentence. An operator-authored
   /// title is whatever the operator typed.
-  String get title => (getAttribute('title') as String?) ?? '';
+  String get title => (get<String>('title')) ?? '';
 
   /// Set the incident headline.
   set title(String? value) => setAttribute('title', value);
@@ -162,7 +162,7 @@ class Incident extends Model with HasTimestamps, InteractsWithPersistence {
   }
 
   /// Optional first-update or composer message body.
-  String? get message => getAttribute('message') as String?;
+  String? get message => get<String>('message');
 
   /// Set the optional message body.
   set message(String? value) => setAttribute('message', value);
@@ -183,7 +183,7 @@ class Incident extends Model with HasTimestamps, InteractsWithPersistence {
   /// The metric key that tripped the threshold, when the signal source is
   /// threshold-based; `null` for anomaly or manual sources.
   String? get triggerMetricKey =>
-      getAttribute('trigger_metric_key') as String?;
+      get<String>('trigger_metric_key');
 
   /// The id of the team member currently driving the response, or `null` when
   /// the incident is unassigned.
@@ -202,7 +202,7 @@ class Incident extends Model with HasTimestamps, InteractsWithPersistence {
   /// A non-null body with a `null` [postmortemPublishedAt] is an INTERNAL
   /// draft: the public status page does not render it.
   String? get postmortemBody {
-    final String body = (getAttribute('postmortem_body') as String?) ?? '';
+    final String body = (get<String>('postmortem_body')) ?? '';
     return body.trim().isEmpty ? null : body;
   }
 

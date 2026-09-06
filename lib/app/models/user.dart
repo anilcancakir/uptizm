@@ -74,25 +74,25 @@ class User extends Model
   String get id => getAttribute('id')?.toString() ?? '';
 
   /// Get the user's name.
-  String? get name => getAttribute('name') as String?;
+  String? get name => get<String>('name');
 
   /// Set the user's name.
   set name(String? value) => setAttribute('name', value);
 
   /// Get the user's email address.
-  String? get email => getAttribute('email') as String?;
+  String? get email => get<String>('email');
 
   /// Set the user's email address.
   set email(String? value) => setAttribute('email', value);
 
   /// Get the user's phone number.
-  String? get phone => getAttribute('phone') as String?;
+  String? get phone => get<String>('phone');
 
   /// Set the user's phone number.
   set phone(String? value) => setAttribute('phone', value);
 
   /// Get the user's timezone identifier (e.g. `America/New_York`).
-  String? get timezone => getAttribute('timezone') as String?;
+  String? get timezone => get<String>('timezone');
 
   /// Set the user's timezone identifier.
   set timezone(String? value) => setAttribute('timezone', value);
@@ -102,25 +102,25 @@ class User extends Model
   /// The backend `UserResource` sends this under the `locale` key (matching the
   /// server column and the profile-update wire field), so the accessor reads
   /// `locale` directly.
-  String? get locale => getAttribute('locale') as String?;
+  String? get locale => get<String>('locale');
 
   /// Set the user's preferred locale code.
   set locale(String? value) => setAttribute('locale', value);
 
   /// Get the URL of the user's profile photo.
-  String? get profilePhotoUrl => getAttribute('profile_photo_url') as String?;
+  String? get profilePhotoUrl => get<String>('profile_photo_url');
 
   /// The user's current team.
   Team? get currentTeam {
     final Map<String, dynamic>? data =
-        getAttribute('current_team') as Map<String, dynamic>?;
+        get<Map<String, dynamic>>('current_team');
     return data != null ? Team.fromMap(data) : null;
   }
 
   /// All teams the user belongs to.
   List<Team> get allTeams {
     final List<dynamic> data =
-        getAttribute('all_teams') as List<dynamic>? ?? [];
+        get<List<dynamic>>('all_teams') ?? [];
     return data.map((t) => Team.fromMap(t as Map<String, dynamic>)).toList();
   }
 
