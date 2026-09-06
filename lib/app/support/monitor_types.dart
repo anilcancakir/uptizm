@@ -3,6 +3,7 @@ import 'package:magic/magic.dart' show trans;
 
 import '../enums/status_key.dart' show StatusKey, statusKeyFromWire;
 import 'formatters.dart' show formatTimeOfDay;
+import 'wire_reads.dart' show intOr, intOrNull, stringOr, stringOrNull;
 
 /// A single segment of the 90-day uptime history bar.
 ///
@@ -60,11 +61,11 @@ class CheckRow {
   /// falls back to `'—'` rather than throwing.
   factory CheckRow.fromMap(Map<String, dynamic> map) {
     return CheckRow(
-      time: formatTimeOfDay(map['checked_at'] as String?),
-      region: (map['region'] as String?) ?? '',
-      status: statusKeyFromWire(map['status'] as String?),
-      responseMs: (map['response_ms'] as num?)?.toInt(),
-      statusCode: (map['status_code'] as num?)?.toInt(),
+      time: formatTimeOfDay(stringOrNull(map['checked_at'])),
+      region: stringOr(map['region'], ''),
+      status: statusKeyFromWire(stringOrNull(map['status'])),
+      responseMs: intOrNull(map['response_ms']),
+      statusCode: intOrNull(map['status_code']),
     );
   }
 }
@@ -243,16 +244,16 @@ class AnalyzeRunProgress {
   /// the map shape can carry ordinals.
   factory AnalyzeRunProgress.fromMap(Map<String, dynamic> map) {
     final AnalyzeRunStatus status = analyzeRunStatusFromWire(
-      map['status'] as String?,
+      stringOrNull(map['status']),
     );
 
     return AnalyzeRunProgress(
-      runId: map['run_id'] as String? ?? '',
+      runId: stringOr(map['run_id'], ''),
       status: status,
-      step: (map['step'] as num?)?.toInt() ?? 0,
+      step: intOr(map['step'], 0),
       stepStates: _decodeStepStates(map['steps']),
       failure: status == AnalyzeRunStatus.failed
-          ? _failureFromReason(map['reason'] as String?)
+          ? _failureFromReason(stringOrNull(map['reason']))
           : null,
     );
   }
@@ -469,14 +470,14 @@ class MonitorFleetCounts {
     final Object? counts = meta['counts'];
 
     return MonitorFleetCounts(
-      total: (meta['total'] as num?)?.toInt(),
+      total: intOrNull(meta['total']),
       byStatus: counts is Map<String, dynamic>
           ? <String, int>{
               for (final MapEntry<String, dynamic> entry in counts.entries)
                 if (entry.value is num) entry.key: (entry.value as num).toInt(),
             }
           : const <String, int>{},
-      avgResponseMs: (meta['avg_response_ms'] as num?)?.toInt(),
+      avgResponseMs: intOrNull(meta['avg_response_ms']),
     );
   }
 

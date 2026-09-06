@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show immutable;
 
 import '../enums/ai_confidence.dart';
+import 'wire_reads.dart' show doubleOrNull, intOr, stringOr, stringOrNull;
 
 /// A team's weekly AI digest, as returned by `GET /incidents/digest`.
 ///
@@ -51,16 +52,21 @@ class WeeklyDigest {
   /// `GET /incidents/digest` response.
   factory WeeklyDigest.fromMap(Map<String, dynamic> map) {
     return WeeklyDigest(
-      weekStart: map['week_start'] as String?,
-      weekEnd: map['week_end'] as String?,
-      uptimePercent: (map['uptime_percent'] as num?)?.toDouble() ?? 0,
-      incidentCount: (map['incident_count'] as num?)?.toInt() ?? 0,
-      confidence: aiConfidenceFromWire(map['confidence'] as String?),
-      summary: (map['summary'] as String?) ?? '',
-      highlights: ((map['highlights'] as List<dynamic>?) ?? const <dynamic>[])
-          .map((dynamic e) => e.toString())
-          .toList(),
-      generatedAt: map['generated_at'] as String?,
+      weekStart: stringOrNull(map['week_start']),
+      weekEnd: stringOrNull(map['week_end']),
+      uptimePercent: doubleOrNull(map['uptime_percent']) ?? 0,
+      incidentCount: intOr(map['incident_count'], 0),
+      confidence: aiConfidenceFromWire(stringOrNull(map['confidence'])),
+      summary: stringOr(map['summary'], ''),
+      // A type test rather than `as List<dynamic>?`: the backend sends `[]` for
+      // "no highlights" and an object would have thrown, taking the whole
+      // digest with it over the one field that is decoration.
+      highlights: map['highlights'] is List
+          ? (map['highlights'] as List<dynamic>)
+                .map((dynamic e) => e.toString())
+                .toList()
+          : const <String>[],
+      generatedAt: stringOrNull(map['generated_at']),
     );
   }
 }

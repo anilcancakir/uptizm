@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../enums/status_key.dart' show StatusKey;
 import 'formatters.dart' show formatRelativeAge;
 import 'monitor_types.dart' show UptimeSegment;
+import 'wire_reads.dart' show boolOr, stringOr, stringOrNull;
 
 /// A monitor resolved to a public component (name + current health + history).
 ///
@@ -66,10 +67,10 @@ class Subscriber {
   /// rendering yet, so it is not carried onto the value-object.
   factory Subscriber.fromMap(Map<String, dynamic> map) {
     return Subscriber(
-      id: map['id'] as String? ?? '',
-      email: map['email'] as String? ?? '',
-      subscribedAt: _relativeSubscribedAt(map['subscribed_at'] as String?),
-      confirmed: map['confirmed'] as bool? ?? false,
+      id: stringOr(map['id'], ''),
+      email: stringOr(map['email'], ''),
+      subscribedAt: _relativeSubscribedAt(stringOrNull(map['subscribed_at'])),
+      confirmed: boolOr(map['confirmed'], false),
     );
   }
 }

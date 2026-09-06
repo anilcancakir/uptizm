@@ -3,6 +3,7 @@ import 'package:magic/magic.dart' show trans;
 import 'package:magic_payments/magic_payments.dart' show UsageStat;
 
 import '../enums/team_role.dart' show TeamRole;
+import 'wire_reads.dart' show intOr, stringOr, stringOrNull;
 
 /// A person with access to the current team.
 ///
@@ -118,8 +119,8 @@ class TeamResponder {
   factory TeamResponder.fromMemberMap(Map<String, dynamic> map) {
     return TeamResponder(
       id: map['id']?.toString() ?? '',
-      name: (map['name'] as String?) ?? '',
-      role: _teamRoleFromWire(map['role'] as String?),
+      name: stringOr(map['name'], ''),
+      role: _teamRoleFromWire(stringOrNull(map['role'])),
     );
   }
 
@@ -200,9 +201,9 @@ class OnCallRotationSlot {
     return OnCallRotationSlot(
       id: map['id']?.toString() ?? '',
       userId: map['user_id']?.toString() ?? '',
-      userName: map['user_name'] as String?,
-      position: (map['position'] as num?)?.toInt() ?? 0,
-      shiftHours: (map['shift_hours'] as num?)?.toInt() ?? 0,
+      userName: stringOrNull(map['user_name']),
+      position: intOr(map['position'], 0),
+      shiftHours: intOr(map['shift_hours'], 0),
     );
   }
 
@@ -246,9 +247,9 @@ class OnCallOverrideWindow {
     return OnCallOverrideWindow(
       id: map['id']?.toString() ?? '',
       userId: map['user_id']?.toString() ?? '',
-      userName: map['user_name'] as String?,
-      startsAt: DateTime.tryParse((map['starts_at'] as String?) ?? ''),
-      endsAt: DateTime.tryParse((map['ends_at'] as String?) ?? ''),
+      userName: stringOrNull(map['user_name']),
+      startsAt: DateTime.tryParse(stringOr(map['starts_at'], '')),
+      endsAt: DateTime.tryParse(stringOr(map['ends_at'], '')),
     );
   }
 
@@ -298,8 +299,8 @@ class OnCallResponder {
   factory OnCallResponder.fromMap(Map<String, dynamic> map) {
     return OnCallResponder(
       id: map['id']?.toString() ?? '',
-      name: (map['name'] as String?) ?? '',
-      email: map['email'] as String?,
+      name: stringOr(map['name'], ''),
+      email: stringOrNull(map['email']),
     );
   }
 
