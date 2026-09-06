@@ -268,6 +268,16 @@ class MonitorMetricsController extends MagicController
   /// keyed that way: having resolved monitor A says nothing about monitor B.
   final Set<String> _resolved = <String>{};
 
+  /// Monitor ids whose last catalog read did not land.
+  ///
+  /// A separate fact from [_resolved], and the one the tab was missing: a
+  /// failure ends the skeleton exactly as a success does, so without this the
+  /// screen had a loading branch and an empty branch and nothing else. A
+  /// monitor with eight configured metrics was invited to create its first one
+  /// during a backend outage. Per id, because this controller is a Type-keyed
+  /// singleton that outlives every screen and holds several monitors at once.
+  final Set<String> _failed = <String>{};
+
   /// Whether the FIRST catalog read for [monitorId] is still in flight.
   ///
   /// Separates "we have not asked yet" from "this monitor has no custom
@@ -277,6 +287,13 @@ class MonitorMetricsController extends MagicController
   /// Only the first read counts: a later refetch keeps the rows on screen rather
   /// than flashing a skeleton over data already on display.
   bool isFirstLoad(String monitorId) => !_resolved.contains(monitorId);
+
+  /// Whether the last catalog read for [monitorId] failed to land.
+  ///
+  /// Read AHEAD of an emptiness check: not knowing is not the same as having
+  /// none, and the two render identically while only one is a fact about the
+  /// monitor. Mirrors [MonitorController.loadFailed].
+  bool loadFailed(String monitorId) => _failed.contains(monitorId);
 
   /// The custom metric catalog for [monitorId], sourced from `GET
   /// /monitors/:id/metrics`. Empty until [reload] resolves for that monitor.
@@ -301,21 +318,30 @@ class MonitorMetricsController extends MagicController
   /// non-2xx, or malformed payload) so the tab never flickers into an empty
   /// state between reloads.
   Future<void> reload(String monitorId) async {
+    final bool wasFailed = _failed.contains(monitorId);
     try {
       final response = await Http.get('/monitors/$monitorId/metrics');
-      if (!response.successful) return;
+      if (!response.successful) {
+        _failed.add(monitorId);
+        return;
+      }
 
       final Object? raw = response.data is Map<String, dynamic>
           ? (response.data as Map<String, dynamic>)['data']
           : null;
-      if (raw is! List) return;
+      if (raw is! List) {
+        _failed.add(monitorId);
+        return;
+      }
 
       _byMonitor[monitorId] = raw
           .whereType<Map<String, dynamic>>()
           .map(MonitorMetricRecord.fromMap)
           .toList();
+      _failed.remove(monitorId);
       refreshUI();
     } catch (_) {
+      _failed.add(monitorId);
       // Deliberate degradation: a transport failure (including an
       // unregistered `network` service in a bare test host) or a malformed
       // payload keeps the last-known-good catalog (empty before the first
@@ -326,7 +352,11 @@ class MonitorMetricsController extends MagicController
       // the early `return`s above (non-2xx, malformed payload) reach this too.
       final bool firstLoad = isFirstLoad(monitorId);
       _resolved.add(monitorId);
-      if (firstLoad) refreshUI();
+      // Also publish when the failure bit MOVED, so a reload that recovers
+      // clears the error branch and a later reload that breaks reaches it. The
+      // success path already notified; this covers the failing paths, which
+      // otherwise only notified on the very first read.
+      if (firstLoad || wasFailed != _failed.contains(monitorId)) refreshUI();
     }
   }
 
@@ -348,6 +378,10 @@ class MonitorMetricsController extends MagicController
     // skeleton, not the previous tenant's conclusion that a monitor has no
     // custom metrics.
     _resolved.clear();
+    // And the failure bits with them: they name the OUTGOING identity's reads,
+    // so keeping one would show the incoming team an error for a monitor it
+    // has never asked about.
+    _failed.clear();
     clearErrors();
     refreshUI();
   }

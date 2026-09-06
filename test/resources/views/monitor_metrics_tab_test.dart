@@ -60,6 +60,11 @@ class _MetricsLangLoader implements TranslationLoader {
       'uptizm.monitors.metrics_suggest_rule_badge': 'rule',
       'uptizm.monitors.create_ai_metric_observed': 'now :observed',
       'uptizm.monitors.metrics_empty_title': 'No custom metrics',
+      // Without these two the error-branch assertions would compare a raw key
+      // to a raw key and pass whatever the tab rendered.
+      'uptizm.monitors.metrics_load_error_title': 'Could not load metrics',
+      'uptizm.monitors.metrics_load_error_description': 'Unreachable right now.',
+      'uptizm.common.retry': 'Retry',
       'uptizm.monitors.metrics_empty_description': 'None yet.',
       'uptizm.monitors.metrics_create': 'Create metric',
 
@@ -737,6 +742,42 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('MonitorMetricsTab, monitorId: docs (no custom metrics)', () {
+    setUp(() {
+      // "No custom metrics" has to be something the server SAID, not something
+      // a failed read left behind. The outer setUp's bare fake makes every
+      // catalogue read fail, and the tab now tells that apart from an empty
+      // one, so this group answers `docs` with a successful empty list.
+      Http.fake().stub(
+        'monitors/docs/metrics',
+        Http.response({'data': <Map<String, dynamic>>[]}),
+      );
+    });
+
+    testWidgets('a failed catalogue read says so, never "no metrics"', (
+      tester,
+    ) async {
+      // The defect: a monitor with eight configured metrics was invited to
+      // create its first one for the length of a backend outage, because the
+      // tab had a loading branch and an empty branch and nothing else.
+      Http.fake().stub(
+        'monitors/docs/metrics',
+        Http.response({'message': 'down'}, 500),
+      );
+
+      await tester.pumpWidget(wrap(const MonitorMetricsTab(monitorId: 'docs')));
+      await tester.pump();
+
+      expect(
+        find.text(trans('uptizm.monitors.metrics_load_error_title')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(trans('uptizm.monitors.metrics_empty_title')),
+        findsNothing,
+        reason: 'a read that did not land is not a monitor with no metrics',
+      );
+    });
+
     testWidgets('renders the empty-state title', (tester) async {
       await tester.pumpWidget(wrap(const MonitorMetricsTab(monitorId: 'docs')));
       await tester.pump();
@@ -2413,7 +2454,13 @@ void main() {
       Magic.flush();
       Magic.singleton('magic_starter', () => MagicStarterManager());
       Magic.singleton('log', () => LogManager());
-      Http.fake();
+      // A SUCCESSFUL empty catalogue, not a bare fake. This used to lean on the
+      // read failing to reach the empty state, which is the defect the tab now
+      // refuses: a read that did not land is not a monitor with no metrics.
+      Http.fake().stub(
+        'monitors/api/metrics',
+        Http.response({'data': <Map<String, dynamic>>[]}),
+      );
 
       // Deliberately NOT pumped again: the first frame paints before the tab's
       // own catalog fetch resolves.

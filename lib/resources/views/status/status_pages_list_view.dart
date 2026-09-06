@@ -188,7 +188,20 @@ class _StatusPagesListViewState
     // attached monitors were down.
     final List<PublicComponent> components = page.components;
     final StatusKey? overall = worstStatus(components);
-    final int subscriberCount = controller.subscribersFor(page.id).length;
+    // Loading is not zero. `subscribersFor` plants `const []` and FIRES the
+    // per-page fetch, so every card asserted "0 subscribers" as fact until its
+    // own round trip landed and then corrected itself. The subscribers screen
+    // that owns this data already refuses to do that, rendering a placeholder
+    // until `hasResolvedSubscribers` is true; this is the same rule on the card
+    // that links to it.
+    //
+    // The read still fires per card, which is an N+1 on a team with a dozen
+    // pages. Removing it needs `subscribers_count` on the `GET /status-pages`
+    // payload, a backend change; this fixes the false claim, not the fan-out.
+    final int resolvedCount = controller.subscribersFor(page.id).length;
+    final int? subscriberCount = controller.hasResolvedSubscribers(page.id)
+        ? resolvedCount
+        : null;
 
     return WAnchor(
       onTap: () => MagicRoute.to('/status/${page.id}'),
@@ -254,7 +267,10 @@ class _StatusPagesListViewState
   }
 
   /// Footer counts: "N components · Subdomain/Path · N subscribers / Subs off".
-  String _footerText(StatusPage page, int componentCount, int subscriberCount) {
+  ///
+  /// A null [subscriberCount] means the page's subscriber read has not answered
+  /// yet, which is not the same as zero and renders as a dash.
+  String _footerText(StatusPage page, int componentCount, int? subscriberCount) {
     final String componentsLabel = componentCount == 1
         ? trans('uptizm.status.list_card_component_singular')
         : trans('uptizm.status.list_card_component_plural');
@@ -263,7 +279,7 @@ class _StatusPagesListViewState
     // silently gone stale the moment a mode was added.
     final String domainLabel = page.domainMode.label;
     final String subscribersLabel = page.subscriptionsEnabled
-        ? '$subscriberCount ${trans('uptizm.status.list_card_subscribers')}'
+        ? '${subscriberCount ?? '—'} ${trans('uptizm.status.list_card_subscribers')}'
         : trans('uptizm.status.list_card_subs_off');
 
     return '$componentCount $componentsLabel · $domainLabel · $subscribersLabel';
