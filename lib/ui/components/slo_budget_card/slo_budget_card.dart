@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
 import 'slo_budget_card.recipe.dart';
+import '../../../app/support/formatters.dart' show formatDecimal;
 
 /// Health tone derived from an SLO error budget.
 enum SloBudgetTone {
@@ -348,8 +349,13 @@ class SloBudgetCard extends StatelessWidget {
   /// percentage this app prints, so it belongs to a locale-formatting pass
   /// rather than to this one line.
   static String _formatTarget(double target) {
-    return target == target.roundToDouble()
-        ? target.toStringAsFixed(0)
-        : target.toString();
+    if (target == target.roundToDouble()) return formatDecimal(target, places: 0);
+
+    // Two places then a trailing-zero strip, matching `_formatSloTarget` on the
+    // monitor detail page: `places: 1` would round 99.95 to 99.9, and an SLO
+    // target is the promise the error budget below is measured against.
+    final String two = formatDecimal(target, places: 2);
+
+    return two.endsWith('0') ? two.substring(0, two.length - 1) : two;
   }
 }

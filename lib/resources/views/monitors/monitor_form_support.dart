@@ -817,3 +817,37 @@ List<Region> probeRegionsToRegions(List<ProbeRegion> src) {
       ),
   ];
 }
+
+/// The monitor form's fields that live inside the collapsed advanced section,
+/// and are therefore invisible until it is expanded.
+const Set<String> kAdvancedMonitorFields = <String>{
+  'method',
+  'timeout_sec',
+  'timeout_ms',
+};
+
+/// Whether a credential key addresses the auth block: the block itself, or one
+/// of the dotted inner keys Laravel reports (`auth_config.password`).
+bool isCredentialFieldKey(String key) =>
+    key == 'auth_config' || key.startsWith('auth_config.');
+
+/// Whether EVERY painted error sits below the fold, inside the advanced section
+/// or the credential block.
+///
+/// The form scrolls to the page top after a refused submit, because the submit
+/// button is at the foot of a form taller than the viewport and an error nobody
+/// can see is not a message. This is the case where that help becomes harm:
+/// `timeout_sec` carries `[Required(), Min(1), Max(120)]` and its input is in
+/// the advanced section, so a `500` there expands the section and scrolling to
+/// the top would then carry the operator away from the field just revealed.
+///
+/// An empty map answers false: nothing was painted, so nothing is hidden, and a
+/// caller must not read that as "everything is out of sight".
+bool monitorErrorsAllBelowFold(Map<String, String> errors) {
+  if (errors.isEmpty) return false;
+
+  return errors.keys.every(
+    (String key) =>
+        kAdvancedMonitorFields.contains(key) || isCredentialFieldKey(key),
+  );
+}

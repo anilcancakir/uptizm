@@ -47,7 +47,7 @@ const WindSlotRecipe incidentTimelineRecipe = WindSlotRecipe(
     'head': 'wrap items-center gap-2',
     'status': 'text-sm font-medium text-fg',
     'tag':
-        'rounded-sm px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide',
+        'rounded-sm px-1.5 py-0.5 text-[10px] font-medium tracking-wide',
     'time': 'ml-auto font-mono text-xs tabular-nums text-fg-muted',
     'message': 'text-sm leading-relaxed text-fg-muted',
     'author': 'text-xs text-fg-muted',

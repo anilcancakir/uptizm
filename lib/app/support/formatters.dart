@@ -170,9 +170,15 @@ String formatCount(int n) {
 /// session read with a full stop, which Turkish uses to group thousands. `%99.9`
 /// is not a near-perfect target in Turkish, it is a number with no meaning.
 ///
-/// The whole part goes through [formatCount], so a value large enough to group
-/// gets both marks right rather than only one.
-String formatDecimal(num value, {int places = 2}) {
+/// The whole part goes through [formatCount] by default, so a value large enough
+/// to group gets both marks right rather than only one.
+///
+/// Pass `grouped: false` where the caller does its own magnitude handling. The
+/// metric formatter is the case: it abbreviates and appends a unit suffix
+/// itself, so grouping here turned a `count_short` reading of `1200` into
+/// `1.200` before that suffix logic ever saw it. The decimal MARK is still
+/// locale-correct in that mode; only the grouping is suppressed.
+String formatDecimal(num value, {int places = 2, bool grouped = true}) {
   final String key = trans('uptizm.common.decimal_separator');
   final String separator = key.length == 1 ? key : '.';
   final String fixed = value.abs().toStringAsFixed(places);
@@ -180,7 +186,7 @@ String formatDecimal(num value, {int places = 2}) {
   final String whole = dot == -1 ? fixed : fixed.substring(0, dot);
   final String fraction = dot == -1 ? '' : fixed.substring(dot + 1);
 
-  final String head = formatCount(int.tryParse(whole) ?? 0);
+  final String head = grouped ? formatCount(int.tryParse(whole) ?? 0) : whole;
   final String body = fraction.isEmpty ? head : '$head$separator$fraction';
 
   return value < 0 ? '-$body' : body;

@@ -8,6 +8,7 @@ import 'package:uptizm/app/enums/metric_direction.dart' show MetricDirection;
 import 'package:uptizm/app/support/metric_types.dart'
     show MetricDatum, MonitorMetric;
 import 'package:uptizm/app/enums/status_key.dart';
+import '../../../app/support/formatters.dart' show formatDecimal;
 
 // ---------------------------------------------------------------------------
 // Option-list constants (label / value pairs for dropdowns and segmented
@@ -486,7 +487,16 @@ const List<MapEntry<double, String>> _durationAutoSteps = [
 /// distinct double type, so 73.0 renders as "73"). Non-integral values keep
 /// their decimals (73.4 -> "73.4").
 String _formatNumber(num value) {
-  return value == value.roundToDouble() ? value.toStringAsFixed(0) : '$value';
+  if (value == value.roundToDouble()) {
+    return formatDecimal(value, places: 0, grouped: false);
+  }
+
+  // Two places then a trailing-zero strip rather than `places: 1`, so a reading
+  // keeps the precision it arrived with: rounding 73.45 to 73,5 would change a
+  // measurement, which is the one thing a metric value must not do.
+  final String two = formatDecimal(value, places: 2, grouped: false);
+
+  return two.endsWith('0') ? two.substring(0, two.length - 1) : two;
 }
 
 /// Scales [value] against [steps] (ascending thresholds, each paired with the
