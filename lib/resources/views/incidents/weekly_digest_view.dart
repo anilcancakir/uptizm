@@ -235,9 +235,17 @@ class _WeeklyDigestViewState extends State<WeeklyDigestView> {
             children: [
               for (int i = 0; i < highlights.length; i++)
                 WDiv(
-                  className:
-                      'flex flex-row items-start gap-3 px-5 py-3.5'
-                      '${i == highlights.length - 1 ? '' : ' border-b border-color-border'}',
+                  // Two whole literals, the shape every other divider row in
+                  // this slice already uses (`status_page_subscribers_view`,
+                  // `on_call_schedule_view`, `incident_detail_view`), rather
+                  // than a Dart conditional spliced into the string. The cost
+                  // here is one extra cache entry, so the reason to match is
+                  // that this is the pattern the next row gets copied from, and
+                  // the next one may not carry a two-case constant.
+                  className: i == highlights.length - 1
+                      ? 'flex flex-row items-start gap-3 px-5 py-3.5'
+                      : 'flex flex-row items-start gap-3 px-5 py-3.5 '
+                            'border-b border-color-border',
                   children: [
                     WIcon(
                       Icons.check_circle_outline,
