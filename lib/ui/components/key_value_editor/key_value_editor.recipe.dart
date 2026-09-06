@@ -17,8 +17,11 @@ import 'package:magic/magic.dart';
 const WindSlotRecipe keyValueEditorRecipe = WindSlotRecipe(
   slots: {
     'root': 'flex flex-col gap-2',
+    // size-11 is the 44dp floor `header_action` already holds for an
+    // icon-only control; this row has the height to spare, unlike the chip
+    // remove in `string_value_list`.
     'remove':
-        'flex flex-row size-10 shrink-0 items-center justify-center '
+        'flex flex-row size-11 shrink-0 items-center justify-center '
         'rounded-md text-fg-muted hover:bg-surface-container hover:text-fg',
   },
 );

@@ -23,8 +23,13 @@ import 'package:magic/magic.dart';
 const WindSlotRecipe regionPickerRecipe = WindSlotRecipe(
   slots: {
     'root': 'grid grid-cols-2 sm:grid-cols-3 gap-2',
+    // `hover:` and `focus:` are not decoration here: this app ships on web,
+    // WAnchor styles focus only through className, and without them a keyboard
+    // user tabbing the grid got no sign of which tile was about to toggle and
+    // a mouse user got no feedback on a control shaped like a checkbox row.
     'option':
-        'flex flex-row items-center gap-2 min-h-11 min-w-0 rounded-md border border-color-border px-3 text-sm text-fg',
+        'flex flex-row items-center gap-2 min-h-11 min-w-0 rounded-md border border-color-border px-3 text-sm text-fg '
+        'hover:bg-surface-container focus:border-primary',
     'optionSelected': 'bg-primary-container text-primary border-primary',
     'optionLocked': 'opacity-60 border-color-border-subtle',
   },

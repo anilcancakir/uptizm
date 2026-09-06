@@ -102,7 +102,10 @@ const WindRecipe pushPromptIconRecipe = WindRecipe(
 /// state adds no layout shift; `hover:`/`focus:` share the tinted brand
 /// surface [pushPromptTileRecipe] already uses for the `ask` tile.
 const String pushPromptEnableButtonClassName =
-    'rounded-md border border-transparent px-2 py-1 text-sm font-medium '
+    // px-4 py-3, not px-2 py-1: on a phone this is the single control that
+    // fixes a device which cannot be paged, and 4px of vertical padding around
+    // text-sm is roughly a 30px target against a 44dp floor.
+    'rounded-md border border-transparent px-4 py-3 text-sm font-medium '
     'text-primary transition-colors hover:bg-primary-container '
     'focus:border-primary focus:bg-primary-container';
 
