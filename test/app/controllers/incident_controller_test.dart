@@ -1618,6 +1618,39 @@ void main() {
       expect(controller.analysisFor(detail), isNull);
     });
 
+    test('clears the headline totals on a failed refetch', () async {
+      Http.fake({
+        'incidents': Http.response({
+          'data': <Map<String, dynamic>>[],
+          'meta': {
+            'open_total': 7,
+            'critical_total': 3,
+            'ai_total': 2,
+            'resolved_total': 11,
+          },
+        }),
+      });
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+
+      await controller.load();
+      expect(controller.openTotal, 7);
+      expect(controller.criticalTotal, 3);
+
+      // The incoming identity's refetch fails, so `_readHeadlineCounts` never
+      // runs. Whatever the reset leaves standing is what the list header states
+      // as the NEW team's fleet, and it stands until a later read succeeds.
+      Http.fake((r) => Http.response({'message': 'down'}, 500));
+
+      await controller.resetForSession();
+
+      expect(controller.openTotal, isNull);
+      expect(controller.criticalTotal, isNull);
+      expect(controller.aiTotal, isNull);
+      expect(controller.resolvedTotal, isNull);
+    });
+
     test('refetches the incidents of the new identity', () async {
       final IncidentController controller = Magic.findOrPut(
         IncidentController.new,

@@ -126,4 +126,84 @@ void main() {
       expect(find.text('PagerDuty'), findsNothing);
     },
   );
+
+  testWidgets(
+    'a policy that resolves after mount reseeds into edit mode',
+    (tester) async {
+      // A cold entry: a browser reload of /teams/escalation/p1, or a shared
+      // link. The controller holds nothing yet, so initState can only seed the
+      // create defaults; the policy arrives afterwards. Left unreseeded, the
+      // editor offers Create over an existing policy and saving writes a
+      // SECOND one, taking the team-wide default with it when the default
+      // switch is on.
+      final EscalationController controller = EscalationController.instance;
+      expect(controller.detailById('p1'), isNull);
+
+      await tester.pumpWidget(wrap(const EscalationPolicyEditorView(id: 'p1')));
+      await tester.pump();
+
+      controller.seedForTest([
+        EscalationPolicy.fromMap({
+          'id': 'p1',
+          'name': 'Primary',
+          'steps': [
+            {
+              'id': 's1',
+              'position': 0,
+              'delay_minutes': 0,
+              'target_type': 'on_call',
+            },
+          ],
+        }),
+      ]);
+      await tester.pump();
+
+      expect(find.text('Edit policy'), findsOneWidget);
+      expect(find.text('New policy'), findsNothing);
+      // The submit label is the write path: 'Create' here takes the branch that
+      // POSTs a new policy.
+      expect(find.text('Save'), findsOneWidget);
+      expect(find.text('Create'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'moving to a second policy reseeds it once it resolves too',
+    (tester) async {
+      // The second entry path into the same defect. The reseed listener detaches
+      // the moment the FIRST policy lands, so an id change on a reused State
+      // (a URL edit on web between two /teams/escalation/:id routes) has to
+      // re-arm it. Without that, p2 renders in create mode and saving writes a
+      // duplicate exactly as a cold entry did.
+      final EscalationController controller = EscalationController.instance;
+
+      // p1 must resolve LATE, not be pre-seeded: seeding it first would make
+      // initState find it, set edit mode directly, and leave the listener
+      // attached and unfired, so the detach this test is about never happens
+      // and the assertions below would hold with or without the re-arm.
+      await tester.pumpWidget(wrap(const EscalationPolicyEditorView(id: 'p1')));
+      await tester.pump();
+
+      controller.seedForTest([
+        EscalationPolicy.fromMap({'id': 'p1', 'name': 'Primary', 'steps': []}),
+      ]);
+      await tester.pump();
+      expect(find.text('Edit policy'), findsOneWidget);
+
+      // Same widget type and position, new id: the State is reused and
+      // didUpdateWidget reseeds from a cache that does not hold p2 yet.
+      await tester.pumpWidget(wrap(const EscalationPolicyEditorView(id: 'p2')));
+      await tester.pump();
+
+      controller.seedForTest([
+        EscalationPolicy.fromMap({'id': 'p2', 'name': 'Secondary', 'steps': []}),
+      ]);
+      await tester.pump();
+
+      expect(find.text('Edit policy'), findsOneWidget);
+      expect(find.text('New policy'), findsNothing);
+      expect(find.text('Save'), findsOneWidget);
+      expect(find.text('Create'), findsNothing);
+    },
+  );
 }

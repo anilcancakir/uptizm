@@ -156,6 +156,15 @@ class _EscalationPolicyEditorViewState
   /// Save/Create action so a double-tap cannot fire two writes.
   bool _saving = false;
 
+  /// Whether [_seedOnceResolved] is currently attached to the controller.
+  ///
+  /// Tracked explicitly rather than inferred from [_isEdit], because the two
+  /// answer different questions: an id change can arrive twice before either
+  /// policy resolves, and [ChangeNotifier.addListener] called twice with the
+  /// same tear-off fires twice while [ChangeNotifier.removeListener] drops
+  /// only one.
+  bool _seedListening = false;
+
   @override
   void initState() {
     // Register the controller before the base state resolves it via
@@ -164,6 +173,7 @@ class _EscalationPolicyEditorViewState
     super.initState();
     _nameController = TextEditingController();
     _seedFrom(controller.detailById(widget.id));
+    _armSeedListener();
     // One-shot single-resource refresh for the prefill (never from build; see
     // [EscalationController.refreshDetail], which notifies listeners on
     // completion so the seeded draft picks up the freshly fetched steps).
@@ -183,6 +193,15 @@ class _EscalationPolicyEditorViewState
     // does not carry a stale draft across (mirrors status_page_editor_view).
     if (oldWidget.id != widget.id) {
       _seedFrom(controller.detailById(widget.id));
+      // Re-arm: the new id needs the same late resolution the first one did,
+      // and [_seedOnceResolved] detached itself the moment the PREVIOUS policy
+      // landed. Without this, moving from a resolved /teams/escalation/p1 to
+      // p2 (a URL edit on web reuses this State) leaves the editor in create
+      // mode over an existing policy, which is the defect this listener exists
+      // to close.
+      if (!_isEdit) {
+        _armSeedListener();
+      }
       final String? id = widget.id;
       if (id != null) {
         controller.refreshDetail(id);
@@ -192,8 +211,45 @@ class _EscalationPolicyEditorViewState
 
   @override
   void dispose() {
+    _disarmSeedListener();
     _nameController.dispose();
     super.dispose();
+  }
+
+  /// Attaches [_seedOnceResolved], unless it is already attached.
+  void _armSeedListener() {
+    if (_seedListening) return;
+
+    controller.addListener(_seedOnceResolved);
+    _seedListening = true;
+  }
+
+  /// Detaches [_seedOnceResolved], unless it is already detached.
+  void _disarmSeedListener() {
+    if (!_seedListening) return;
+
+    controller.removeListener(_seedOnceResolved);
+    _seedListening = false;
+  }
+
+  /// Seeds the draft the first time the routed policy resolves out of the cache.
+  ///
+  /// [initState] can only read what is already cached, and on a direct load of
+  /// `/teams/escalation/<id>` (a reload, or a link someone shared) the detail
+  /// fetch is still in flight, so the editor seeded an EMPTY draft and rendered
+  /// "New escalation policy" with a Create button for a policy that already
+  /// exists. Saving from there wrote a SECOND policy, and took the team-wide
+  /// default with it whenever "use as default" was ticked. Once the detail
+  /// lands this reseeds, and it stops listening after the first hit so it can
+  /// never clobber edits the operator has since typed.
+  void _seedOnceResolved() {
+    if (!mounted || _isEdit || widget.id == null) return;
+
+    final EscalationPolicy? resolved = controller.detailById(widget.id);
+    if (resolved == null) return;
+
+    _disarmSeedListener();
+    setState(() => _seedFrom(resolved));
   }
 
   /// Seeds the draft from [existing] (edit) or the create defaults.
