@@ -1179,11 +1179,14 @@ class _MonitorFormState extends State<MonitorForm>
 
   /// The owned fields that live INSIDE the advanced section, and are therefore
   /// invisible while it is collapsed.
-  static const Set<String> _advancedFields = <String>{
-    'method',
-    'timeout_sec',
-    'timeout_ms',
-  };
+  /// The owned fields that live INSIDE the advanced section, and are therefore
+  /// invisible while it is collapsed.
+  ///
+  /// Aliased onto the public set so the scroll decision in
+  /// [monitorErrorsAllBelowFold] and the expand decision below can never drift
+  /// apart: they were two copies of one list, and a field added to only one of
+  /// them would be revealed and then scrolled away from, or the reverse.
+  static const Set<String> _advancedFields = kAdvancedMonitorFields;
 
   /// Runs the two checks the controller's rule map cannot express, then hands
   /// the fields to [MonitorForm.onSubmit] and reacts to what it reports.
@@ -1270,11 +1273,16 @@ class _MonitorFormState extends State<MonitorForm>
     // viewport, so a refused submit painted `Ad` and `URL` about seven hundred
     // pixels above the finger that pressed it and read as a dead button.
     //
-    // The page top rather than the offending field: every error the local
-    // checks and the required-field rules can produce lands on the first two
-    // fields, because the rest either carry a default or live in the advanced
-    // section the block above expands.
-    if (errors.isNotEmpty || _urlError != null) _scrollToTop();
+    // The page top rather than the offending field, but only when at least one
+    // error is ABOVE the fold. The previous version claimed every error lands on
+    // the first two fields; it does not. `timeout_sec` carries
+    // `[Required(), Min(1), Max(120)]` and its input lives in the advanced
+    // section, so a 500 there expanded the section and then scrolled the
+    // operator away from the field it had just revealed.
+    if ((errors.isNotEmpty || _urlError != null) &&
+        !monitorErrorsAllBelowFold(errors)) {
+      _scrollToTop();
+    }
 
     final Iterable<MapEntry<String, String>> unmapped = errors.entries.where(
       (MapEntry<String, String> entry) =>
@@ -1306,8 +1314,7 @@ class _MonitorFormState extends State<MonitorForm>
 
   /// Whether [key] addresses the credential map: the block itself, or one of
   /// the dotted inner keys Laravel reports (`auth_config.password`).
-  bool _isCredentialKey(String key) =>
-      key == 'auth_config' || key.startsWith('auth_config.');
+  bool _isCredentialKey(String key) => isCredentialFieldKey(key);
 
   /// The credential block's inline errors: the client-side shape check merged
   /// with whatever the backend rejected under `auth_config`.

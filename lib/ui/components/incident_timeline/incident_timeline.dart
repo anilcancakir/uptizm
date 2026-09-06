@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 
 import 'incident_timeline.recipe.dart';
+import '../../../app/support/formatters.dart' show upperCase;
 
 /// Who moved the incident at a point in the timeline.
 enum TimelineActor {
@@ -180,10 +181,16 @@ class IncidentTimeline extends StatelessWidget {
       children: [
         WText(entry.status, className: classes['status']),
         if (entry.autonomous) _buildAutoModeBadge(),
+        // Uppercased in Dart, like every other heading in this app: Wind's
+        // `uppercase` utility calls the locale-independent `toUpperCase()`, so
+        // the internal tag rendered `DAHILI` rather than `DAHİLİ`. The public
+        // one has no `i` and hid the defect.
         WText(
-          entry.isPublic
-              ? trans('uptizm.incidents.timeline_tag_public')
-              : trans('uptizm.incidents.timeline_tag_internal'),
+          upperCase(
+            entry.isPublic
+                ? trans('uptizm.incidents.timeline_tag_public')
+                : trans('uptizm.incidents.timeline_tag_internal'),
+          ),
           className: classes['tag'],
         ),
         WText(entry.time, className: classes['time']),

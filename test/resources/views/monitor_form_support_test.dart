@@ -345,6 +345,55 @@ void main() {
     });
   });
 
+  group('monitorErrorsAllBelowFold', () {
+    // The scroll-to-top after a refused submit exists because the button sits at
+    // the foot of a form taller than the viewport. This predicate is where that
+    // help stops: an error whose field is inside the collapsed advanced section
+    // is REVEALED by expanding it, and then scrolling to the top would carry the
+    // operator away from the field just revealed.
+
+    test('an advanced-only error is below the fold', () {
+      expect(
+        monitorErrorsAllBelowFold(<String, String>{
+          'timeout_sec': 'The Timeout field may not be greater than 120.',
+        }),
+        isTrue,
+      );
+    });
+
+    test('a credential error is below the fold, dotted key included', () {
+      expect(
+        monitorErrorsAllBelowFold(<String, String>{
+          'auth_config.password': 'required',
+        }),
+        isTrue,
+      );
+      expect(
+        monitorErrorsAllBelowFold(<String, String>{'auth_config': 'invalid'}),
+        isTrue,
+      );
+    });
+
+    test('one visible error among hidden ones still scrolls', () {
+      // The mixed case is the one a naive `any` would get backwards: `name` is
+      // the first field on the form and the operator must be taken to it.
+      expect(
+        monitorErrorsAllBelowFold(<String, String>{
+          'name': 'The Name field is required.',
+          'timeout_sec': 'too large',
+        }),
+        isFalse,
+      );
+    });
+
+    test('an empty map is not "everything is hidden"', () {
+      // Nothing was painted, so nothing is out of sight. Answering true here
+      // would suppress the scroll on the local target check, which paints its
+      // error outside this map.
+      expect(monitorErrorsAllBelowFold(const <String, String>{}), isFalse);
+    });
+  });
+
   group('a wrong-typed wire value degrades instead of throwing', () {
     // These decoders run off `auth_config` and `suggested_metrics`, both raw
     // sub-objects the backend attaches rather than model attributes, so nothing

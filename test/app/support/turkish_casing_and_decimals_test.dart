@@ -64,6 +64,30 @@ void main() {
     });
   });
 
+  group('the sites the first sweep missed', () {
+    setUp(() => useLocale('tr'));
+
+    // Each of these was found by an audit AFTER the first pass shipped, and each
+    // is the same two mechanisms in a place the grep behind that pass did not
+    // reach: a className inside a recipe, and a `toString()` on a double.
+
+    test('the internal timeline tag keeps its dots', () {
+      // `Herkese açık` has no `i`, so the public tag rendered correctly and hid
+      // the defect on the tag beside it.
+      expect(upperCase('Dahili'), 'DAHİLİ');
+      expect(upperCase('Herkese açık'), 'HERKESE AÇIK');
+    });
+
+    test('an SLO target and a metric reading keep their precision', () {
+      // Two places then a trailing-zero strip, not `places: 1`: rounding 99.95
+      // to 99.9 changes the promise the error budget is measured against, and
+      // rounding 73.45 to 73.5 changes a measurement.
+      expect(formatDecimal(99.95, places: 2), '99,95');
+      expect(formatDecimal(73.45, places: 2), '73,45');
+      expect(formatDecimal(99.9, places: 2), '99,90');
+    });
+  });
+
   group('in English', () {
     setUp(() => useLocale('en'));
 
