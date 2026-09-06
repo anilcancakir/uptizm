@@ -139,6 +139,10 @@ class MaintenanceController extends MagicController
     // so the incoming identity gets a skeleton, not the outgoing team's answer.
     _windows = const [];
     _resolvedOnce = false;
+    // A cursor names a row in the OUTGOING team's ordering, and the reset's own
+    // refetch only overwrites it when that refetch succeeds.
+    _nextCursor = null;
+    _loadingMore = false;
     clearErrors();
     refreshUI();
 

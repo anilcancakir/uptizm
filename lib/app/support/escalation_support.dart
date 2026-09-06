@@ -129,3 +129,84 @@ String escalationDelayLabel(int afterMinutes) {
 
   return trans('uptizm.teams.escalation_delay_after', {'n': '$afterMinutes'});
 }
+
+/// One wire-shaped escalation step, as returned by
+/// `GET /escalation-policies/{id}` (`EscalationPolicyResource::toArray`).
+///
+/// Carries the backend [id] so the editor can diff a saved ladder against a
+/// fresh draft and issue exactly the add/remove/reorder calls the change
+/// requires.
+///
+/// Lives here rather than on the controller because [EscalationPolicy] decodes
+/// into it: a model importing a controller inverted the layering and closed an
+/// import cycle, so the model could not be used without pulling in the
+/// controller and, transitively, magic_starter. Its sibling wire value objects
+/// (`incident_types`, `team_types`, `status_page_types`, `monitor_types`) all
+/// live beside their domain in `support/`, and [EscalationTargetType] above
+/// describes the very field [targetType] carries.
+@immutable
+class EscalationStepWire {
+  /// Backend step id, or `null` when the payload carried none.
+  ///
+  /// Nullable so a step the backend cannot identify is representable instead of
+  /// throwing: decoding it as a required `String` took the whole policy decode
+  /// down on one odd step, blanking the editor rather than degrading. A null id
+  /// lands in the editor's draft as a null too, which its save-diff already
+  /// treats as a step to create rather than one to reorder in place.
+  final String? id;
+
+  /// Ascending fire order within the policy.
+  final int position;
+
+  /// Minutes to wait after the previous step (or after incident open, for
+  /// the first step) before this step fires.
+  final int delayMinutes;
+
+  /// `on_call` / `user`, per [EscalationTargetType] (people-only).
+  final String targetType;
+
+  /// The targeted user id, present only when [targetType] is `user`.
+  final String? targetId;
+
+  /// Creates an [EscalationStepWire].
+  const EscalationStepWire({
+    required this.id,
+    required this.position,
+    required this.delayMinutes,
+    required this.targetType,
+    this.targetId,
+  });
+}
+
+/// An editable escalation rung, carrying the backend step [id] once persisted
+/// so `EscalationController.save` can diff a draft ladder against its
+/// previously loaded chain.
+///
+/// [id] is `null` for a brand-new rung (never persisted) OR a previously
+/// persisted rung whose [afterMinutes]/[targetType]/[targetUserId] were edited
+/// in place: since the backend has no step-update endpoint, an in-place edit
+/// clears [id] so the save treats it as "remove the old row, add a fresh one"
+/// rather than silently dropping the edit.
+@immutable
+class EscalationRungDraft {
+  /// The backend step id, or `null` when not (or no longer) persisted.
+  final String? id;
+
+  /// Minutes to wait after the previous rung fires. 0 means immediately.
+  final int afterMinutes;
+
+  /// Who this rung pages: the shared on-call rotation, or a specific member.
+  final EscalationTargetType targetType;
+
+  /// The paged member id, present only when [targetType] is
+  /// [EscalationTargetType.user]; `null` for the on-call rotation.
+  final String? targetUserId;
+
+  /// Creates an [EscalationRungDraft].
+  const EscalationRungDraft({
+    this.id,
+    required this.afterMinutes,
+    required this.targetType,
+    this.targetUserId,
+  });
+}

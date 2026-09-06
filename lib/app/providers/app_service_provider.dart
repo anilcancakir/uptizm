@@ -29,18 +29,24 @@ import '../../ui/layouts/uptizm_hub_extras.dart';
 class AppServiceProvider extends ServiceProvider {
   AppServiceProvider(super.app);
 
-  /// The realtime channel subscription service, held for the app's lifetime.
-  final RealtimeService _realtime = RealtimeService();
+  /// The realtime channel subscription service, resolved from the container.
+  RealtimeService get _realtime => Magic.make<RealtimeService>('realtime');
 
-  /// The locale/timezone application service, held for the app's lifetime.
-  final LocaleApplicationService _localeApplication =
-      LocaleApplicationService();
+  /// The locale/timezone application service, resolved from the container.
+  LocaleApplicationService get _localeApplication =>
+      Magic.make<LocaleApplicationService>('locale_application');
 
   @override
   void register() {
-    // Bind your services here (sync only — do not resolve other services).
-    // Example:
-    //   app.singleton('my_service', () => MyService());
+    // Bound rather than constructed as provider fields. Both are app-lifetime
+    // singletons either way, but a field has no container key, so nothing could
+    // substitute them: a widget test that mounts a view whose provider boots
+    // could not install a fake RealtimeService, and the locale service calls
+    // Magic.reload() on a real binding with no seam to intercept. The
+    // @visibleForTesting hatches elsewhere in this file exist because of exactly
+    // that, and these two had none.
+    app.singleton('realtime', RealtimeService.new);
+    app.singleton('locale_application', LocaleApplicationService.new);
   }
 
   /// Starts or stops notification delivery to track [Auth]'s current state.

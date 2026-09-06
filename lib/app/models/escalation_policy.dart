@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:magic/magic.dart';
 
-import '../controllers/escalation_controller.dart' show EscalationStepWire;
+import '../support/escalation_support.dart' show EscalationStepWire;
 
 /// **An escalation policy.**
 ///
