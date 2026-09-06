@@ -14,6 +14,7 @@ import 'shell_account.dart';
 import '../components/notification_center/index.dart';
 import '../components/push_prompt/index.dart';
 import 'shell_control_semantics.dart';
+import '../../app/support/formatters.dart' show upperCase;
 
 /// Computes uppercase avatar initials from a display [name].
 ///
@@ -140,9 +141,9 @@ class _MobileTeamSwitcher extends StatelessWidget {
                   className: 'flex flex-col',
                   children: [
                     WText(
-                      trans('uptizm.team_menu.heading'),
+                      upperCase(trans('uptizm.team_menu.heading')),
                       className: '''
-                        px-3 py-1.5 text-xs font-medium uppercase tracking-wide
+                        px-3 py-1.5 text-xs font-medium tracking-wide
                         text-fg-muted
                       ''',
                     ),

@@ -9,6 +9,7 @@ import '../../../app/models/escalation_policy.dart';
 import '../../../app/support/escalation_support.dart'
     show EscalationStepWire, escalationDelayLabel;
 import '../../../ui/components/header_action/index.dart';
+import '../../../app/support/formatters.dart' show upperCase;
 
 /// **The Escalation Policies list screen (`/teams/escalation`).**
 ///
@@ -384,7 +385,7 @@ class _EscalationPoliciesViewState
                 className: 'flex flex-col min-w-0 flex-1',
                 children: [
                   WText(
-                    escalationDelayLabel(step.delayMinutes).toUpperCase(),
+                    upperCase(escalationDelayLabel(step.delayMinutes)),
                     className: 'text-xs font-medium text-fg-muted',
                   ),
                   WDiv(

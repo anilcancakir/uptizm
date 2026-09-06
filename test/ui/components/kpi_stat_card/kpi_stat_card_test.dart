@@ -118,19 +118,14 @@ void main() {
     await tester.pumpWidget(
       wrap(const KpiStatCard(label: 'Monitors up', value: '48 / 50')),
     );
-    // The label uses `uppercase` transformation so find.text('Monitors up')
-    // would not match. Verify the WText data prop directly.
-    final texts = tester.widgetList<WText>(find.byType(WText)).toList();
-    expect(
-      texts.any((w) => w.data == 'Monitors up'),
-      isTrue,
-      reason: 'label WText not found',
-    );
-    expect(
-      texts.any((w) => w.data == '48 / 50'),
-      isTrue,
-      reason: 'value WText not found',
-    );
+    // The card uppercases the label in Dart rather than through Wind's
+    // `uppercase` utility, which ignores the locale and renders `IZLEYICILER`
+    // for a Turkish heading. That moved the transform into the widget tree, so
+    // this asserts the string a reader actually sees instead of the prop it was
+    // handed: the old version read `w.data == 'Monitors up'` and would pass
+    // just as happily if the card stopped uppercasing at all.
+    expect(find.text('MONITORS UP'), findsOneWidget);
+    expect(find.text('48 / 50'), findsOneWidget);
   });
 
   testWidgets('the metric value stops scaling before it splits its own cell', (

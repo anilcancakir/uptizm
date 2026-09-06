@@ -11,7 +11,8 @@ import '../../../app/controllers/on_call_controller.dart';
 import '../../../app/enums/status_key.dart';
 import '../../../app/models/on_call_schedule.dart';
 import '../../../app/support/billing_types.dart' show PlanLimits;
-import '../../../app/support/formatters.dart' show formatMonthDayTime;
+import '../../../app/support/formatters.dart'
+    show formatMonthDayTime, upperCase;
 import '../../../app/support/team_types.dart'
     show
         OnCallOverrideWindow,
@@ -281,9 +282,9 @@ class _OnCallScheduleViewState
                   children: [
                     const StatusDot(StatusKey.up),
                     WText(
-                      trans('uptizm.teams.oncall_current_header'),
+                      upperCase(trans('uptizm.teams.oncall_current_header')),
                       className:
-                          'text-xs font-medium uppercase '
+                          'text-xs font-medium '
                           'tracking-wide text-up-soft-foreground',
                     ),
                   ],
@@ -335,9 +336,9 @@ class _OnCallScheduleViewState
                   children: [
                     const StatusDot(StatusKey.paused),
                     WText(
-                      trans('uptizm.teams.oncall_current_header'),
+                      upperCase(trans('uptizm.teams.oncall_current_header')),
                       className:
-                          'text-xs font-medium uppercase '
+                          'text-xs font-medium '
                           'tracking-wide text-paused-soft-foreground',
                     ),
                   ],
@@ -391,9 +392,9 @@ class _OnCallScheduleViewState
       className: 'flex flex-col gap-2',
       children: [
         WText(
-          trans('uptizm.teams.oncall_rotation_header'),
+          upperCase(trans('uptizm.teams.oncall_rotation_header')),
           className:
-              'px-1 text-xs font-medium uppercase tracking-wide text-fg-muted',
+              'px-1 text-xs font-medium tracking-wide text-fg-muted',
         ),
         if (ring.isEmpty)
           _buildRotationEmptyState()
@@ -678,9 +679,9 @@ class _OnCallScheduleViewState
       className: 'flex flex-col gap-2',
       children: [
         WText(
-          trans('uptizm.teams.oncall_overrides_header'),
+          upperCase(trans('uptizm.teams.oncall_overrides_header')),
           className:
-              'px-1 text-xs font-medium uppercase tracking-wide text-fg-muted',
+              'px-1 text-xs font-medium tracking-wide text-fg-muted',
         ),
         MSCard(
           noPadding: true,

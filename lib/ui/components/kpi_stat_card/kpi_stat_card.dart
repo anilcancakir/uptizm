@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../../app/support/formatters.dart' show upperCase;
 import 'kpi_stat_card.recipe.dart';
 
 /// Arrow glyph per delta trend; neutral shows none.
@@ -105,10 +106,14 @@ class KpiStatCard extends StatelessWidget {
       child: WDiv(
         className: 'flex flex-col gap-1',
         children: [
+          // Uppercased in Dart rather than through Wind's `uppercase` utility,
+          // which calls the locale-independent `String.toUpperCase()`: in
+          // Turkish the uppercase of `i` is `İ`, so every KPI on the dashboard
+          // read `ÇALIŞAN IZLEYICILER` and `ÇALIŞMA SÜRESI`, which are not
+          // words. See [upperCase].
           WText(
-            label,
-            className:
-                'text-xs font-medium uppercase tracking-wide text-fg-muted',
+            upperCase(label),
+            className: 'text-xs font-medium tracking-wide text-fg-muted',
           ),
           // Clamped, because two of these sit side by side on a phone and the
           // value gets about 178pt minus padding. At an iOS accessibility text

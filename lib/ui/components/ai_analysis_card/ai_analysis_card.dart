@@ -6,6 +6,7 @@ import '../../../app/support/incident_types.dart'
     show AiEvidence, AiSimilarIncident, AiSuggestedAction, IncidentAi;
 import '../ai_confidence_badge/index.dart';
 import 'ai_analysis_card.recipe.dart';
+import '../../../app/support/formatters.dart' show upperCase;
 
 /// **Incident AI Analysis Panel**
 ///
@@ -172,9 +173,9 @@ class AiAnalysisCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         WText(
-          label,
+          upperCase(label),
           className:
-              'text-xs font-medium uppercase tracking-wide text-fg-muted',
+              'text-xs font-medium tracking-wide text-fg-muted',
         ),
         const SizedBox(height: 8),
         WText(
@@ -194,9 +195,9 @@ class AiAnalysisCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         WText(
-          label,
+          upperCase(label),
           className:
-              'text-xs font-medium uppercase tracking-wide text-fg-muted',
+              'text-xs font-medium tracking-wide text-fg-muted',
         ),
         const SizedBox(height: 8),
         for (final item in items) ...[
@@ -294,9 +295,9 @@ class AiAnalysisCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         WText(
-          label,
+          upperCase(label),
           className:
-              'text-xs font-medium uppercase tracking-wide text-fg-muted',
+              'text-xs font-medium tracking-wide text-fg-muted',
         ),
         const SizedBox(height: 8),
         for (var i = 0; i < cards.length; i++) ...[
