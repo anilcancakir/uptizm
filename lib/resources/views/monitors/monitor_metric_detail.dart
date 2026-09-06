@@ -13,6 +13,7 @@ import '../../../app/enums/status_key.dart';
 import '../../../ui/components/metric_chart/index.dart';
 import '../../../ui/components/status_dot/index.dart';
 import 'monitor_metrics_support.dart';
+import '../../../app/support/formatters.dart' show upperCase;
 
 /// **The Metric Detail BottomSheet body.**
 ///
@@ -419,7 +420,7 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         WText(
-          trans('uptizm.monitors.metrics_recent_readings').toUpperCase(),
+          upperCase(trans('uptizm.monitors.metrics_recent_readings')),
           className: 'text-fg-muted text-xs font-medium tracking-wide',
         ),
         // The dots below are FROZEN verdicts. Without saying so, an operator who

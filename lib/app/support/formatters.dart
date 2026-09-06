@@ -160,3 +160,52 @@ String formatCount(int n) {
 
   return n < 0 ? '-$buffer' : buffer.toString();
 }
+
+/// Formats [value] to [places] decimals with the locale's separators: `11.77`
+/// renders as `11.77` in English and `11,77` in Turkish.
+///
+/// The decimal mark is locale DATA for the same reason the thousands separator
+/// above is, and it came from the same defect: `toStringAsFixed` is
+/// locale-independent, so every uptime percentage and SLO target in a Turkish
+/// session read with a full stop, which Turkish uses to group thousands. `%99.9`
+/// is not a near-perfect target in Turkish, it is a number with no meaning.
+///
+/// The whole part goes through [formatCount], so a value large enough to group
+/// gets both marks right rather than only one.
+String formatDecimal(num value, {int places = 2}) {
+  final String key = trans('uptizm.common.decimal_separator');
+  final String separator = key.length == 1 ? key : '.';
+  final String fixed = value.abs().toStringAsFixed(places);
+  final int dot = fixed.indexOf('.');
+  final String whole = dot == -1 ? fixed : fixed.substring(0, dot);
+  final String fraction = dot == -1 ? '' : fixed.substring(dot + 1);
+
+  final String head = formatCount(int.tryParse(whole) ?? 0);
+  final String body = fraction.isEmpty ? head : '$head$separator$fraction';
+
+  return value < 0 ? '-$body' : body;
+}
+
+/// The languages whose alphabet distinguishes a dotted from a dotless `i`, and
+/// whose casing therefore cannot go through Dart's locale-independent one.
+const Set<String> _dottedIlanguages = <String>{'tr', 'az'};
+
+/// Uppercases [text] under the ACTIVE language's casing rules.
+///
+/// `String.toUpperCase()` is locale-independent and maps `i` to `I`, which is
+/// wrong in Turkish: the uppercase of `i` is `İ` and the uppercase of `ı` is
+/// `I`. Wind's `uppercase` utility calls it, so every uppercase section heading
+/// in a Turkish session read `IZLEYICILER`, `SÜRESI`, `BILEŞENLER` and
+/// `ABONELIKLER`, which are not Turkish words.
+///
+/// The two swaps run BEFORE the general uppercase because they are the only
+/// mappings that differ: `İ` is already uppercase and survives it unchanged, and
+/// every other Turkish letter (`ş`, `ğ`, `ö`, `ü`, `ç`) casts correctly on its
+/// own.
+String upperCase(String text) {
+  if (!_dottedIlanguages.contains(Lang.current.languageCode)) {
+    return text.toUpperCase();
+  }
+
+  return text.replaceAll('i', 'İ').replaceAll('ı', 'I').toUpperCase();
+}

@@ -6,6 +6,7 @@ import 'package:magic_starter/magic_starter.dart';
 import '../../../app/controllers/digest_controller.dart';
 import '../../../app/enums/ai_confidence.dart';
 import '../../../app/support/digest_types.dart';
+import '../../../app/support/formatters.dart' show formatDecimal;
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/kpi_stat_card/index.dart';
 
@@ -151,7 +152,7 @@ class _WeeklyDigestViewState
       children: [
         KpiStatCard(
           label: trans('uptizm.digest.kpi_uptime_label'),
-          value: '${d.uptimePercent.toStringAsFixed(2)}%',
+          value: '${formatDecimal(d.uptimePercent)}%',
           hint: trans('uptizm.digest.kpi_uptime_hint'),
         ),
         KpiStatCard(

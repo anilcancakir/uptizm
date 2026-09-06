@@ -9,6 +9,7 @@ import '../../../app/enums/status_key.dart';
 import '../../../app/models/status_page.dart';
 import '../component_status_row/index.dart';
 import 'status_page_preview.recipe.dart';
+import '../../../app/support/formatters.dart' show upperCase;
 
 /// **The public status page, rendered in-app.**
 ///
@@ -186,7 +187,7 @@ class StatusPagePreview extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         WText(
-          trans('uptizm.status.preview_components_heading'),
+          upperCase(trans('uptizm.status.preview_components_heading')),
           className: statusPagePreviewSectionHeadingClassName,
         ),
         const SizedBox(height: 8),

@@ -19,6 +19,7 @@ import '../../../app/support/escalation_support.dart'
         escalationTargetFromKey,
         escalationTargetKey,
         escalationTargetOptions;
+import '../../../app/support/formatters.dart' show upperCase;
 
 /// **The Escalation Policy editor screen (`/teams/escalation/new` + `/:id`).**
 ///
@@ -590,9 +591,9 @@ class _EscalationPolicyEditorViewState
       className: 'flex flex-col gap-3',
       children: <Widget>[
         WText(
-          trans('uptizm.teams.escalation_editor_ladder_header'),
+          upperCase(trans('uptizm.teams.escalation_editor_ladder_header')),
           className:
-              'px-1 text-xs font-medium uppercase tracking-wide text-fg-muted',
+              'px-1 text-xs font-medium tracking-wide text-fg-muted',
         ),
         WDiv(
           className: 'flex flex-col gap-3',

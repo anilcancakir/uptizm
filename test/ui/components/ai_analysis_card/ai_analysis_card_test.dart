@@ -9,6 +9,7 @@ import 'package:uptizm/ui/components/ai_analysis_card/ai_analysis_card.dart';
 import 'package:uptizm/ui/components/ai_analysis_card/ai_analysis_card.preview.dart';
 import 'package:uptizm/ui/components/ai_analysis_card/ai_analysis_card.recipe.dart';
 import 'package:uptizm/ui/components/ai_confidence_badge/index.dart';
+import 'package:uptizm/app/support/formatters.dart' show upperCase;
 
 import '../../../support/bundled_lang.dart';
 
@@ -92,9 +93,17 @@ void main() {
   ) async {
     await tester.pumpWidget(wrap(AiAnalysisCard(ai: sampleAi)));
     final texts = tester.widgetList<WText>(find.byType(WText)).toList();
-    expect(texts.any((w) => w.data == trans('uptizm.ai.evidence')), isTrue);
+    // The two column headings are uppercased in Dart now, not through Wind's
+    // locale-blind `uppercase` utility, so the rendered string differs from the
+    // catalogue entry. Still read through the catalogue rather than a literal.
     expect(
-      texts.any((w) => w.data == trans('uptizm.ai.evidence_against')),
+      texts.any((w) => w.data == upperCase(trans('uptizm.ai.evidence'))),
+      isTrue,
+    );
+    expect(
+      texts.any(
+        (w) => w.data == upperCase(trans('uptizm.ai.evidence_against')),
+      ),
       isTrue,
     );
   });
@@ -120,7 +129,9 @@ void main() {
     final texts = tester.widgetList<WText>(find.byType(WText)).toList();
 
     expect(
-      texts.any((w) => w.data == trans('uptizm.ai.evidence_against')),
+      texts.any(
+        (w) => w.data == upperCase(trans('uptizm.ai.evidence_against')),
+      ),
       isTrue,
       reason: 'the against heading must stay visible',
     );

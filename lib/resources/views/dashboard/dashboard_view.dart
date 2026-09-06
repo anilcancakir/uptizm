@@ -4,6 +4,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../../../app/support/refetches_on_mount.dart';
+import '../../../app/support/formatters.dart' show formatDecimal;
 import '../../../app/controllers/dashboard_controller.dart';
 import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/enums/ai_level.dart' show AiLevel;
@@ -342,12 +343,12 @@ class _DashboardViewState
           // Real rolling-24h uptime from the backend; the em-dash no-data
           // placeholder matches MonitorListRow when the window has no checks.
           value: controller.uptime24h != null
-              ? '${controller.uptime24h!.toStringAsFixed(2)}%'
+              ? '${formatDecimal(controller.uptime24h!)}%'
               : '—',
           // Only render a delta when the prior 24h is comparable; a rise is
           // operational-good (green), a fall is bad (red).
           delta: controller.uptime24hDelta != null
-              ? '${controller.uptime24hDelta!.abs().toStringAsFixed(2)}%'
+              ? '${formatDecimal(controller.uptime24hDelta!.abs())}%'
               : null,
           hint: controller.uptime24hDelta != null
               ? trans('uptizm.dashboard.kpi_hint_vs_yesterday')
@@ -516,7 +517,7 @@ class _DashboardViewState
     );
   }
 
-  /// Builds a small uppercase section heading used across the dashboard.
+  /// Builds a small section heading used across the dashboard.
   Widget _sectionHeading(String label) {
     return WText(label, className: 'text-sm font-semibold text-fg');
   }

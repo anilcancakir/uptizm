@@ -14,6 +14,7 @@ import '../../../app/support/submits_once.dart';
 import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/status_dot/index.dart';
 import '../../../ui/components/string_value_list/index.dart';
+import '../../../app/support/formatters.dart' show upperCase;
 
 /// The "fetch & test" lifecycle for the extraction preview.
 ///
@@ -1179,9 +1180,9 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
           className: 'flex items-center justify-between gap-3',
           children: [
             WText(
-              trans('uptizm.monitors.metrics_form_resolved'),
+              upperCase(trans('uptizm.monitors.metrics_form_resolved')),
               className:
-                  'text-xs font-medium uppercase tracking-wide text-up-soft-foreground',
+                  'text-xs font-medium tracking-wide text-up-soft-foreground',
             ),
             WDiv(
               className: 'flex items-center gap-2',

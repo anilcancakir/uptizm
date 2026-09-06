@@ -11,7 +11,8 @@ import '../../../app/controllers/monitor_controller.dart';
 import '../../../app/models/incident.dart';
 import '../../../app/models/monitor.dart';
 import '../../../app/enums/incident_lifecycle.dart' show IncidentLifecycle;
-import '../../../app/support/formatters.dart' show formatRelativeAge;
+import '../../../app/support/formatters.dart'
+    show formatDecimal, formatRelativeAge;
 import '../../../app/support/wire_reads.dart' show numOrNull, stringOrNull;
 import '../../../app/support/metric_types.dart'
     show MetricAnomaly, MetricDatum, MetricSeries;
@@ -800,7 +801,7 @@ class _MonitorDetailViewState
           // no-data placeholder (matching the UptimeBar) when the window has
           // no checks yet. No fabricated delta.
           value: monitor.uptime24h != null
-              ? '${monitor.uptime24h!.toStringAsFixed(2)}%'
+              ? '${formatDecimal(monitor.uptime24h!)}%'
               : '—',
         ),
         KpiStatCard(
@@ -1425,8 +1426,13 @@ class _MonitorDetailViewState
   /// Formats an SLO target as a trimmed percentage string (e.g. `99.9` →
   /// `"99.9"`, `99.0` → `"99"`), dropping a trailing `.0`.
   String _formatSloTarget(double target) {
-    if (target == target.roundToDouble()) return target.toStringAsFixed(0);
-    return target.toString();
+    if (target == target.roundToDouble()) return formatDecimal(target, places: 0);
+
+    // Two places, then drop a trailing zero. `places: 1` would round 99.95 to
+    // 99.9, and an SLO target is a promise: shaving a digit off it changes the
+    // error budget the page below reports against.
+    final String two = formatDecimal(target, places: 2);
+    return two.endsWith('0') ? two.substring(0, two.length - 1) : two;
   }
 
   /// Builds a calm bordered placeholder for the response section when there is

@@ -11,7 +11,8 @@ import '../../../app/enums/ai_degrade_reason.dart' show AiDegradeReason;
 import '../../../app/enums/ai_level.dart' show AiLevel;
 import '../../../app/enums/incident_lifecycle.dart'
     show IncidentLifecycle, lifecycleFromWire;
-import '../../../app/support/formatters.dart' show formatMonthDayTime;
+import '../../../app/support/formatters.dart'
+    show formatMonthDayTime, upperCase;
 import '../../../app/support/wire_reads.dart' show stringOr;
 import '../../../app/support/incident_types.dart'
     show AffectedMonitor, IncidentAcknowledgement, IncidentAi, TimelineEntry;
@@ -423,9 +424,9 @@ class _IncidentDetailViewState
           className: 'flex flex-row items-center gap-3 min-w-0',
           children: [
             WText(
-              trans('uptizm.incidents.detail_assigned_to'),
+              upperCase(trans('uptizm.incidents.detail_assigned_to')),
               className:
-                  'text-xs font-medium uppercase tracking-wide text-fg-muted',
+                  'text-xs font-medium tracking-wide text-fg-muted',
             ),
             Expanded(child: _buildAssigneeSelect(incident)),
           ],

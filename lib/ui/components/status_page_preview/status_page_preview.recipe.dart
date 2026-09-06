@@ -15,7 +15,7 @@ const String statusPagePreviewShellClassName =
 /// Matches the design source's
 /// `mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground`.
 const String statusPagePreviewSectionHeadingClassName =
-    'text-xs font-medium uppercase tracking-wide text-fg-muted';
+    'text-xs font-medium tracking-wide text-fg-muted';
 
 /// Bordered container className wrapping the component-status rows.
 ///

@@ -1091,7 +1091,8 @@
       "time_resolved": "resolved :age",
       "thousands_separator": ",",
       "list_and_more": ":count more",
-      "load_more": "Load more"
+      "load_more": "Load more",
+      "decimal_separator": "."
     },
     "incidents": {
       "list_title": "Incidents",

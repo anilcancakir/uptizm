@@ -24,6 +24,7 @@ import '../../../ui/components/ai_insight/index.dart';
 import '../../../ui/components/switch_row/index.dart';
 import '../../../ui/components/region_picker/region_picker.dart';
 import '../../../ui/components/status_page_preview/index.dart';
+import '../../../app/support/formatters.dart' show upperCase;
 
 /// **The Status Page editor screen (`/status/new` + `/status/:id`).**
 ///
@@ -1327,12 +1328,14 @@ class _StatusPageEditorViewState
     final bool dirty = _isDirty;
     return <Widget>[
       WText(
-        trans(
-          dirty
-              ? 'uptizm.status.editor_preview_draft_heading'
-              : 'uptizm.status.editor_preview_rendered_heading',
+        upperCase(
+          trans(
+            dirty
+                ? 'uptizm.status.editor_preview_draft_heading'
+                : 'uptizm.status.editor_preview_rendered_heading',
+          ),
         ),
-        className: 'text-xs font-medium uppercase tracking-wide text-fg-muted',
+        className: 'text-xs font-medium tracking-wide text-fg-muted',
       ),
       _buildBrowserFrame(dirty),
     ];
