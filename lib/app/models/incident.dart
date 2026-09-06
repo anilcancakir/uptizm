@@ -21,19 +21,7 @@ import '../support/incident_types.dart'
         IncidentAi,
         IncidentSummary,
         TimelineEntry;
-
-/// Reads [value] as a String, answering [fallback] when it is anything else.
-///
-/// A type test rather than a cast, for every nested wire field the model reads
-/// out of a sub-object. `as String?` throws on a mismatch, and these are read
-/// from getters that run inside `build`, so one wrong-typed field took a whole
-/// screen down instead of blanking one line. `get<T>` covers the model's own
-/// attributes; these read nested maps, which is why they were missed.
-String _stringOr(Object? value, String fallback) =>
-    value is String ? value : fallback;
-
-/// Reads [value] as a String, answering null when it is anything else.
-String? _stringOrNull(Object? value) => value is String ? value : null;
+import '../support/wire_reads.dart' show stringOr, stringOrNull;
 
 /// Incident model.
 ///
@@ -422,9 +410,9 @@ class Incident extends Model with HasTimestamps, InteractsWithPersistence {
     final Object? raw = getAttribute('ai');
     if (raw is! Map) return null;
     return IncidentAi(
-      trigger: _stringOr(raw['trigger'], ''),
-      confidence: aiConfidenceFromWire(_stringOrNull(raw['confidence'])),
-      tldr: _stringOr(raw['tldr'], ''),
+      trigger: stringOr(raw['trigger'], ''),
+      confidence: aiConfidenceFromWire(stringOrNull(raw['confidence'])),
+      tldr: stringOr(raw['tldr'], ''),
       evidenceFor: const [],
       evidenceAgainst: const [],
       suggestedActions: const [],
@@ -435,7 +423,7 @@ class Incident extends Model with HasTimestamps, InteractsWithPersistence {
       // `IncidentController.analysisFor`'s merge, and a hardcoded null there
       // would make that merge untestable.
       degradeReason: aiDegradeReasonFromWire(
-        _stringOrNull(raw['degrade_reason']),
+        stringOrNull(raw['degrade_reason']),
       ),
       // Read as `bool?` rather than defaulted: an absent or null key means no
       // model answered (the statistical degrade path), which the card must not
