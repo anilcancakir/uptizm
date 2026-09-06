@@ -87,20 +87,20 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
   String get id => getAttribute('id')?.toString() ?? '';
 
   /// Human-readable page name.
-  String? get name => getAttribute('name') as String?;
+  String? get name => get<String>('name');
 
   /// Set the page name.
   set name(String? value) => setAttribute('name', value);
 
   /// URL-safe handle used in the public URL.
-  String? get slug => getAttribute('slug') as String?;
+  String? get slug => get<String>('slug');
 
   /// Set the slug.
   set slug(String? value) => setAttribute('slug', value);
 
   /// Optional tenant-owned hostname, used when [domainMode] is
   /// [DomainMode.custom].
-  String? get customDomain => getAttribute('custom_domain') as String?;
+  String? get customDomain => get<String>('custom_domain');
 
   /// Set the custom domain.
   set customDomain(String? value) => setAttribute('custom_domain', value);
@@ -112,16 +112,16 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
   /// is a signed URL the backend mints. The path itself was never usable here
   /// and is no longer sent. Uploading goes through
   /// `StatusPageController.uploadLogo`, never through a page write.
-  String? get logoUrl => getAttribute('logo_url') as String?;
+  String? get logoUrl => get<String>('logo_url');
 
   /// One-to-two character logo fallback text.
-  String? get logoText => getAttribute('logo_text') as String?;
+  String? get logoText => get<String>('logo_text');
 
   /// Set the logo fallback text.
   set logoText(String? value) => setAttribute('logo_text', value);
 
   /// Short description shown under the page name.
-  String? get description => getAttribute('description') as String?;
+  String? get description => get<String>('description');
 
   /// Set the description.
   set description(String? value) => setAttribute('description', value);
@@ -132,17 +132,17 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
   /// Read-only: the public URL is the backend's fact, not an editable field.
   /// The client used to compose it from the slug and a hardcoded host, which
   /// produced an address no route answered.
-  String? get publicUrl => getAttribute('public_url') as String?;
+  String? get publicUrl => get<String>('public_url');
 
   /// Whether the page is publicly visible.
-  bool get isPublic => (getAttribute('is_public') as bool?) ?? false;
+  bool get isPublic => (get<bool>('is_public')) ?? false;
 
   /// Set public visibility.
   set isPublic(bool value) => setAttribute('is_public', value);
 
   /// Whether email subscriptions are enabled for this page.
   bool get subscriptionsEnabled =>
-      (getAttribute('subscriptions_enabled') as bool?) ?? false;
+      (get<bool>('subscriptions_enabled')) ?? false;
 
   /// Set subscriptions enabled.
   set subscriptionsEnabled(bool value) =>
@@ -156,7 +156,7 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
   /// [DomainMode.subdomain], so a page the backend stored as path-addressed was
   /// displayed as subdomain-addressed whenever the wire value was absent.
   DomainMode get domainMode {
-    final String? raw = getAttribute('domain_mode') as String?;
+    final String? raw = get<String>('domain_mode');
     if (raw == null) return DomainMode.path;
     for (final DomainMode mode in DomainMode.values) {
       if (mode.name == raw) return mode;
@@ -171,7 +171,7 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
   /// a [Color]. Falls back to opaque black when the wire value is missing or
   /// malformed. The inverse of the controller's write-side `_wireBrandColor`.
   Color get brandColor {
-    final String? hex = getAttribute('brand_color') as String?;
+    final String? hex = get<String>('brand_color');
     if (hex == null || hex.isEmpty) return const Color(0xFF000000);
     final String digits = hex.startsWith('#') ? hex.substring(1) : hex;
     final int? value = int.tryParse(digits, radix: 16);
@@ -284,12 +284,12 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
   /// the latter). The URL is stable across a poll and changes only when the
   /// image itself changes, so it must never be normalized or have its query
   /// stripped: that query is what keys Flutter's `ImageCache`.
-  String? get previewImageUrl => getAttribute('preview_image_url') as String?;
+  String? get previewImageUrl => get<String>('preview_image_url');
 
   /// When the current [previewImageUrl] (or the most recent render attempt)
   /// completed, or `null` before the first render.
   Carbon? get previewRenderedAt =>
-      getAttribute('preview_rendered_at') as Carbon?;
+      get<Carbon>('preview_rendered_at');
 
   /// Lifecycle of the most recent preview render, or `null` when this page
   /// has never had one requested.
@@ -298,7 +298,7 @@ class StatusPage extends Model with HasTimestamps, InteractsWithPersistence {
   /// [StatusPagePreviewStatus]).
   StatusPagePreviewStatus? get previewRenderStatus =>
       statusPagePreviewStatusFromWire(
-        getAttribute('preview_render_status') as String?,
+        get<String>('preview_render_status'),
       );
 
   // ---------------------------------------------------------------------------

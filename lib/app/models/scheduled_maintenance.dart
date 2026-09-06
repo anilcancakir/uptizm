@@ -104,11 +104,11 @@ class ScheduledMaintenance extends Model
   String? get statusPageId => getAttribute('status_page_id')?.toString();
 
   /// The operator-facing window headline.
-  String get title => (getAttribute('title') as String?) ?? '';
+  String get title => (get<String>('title')) ?? '';
 
   /// The public description shown on the status page, or `null` when the
   /// operator left it blank.
-  String? get description => getAttribute('description') as String?;
+  String? get description => get<String>('description');
 
   /// Whether alerts for the attached monitors are held for the window's
   /// duration. Defaults to `true` on the backend, so an absent value reads as

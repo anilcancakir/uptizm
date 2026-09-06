@@ -93,13 +93,13 @@ class OnCallSchedule extends Model
   String? get teamId => getAttribute('team_id')?.toString();
 
   /// The schedule's display name.
-  String? get name => getAttribute('name') as String?;
+  String? get name => get<String>('name');
 
   /// Set the schedule's display name.
   set name(String? value) => setAttribute('name', value);
 
   /// The schedule's IANA timezone (e.g. `UTC`, `America/New_York`).
-  String? get timezone => getAttribute('timezone') as String?;
+  String? get timezone => get<String>('timezone');
 
   /// Set the schedule's timezone.
   set timezone(String? value) => setAttribute('timezone', value);

@@ -59,13 +59,13 @@ class Team extends Model with HasTimestamps, InteractsWithPersistence {
   String get id => getAttribute('id')?.toString() ?? '';
 
   /// Get the team name.
-  String? get name => getAttribute('name') as String?;
+  String? get name => get<String>('name');
 
   /// Set the team name.
   set name(String? value) => setAttribute('name', value);
 
   /// Get the URL of the team's profile photo.
-  String? get profilePhotoUrl => getAttribute('profile_photo_url') as String?;
+  String? get profilePhotoUrl => get<String>('profile_photo_url');
 
   /// Set the URL of the team's profile photo.
   set profilePhotoUrl(String? value) =>
@@ -80,7 +80,7 @@ class Team extends Model with HasTimestamps, InteractsWithPersistence {
   /// Current authenticated user's role in this team (from API response).
   ///
   /// Typical values: `'owner'`, `'admin'`, `'editor'`, `'member'`.
-  String? get userRole => getAttribute('user_role') as String?;
+  String? get userRole => get<String>('user_role');
 
   // ---------------------------------------------------------------------------
   // Permission Helpers

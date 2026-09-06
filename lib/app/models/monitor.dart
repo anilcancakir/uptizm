@@ -174,13 +174,13 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   String get id => getAttribute('id')?.toString() ?? '';
 
   /// Get the monitor's display name.
-  String? get name => getAttribute('name') as String?;
+  String? get name => get<String>('name');
 
   /// Set the monitor's display name.
   set name(String? value) => setAttribute('name', value);
 
   /// Get the probed URL.
-  String? get url => getAttribute('url') as String?;
+  String? get url => get<String>('url');
 
   /// Set the probed URL.
   set url(String? value) => setAttribute('url', value);
@@ -200,7 +200,7 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
     if (getAttribute('status') == 'paused') {
       return StatusKey.paused;
     }
-    final String? lastStatus = getAttribute('last_status') as String?;
+    final String? lastStatus = get<String>('last_status');
     if (lastStatus == null) {
       return StatusKey.pending;
     }
@@ -212,17 +212,17 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   /// Exposed separately from the computed [status] so callers that need the
   /// raw admin state (for example, the pause/resume toggle) can read it
   /// without going through the [StatusKey] projection.
-  String? get adminStatus => getAttribute('status') as String?;
+  String? get adminStatus => get<String>('status');
 
   /// The raw probe health wire value (`up` / `down` / `degraded` / ...).
-  String? get lastStatus => getAttribute('last_status') as String?;
+  String? get lastStatus => get<String>('last_status');
 
   /// Most-recent check response time in milliseconds.
   ///
   /// Returns the `last_response_ms` column, or `null` when the monitor is
   /// paused or the last check produced no timing. Mirrors
   /// [MonitorSummary.responseMs].
-  int? get responseMs => getAttribute('last_response_ms') as int?;
+  int? get responseMs => get<int>('last_response_ms');
 
   /// Human-formatted trailing uptime string, e.g. `"99.94%"`.
   ///
@@ -230,13 +230,13 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   /// `MonitorResource` does not emit a rollup uptime field; the value is
   /// populated once a backend uptime-rollup endpoint exists. Mirrors
   /// [MonitorSummary.uptime].
-  String get uptime => getAttribute('uptime') as String? ?? '—';
+  String get uptime => get<String>('uptime') ?? '—';
 
   /// Measured uptime percentage over the trailing 24h, or `null` when the
   /// monitor has no checks in that window yet (the KPI then renders a no-data
   /// placeholder instead of a fabricated figure). Populated by the monitor
   /// show endpoint only.
-  double? get uptime24h => getAttribute('uptime_24h') as double?;
+  double? get uptime24h => get<double>('uptime_24h');
 
   /// Human-readable check interval label, e.g. `"30s"` or `"60s"`.
   ///
@@ -250,8 +250,8 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   /// than sent preformatted, mirroring [MonitorSummary.intervalLabel].
   String get intervalLabel {
     final int? seconds =
-        getAttribute('effective_check_interval_sec') as int? ??
-        getAttribute('check_interval_sec') as int?;
+        get<int>('effective_check_interval_sec') ??
+        get<int>('check_interval_sec');
     if (seconds == null) return '—';
     return '${seconds}s';
   }
@@ -275,7 +275,7 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   /// SLO target as a percentage, e.g. `99.9`. Drives error-budget cards.
   ///
   /// `null` when no SLO is configured for this monitor.
-  double? get sloTarget => getAttribute('slo_target') as double?;
+  double? get sloTarget => get<double>('slo_target');
 
   /// Set the SLO target percentage.
   set sloTarget(double? value) => setAttribute('slo_target', value);
@@ -300,64 +300,64 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   // blind spot.
 
   /// Measured downtime minutes over the trailing 7 days.
-  double? get sloDownMinutes7d => getAttribute('slo_down_minutes_7d') as double?;
+  double? get sloDownMinutes7d => get<double>('slo_down_minutes_7d');
 
   /// Elapsed minutes of the trailing 7 days this monitor existed for.
   double? get sloObservedMinutes7d =>
-      getAttribute('slo_observed_minutes_7d') as double?;
+      get<double>('slo_observed_minutes_7d');
 
   /// Observed minutes over the trailing 7 days holding no check at all.
-  double? get sloGapMinutes7d => getAttribute('slo_gap_minutes_7d') as double?;
+  double? get sloGapMinutes7d => get<double>('slo_gap_minutes_7d');
 
   /// Observed minutes over the trailing 7 days a check was recorded for.
   double? get sloMeasuredMinutes7d =>
-      getAttribute('slo_measured_minutes_7d') as double?;
+      get<double>('slo_measured_minutes_7d');
 
   /// Measured downtime minutes over the trailing 30 days.
   double? get sloDownMinutes30d =>
-      getAttribute('slo_down_minutes_30d') as double?;
+      get<double>('slo_down_minutes_30d');
 
   /// Elapsed minutes of the trailing 30 days this monitor existed for.
   double? get sloObservedMinutes30d =>
-      getAttribute('slo_observed_minutes_30d') as double?;
+      get<double>('slo_observed_minutes_30d');
 
   /// Observed minutes over the trailing 30 days holding no check at all.
-  double? get sloGapMinutes30d => getAttribute('slo_gap_minutes_30d') as double?;
+  double? get sloGapMinutes30d => get<double>('slo_gap_minutes_30d');
 
   /// Observed minutes over the trailing 30 days a check was recorded for.
   double? get sloMeasuredMinutes30d =>
-      getAttribute('slo_measured_minutes_30d') as double?;
+      get<double>('slo_measured_minutes_30d');
 
   // ---------------------------------------------------------------------------
   // Typed Accessors: Write Surface (fillable fields)
   // ---------------------------------------------------------------------------
 
   /// Get the probe type wire value (`http`, `tcp`, ...).
-  String? get type => getAttribute('type') as String?;
+  String? get type => get<String>('type');
 
   /// Set the probe type wire value.
   set type(String? value) => setAttribute('type', value);
 
   /// Get the HTTP method wire value (`GET`, `POST`, ...).
-  String? get method => getAttribute('method') as String?;
+  String? get method => get<String>('method');
 
   /// Set the HTTP method wire value.
   set method(String? value) => setAttribute('method', value);
 
   /// Get the check interval in seconds.
-  int get checkIntervalSec => getAttribute('check_interval_sec') as int? ?? 0;
+  int get checkIntervalSec => get<int>('check_interval_sec') ?? 0;
 
   /// Set the check interval in seconds.
   set checkIntervalSec(int value) => setAttribute('check_interval_sec', value);
 
   /// Get the probe timeout in seconds.
-  int get timeoutSec => getAttribute('timeout_sec') as int? ?? 0;
+  int get timeoutSec => get<int>('timeout_sec') ?? 0;
 
   /// Set the probe timeout in seconds.
   set timeoutSec(int value) => setAttribute('timeout_sec', value);
 
   /// Get the expected HTTP status code (`null` means any 2xx).
-  int? get expectedStatusCode => getAttribute('expected_status_code') as int?;
+  int? get expectedStatusCode => get<int>('expected_status_code');
 
   /// Set the expected HTTP status code.
   set expectedStatusCode(int? value) =>
@@ -380,7 +380,7 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
       setAttribute('request_headers', value);
 
   /// Get the raw request body sent on each probe.
-  String? get requestBody => getAttribute('request_body') as String?;
+  String? get requestBody => get<String>('request_body');
 
   /// Set the raw request body.
   set requestBody(String? value) => setAttribute('request_body', value);
@@ -399,7 +399,7 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
 
   /// Whether this monitor is shown on the public status page.
   bool get showOnStatusPage =>
-      getAttribute('show_on_status_page') as bool? ?? false;
+      get<bool>('show_on_status_page') ?? false;
 
   /// Set whether this monitor is shown on the public status page.
   set showOnStatusPage(bool value) =>
@@ -411,40 +411,40 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   /// such as a signed-in page answering 302 to a login screen; on is right for a
   /// homepage behind a geo redirect, where the 3xx is the service working.
   bool get followRedirects =>
-      getAttribute('follow_redirects') as bool? ?? false;
+      get<bool>('follow_redirects') ?? false;
 
   /// Set whether a 3xx is followed to its destination.
   set followRedirects(bool value) => setAttribute('follow_redirects', value);
 
   /// Whether this monitor only appears on the status page when degraded.
   bool get onlyShowIfDegraded =>
-      getAttribute('only_show_if_degraded') as bool? ?? false;
+      get<bool>('only_show_if_degraded') ?? false;
 
   /// Set the only-show-if-degraded flag.
   set onlyShowIfDegraded(bool value) =>
       setAttribute('only_show_if_degraded', value);
 
   /// Whether an alert fires when this monitor goes down.
-  bool get alertOnDown => getAttribute('alert_on_down') as bool? ?? false;
+  bool get alertOnDown => get<bool>('alert_on_down') ?? false;
 
   /// Set the alert-on-down flag.
   set alertOnDown(bool value) => setAttribute('alert_on_down', value);
 
   /// Whether an alert fires when this monitor recovers.
-  bool get alertOnRecover => getAttribute('alert_on_recover') as bool? ?? false;
+  bool get alertOnRecover => get<bool>('alert_on_recover') ?? false;
 
   /// Set the alert-on-recover flag.
   set alertOnRecover(bool value) => setAttribute('alert_on_recover', value);
 
   /// Whether SSL certificate expiry is tracked for this monitor.
-  bool get sslTracking => getAttribute('ssl_tracking') as bool? ?? false;
+  bool get sslTracking => get<bool>('ssl_tracking') ?? false;
 
   /// Set the SSL tracking flag.
   set sslTracking(bool value) => setAttribute('ssl_tracking', value);
 
   /// Get the SSL alert threshold in days.
   int get sslAlertThresholdDays =>
-      getAttribute('ssl_alert_threshold_days') as int? ?? 0;
+      get<int>('ssl_alert_threshold_days') ?? 0;
 
   /// Set the SSL alert threshold in days.
   set sslAlertThresholdDays(int value) =>
@@ -482,7 +482,7 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
       setAttribute('escalation_policy_id', value);
 
   /// Get the AI-assist mode token (`off` / `suggest`).
-  String get aiMode => getAttribute('ai_mode') as String? ?? 'off';
+  String get aiMode => get<String>('ai_mode') ?? 'off';
 
   /// Set the AI-assist mode token.
   set aiMode(String value) => setAttribute('ai_mode', value);
@@ -495,7 +495,7 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   /// to my customers about one?". A monitor with no anomaly detection at all can
   /// still have its threshold-opened outages narrated, which is the most common
   /// incident there is.
-  bool get aiAutoUpdates => getAttribute('ai_auto_updates') as bool? ?? false;
+  bool get aiAutoUpdates => get<bool>('ai_auto_updates') ?? false;
 
   set aiAutoUpdates(bool value) => setAttribute('ai_auto_updates', value);
 
@@ -507,29 +507,29 @@ class Monitor extends Model with HasTimestamps, InteractsWithPersistence {
   String? get teamId => getAttribute('team_id')?.toString();
 
   /// Whether this row is a component group with child monitors.
-  bool get isGroup => getAttribute('is_group') as bool? ?? false;
+  bool get isGroup => get<bool>('is_group') ?? false;
 
   /// Get the parent group ID for a child monitor (`null` at the top level).
   String? get parentId => getAttribute('parent_id')?.toString();
 
   /// Get the consecutive-failure counter for incident thresholding.
-  int get consecutiveFails => getAttribute('consecutive_fails') as int? ?? 0;
+  int get consecutiveFails => get<int>('consecutive_fails') ?? 0;
 
   /// Get the number of consecutive fails that opens an incident.
-  int get incidentThreshold => getAttribute('incident_threshold') as int? ?? 0;
+  int get incidentThreshold => get<int>('incident_threshold') ?? 0;
 
   /// Get the timestamp of the most recent probe.
-  Carbon? get lastCheckedAt => getAttribute('last_checked_at') as Carbon?;
+  Carbon? get lastCheckedAt => get<Carbon>('last_checked_at');
 
   /// Get the scheduled timestamp of the next probe.
-  Carbon? get nextCheckAt => getAttribute('next_check_at') as Carbon?;
+  Carbon? get nextCheckAt => get<Carbon>('next_check_at');
 
   /// Get the SSL certificate expiry timestamp.
-  Carbon? get sslExpiresAt => getAttribute('ssl_expires_at') as Carbon?;
+  Carbon? get sslExpiresAt => get<Carbon>('ssl_expires_at');
 
   /// Get the timestamp of the most recent SSL check.
   Carbon? get sslLastCheckedAt =>
-      getAttribute('ssl_last_checked_at') as Carbon?;
+      get<Carbon>('ssl_last_checked_at');
 
   // ---------------------------------------------------------------------------
   // Static Helpers
