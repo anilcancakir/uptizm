@@ -592,7 +592,20 @@ class _OnCallScheduleViewState
       final EntitlementController entitlement = EntitlementController.instance;
 
       return MSUpgradeNudge(
-        message: trans('uptizm.teams.oncall_add_button'),
+        // The cap, not the label of the button this replaced. It used to pass
+        // `oncall_add_button` ("+ Add to rotation"), so the upgrade card's
+        // entire explanation was a control label: it never said a cap had been
+        // reached and never named the limit. Shaped like the status-page cap
+        // at `status_pages_list_view.dart`, which does the same job right.
+        message: trans('uptizm.teams.oncall_responder_limit_nudge', {
+          'plan': entitlement.planName,
+          'count': '$cappedLimit',
+          'noun': trans(
+            cappedLimit == 1
+                ? 'uptizm.teams.oncall_responder_noun_one'
+                : 'uptizm.teams.oncall_responder_noun_other',
+          ),
+        }),
         requiredPlan: entitlement.planNameUnlocking(liftsResponderCap),
         onUpgrade: () => UpgradePrompt.startUpgrade(
           entitlement.planIdUnlocking(liftsResponderCap),

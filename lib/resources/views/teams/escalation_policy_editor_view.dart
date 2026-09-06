@@ -637,8 +637,13 @@ class _EscalationPolicyEditorViewState
                 size: ButtonSize.sm,
                 disabled: !canRemove,
                 onPressed: canRemove ? () => _removeRung(index) : null,
+                // The ACTION, not the heading. This used to reuse
+                // `escalation_editor_rung_title`, the same key the rung's own
+                // heading three widgets to the left renders, so a screen
+                // reader announced "Rung 2" twice on the row and neither
+                // utterance said the second one deletes it.
                 semanticLabel: trans(
-                  'uptizm.teams.escalation_editor_rung_title',
+                  'uptizm.teams.escalation_editor_remove_rung',
                   {'number': index + 1},
                 ),
                 child: WIcon(_removeIcon, className: 'text-sm'),

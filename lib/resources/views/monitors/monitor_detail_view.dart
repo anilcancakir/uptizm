@@ -176,8 +176,19 @@ class _MonitorDetailViewState
   DateTime? _fetchedAgainstCheckedAt;
 
   /// Single-series descriptor for the live response-time chart.
-  static const List<MetricSeries> _liveResponseSeries = [
-    MetricSeries(key: 'response', label: 'Response', tone: ChartTone.up),
+  ///
+  /// A getter rather than a `static const`: the label is the chart tooltip's
+  /// series name, so it has to resolve through [trans] at the current locale.
+  /// As a const it shipped the English literal "Response" into a Turkish
+  /// session, and no test could see it because the string never went through
+  /// the catalogue. Same const-to-getter move `monitor_form_support.dart`
+  /// already made, for the same reason.
+  List<MetricSeries> get _liveResponseSeries => [
+    MetricSeries(
+      key: 'response',
+      label: trans('uptizm.monitors.check_col_response'),
+      tone: ChartTone.up,
+    ),
   ];
 
   /// Observed coverage, in minutes, below which the reliability section prints
