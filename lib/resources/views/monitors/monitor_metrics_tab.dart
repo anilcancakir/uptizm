@@ -14,6 +14,7 @@ import '../../../app/enums/metric_direction.dart' show MetricDirection;
 import '../../../app/support/billing_types.dart' show PlanLimits;
 import '../../../app/enums/metric_kind.dart' show MetricKind;
 import '../../../app/support/metric_types.dart' show MonitorMetric;
+import '../../../app/support/wire_reads.dart' show numOrNull;
 import '../../../app/enums/status_key.dart';
 import '../../../ui/components/status_dot/index.dart';
 import 'monitor_form_support.dart' show AiMetricSeed;
@@ -530,7 +531,8 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
   /// derived from the same fixed bounds the card above uses, which is why the
   /// two never disagree.
   static MetricSeriesPoint _checkAsReading(Map<String, dynamic> map) {
-    final num? ms = map['response_ms'] as num?;
+    // A type test, matching how `checked_at` is already read one line down.
+    final num? ms = numOrNull(map['response_ms']);
     final Object? at = map['checked_at'];
 
     return MetricSeriesPoint(

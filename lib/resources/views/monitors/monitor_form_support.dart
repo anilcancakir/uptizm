@@ -3,6 +3,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import 'package:uptizm/app/support/monitor_types.dart' show ProbeRegion;
+import 'package:uptizm/app/support/wire_reads.dart' show stringOr;
 import 'package:uptizm/resources/views/monitors/monitor_metrics_support.dart';
 import 'package:uptizm/ui/components/key_value_editor/key_value_editor.dart';
 import 'package:uptizm/ui/components/region_picker/region_picker.dart';
@@ -227,9 +228,9 @@ class MonitorCredential {
     if (config == null) return const MonitorCredential();
 
     return MonitorCredential(
-      type: config['type'] as String? ?? kAuthTypeNone,
-      username: config['username'] as String? ?? '',
-      header: config['header'] as String? ?? '',
+      type: stringOr(config['type'], kAuthTypeNone),
+      username: stringOr(config['username'], ''),
+      header: stringOr(config['header'], ''),
     );
   }
 
@@ -258,12 +259,12 @@ class MonitorCredential {
     if (config == null) return const MonitorCredential();
 
     return MonitorCredential(
-      type: config['type'] as String? ?? kAuthTypeNone,
-      username: config['username'] as String? ?? '',
-      password: config['password'] as String? ?? '',
-      token: config['token'] as String? ?? '',
-      key: config['key'] as String? ?? '',
-      header: config['header'] as String? ?? '',
+      type: stringOr(config['type'], kAuthTypeNone),
+      username: stringOr(config['username'], ''),
+      password: stringOr(config['password'], ''),
+      token: stringOr(config['token'], ''),
+      key: stringOr(config['key'], ''),
+      header: stringOr(config['header'], ''),
     );
   }
 
@@ -716,25 +717,28 @@ class AiMetricSeed {
   ///
   /// Every field defaults to `''` rather than throwing on a missing or
   /// unexpected wire value, matching [MonitorAnalysis.fromMap]'s stale-client
-  /// convention. `warn`/`critical` arrive as a nullable number on the wire but
+  /// convention. That was true of a missing key and false of an unexpected type
+  /// until the reads below became type tests: `as String?` throws rather than
+  /// defaulting, so the sentence described the intent and the code did half of
+  /// it. `warn`/`critical` arrive as a nullable number on the wire but
   /// are kept as raw strings here (see the class docblock), so a numeric
   /// value is stringified and a `null` degrades to `''` rather than `"null"`.
   factory AiMetricSeed.fromMap(Map<String, dynamic> map) {
     return AiMetricSeed(
-      label: map['label'] as String? ?? '',
-      key: map['key'] as String? ?? '',
-      type: map['type'] as String? ?? '',
-      unit: map['unit'] as String? ?? '',
-      source: map['source'] as String? ?? '',
-      path: map['path'] as String? ?? '',
+      label: stringOr(map['label'], ''),
+      key: stringOr(map['key'], ''),
+      type: stringOr(map['type'], ''),
+      unit: stringOr(map['unit'], ''),
+      source: stringOr(map['source'], ''),
+      path: stringOr(map['path'], ''),
       warn: _wireThresholdToString(map['warn']),
       critical: _wireThresholdToString(map['critical']),
-      sampleValue: map['sample_value'] as String? ?? '',
-      thresholdDirection: map['threshold_direction'] as String? ?? '',
+      sampleValue: stringOr(map['sample_value'], ''),
+      thresholdDirection: stringOr(map['threshold_direction'], ''),
       okValues: _wireValueList(map['ok_values']),
       warnValues: _wireValueList(map['warn_values']),
       criticalValues: _wireValueList(map['critical_values']),
-      origin: map['origin'] as String? ?? '',
+      origin: stringOr(map['origin'], ''),
     );
   }
 }
