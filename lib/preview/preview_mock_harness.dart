@@ -277,6 +277,20 @@ final class PreviewMockHarness {
     return driver;
   }
 
+  /// Releases the preview session, restoring the real `auth` binding.
+  ///
+  /// Without this the fake stayed installed for the life of the process once
+  /// `/preview` had been opened: navigating back into the app ran as the sample
+  /// user with unauthenticated requests, and a dusk walk that followed a
+  /// preview visit in the same process silently measured that session instead
+  /// of the real one. An instrument reading the wrong thing costs more than the
+  /// bug it was pointed at, which is why this is worth closing in debug-only
+  /// code.
+  static void uninstall() {
+    _installed = null;
+    Auth.unfake();
+  }
+
   /// Seed [Auth] with the sample user so authenticated previews render filled.
   ///
   /// [Auth.fake] rather than [Auth.login]: the app's configured guard is the

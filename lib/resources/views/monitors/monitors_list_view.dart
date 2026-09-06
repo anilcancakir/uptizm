@@ -134,7 +134,14 @@ class _MonitorsListViewState
     // team already uses. An empty id means the catalog has not loaded, and
     // [UpgradePrompt] then lands on billing without naming a tier rather than
     // starting checkout for one nobody chose.
-    final int used = controller.monitors.length;
+    // The FLEET total, not the rows in hand. `controller.monitors` is one page
+    // (50) and narrows under the status tab, so a team at its cap computed
+    // `used` as a handful and `planIdUnlocking` resolved the cheapest plan
+    // above THAT, which is often the plan they are already on: an upgrade
+    // prompt that unlocks nothing. `_canCreateMonitor` was fixed for exactly
+    // this and reads `fleetCounts.total`, with a comment naming the bug.
+    final int used =
+        controller.fleetCounts.total ?? controller.monitors.length;
     final String requiredPlan = _entitlement.planIdUnlocking(
       (limits) => limits.monitors == null || limits.monitors! > used,
     );

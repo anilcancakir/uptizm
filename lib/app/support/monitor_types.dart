@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:magic/magic.dart' show trans;
 
 import '../enums/status_key.dart' show StatusKey, statusKeyFromWire;
 import 'formatters.dart' show formatTimeOfDay;
@@ -356,6 +357,51 @@ class AnalyzeRunProgress {
     };
   }
 }
+
+/// Every probe region the monitor form offers, in display order.
+///
+/// Here rather than in `lib/app/mocks/`, where it used to live. That directory
+/// is fixture data by contract and `.design-token-allowlist` exempts the whole
+/// of it from the design-token job on the stated ground that nothing in it is
+/// "rendered as real UI"; this list falsified that, because `monitor_form.dart`
+/// builds the live region picker from it. So the exemption covered a file on a
+/// production render path, and the reason it gave was measurably false.
+///
+/// A getter, not a `const`: each label resolves through [trans] at the current
+/// locale. As literals they reached a Turkish operator as "US East" and "Asia
+/// Pacific" inside an otherwise fully translated form, and no test could see
+/// it because every assertion in an English suite passes on the literal.
+///
+/// The five values mirror `backend/app/Enums/MonitorRegion.php`. They are
+/// hand-maintained against it, so a sixth backend region needs a line here
+/// before the form can offer it.
+List<ProbeRegion> get allRegions => [
+  ProbeRegion(
+    value: 'us-east',
+    label: trans('uptizm.monitors.region_us_east'),
+    flag: '\u{1F1FA}\u{1F1F8}',
+  ),
+  ProbeRegion(
+    value: 'us-west',
+    label: trans('uptizm.monitors.region_us_west'),
+    flag: '\u{1F1FA}\u{1F1F8}',
+  ),
+  ProbeRegion(
+    value: 'eu-west',
+    label: trans('uptizm.monitors.region_eu_west'),
+    flag: '\u{1F1EE}\u{1F1EA}',
+  ),
+  ProbeRegion(
+    value: 'eu-central',
+    label: trans('uptizm.monitors.region_eu_central'),
+    flag: '\u{1F1E9}\u{1F1EA}',
+  ),
+  ProbeRegion(
+    value: 'ap',
+    label: trans('uptizm.monitors.region_ap'),
+    flag: '\u{1F30F}',
+  ),
+];
 
 /// A selectable probe region shown in the monitor form.
 @immutable

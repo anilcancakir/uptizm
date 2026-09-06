@@ -7,7 +7,7 @@ import 'monitor_metrics_support.dart';
 import '../../../app/controllers/entitlement_controller.dart';
 import '../../../app/controllers/escalation_controller.dart';
 import '../../../app/controllers/monitor_controller.dart';
-import '../../../app/mocks/monitors.dart';
+import '../../../app/support/monitor_types.dart';
 import '../../../app/models/escalation_policy.dart';
 import '../../../app/support/submits_once.dart';
 import '../../../ui/components/form_actions/index.dart';
