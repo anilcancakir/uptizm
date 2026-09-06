@@ -12,6 +12,8 @@ import '../../../app/models/escalation_policy.dart';
 import '../../../app/support/team_types.dart' show TeamResponder;
 import '../../../app/support/escalation_support.dart'
     show
+        EscalationRungDraft,
+        EscalationStepWire,
         EscalationTargetType,
         escalationDelayLabel,
         escalationTargetFromKey,

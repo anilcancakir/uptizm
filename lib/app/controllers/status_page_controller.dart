@@ -291,6 +291,10 @@ class StatusPageController extends MagicController
   /// build of a subscribers view.
   @override
   Future<void> resetForSession() async {
+    // A cursor names a row in the OUTGOING team's ordering, and the reset's own
+    // refetch only overwrites it when that refetch succeeds.
+    _nextCursor = null;
+    _loadingMore = false;
     _pages = [];
     _subscribers.clear();
     // Every per-page roster is unasked again, so the incoming identity gets a

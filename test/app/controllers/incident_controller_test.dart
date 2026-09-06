@@ -1553,6 +1553,33 @@ void main() {
   // then refetch through `load` (the entry point `reload` delegates to).
   // ---------------------------------------------------------------------------
 
+  group('reload', () {
+    test('refetches under the filters already set, never widened', () async {
+      // What this pins: `reload()` used to be a bare `load()`, and `load` reads
+      // its filters from its own parameter defaults. RealtimeService calls
+      // reload on every incident.opened / resolved / escalated frame, and
+      // ensureFresh falls through to it on every remount after the first, so an
+      // operator sitting on the Resolved tab had it widened to All the moment a
+      // teammate resolved anything.
+      seedIncidents();
+      final IncidentController controller = Magic.findOrPut(
+        IncidentController.new,
+      );
+      await controller.load(lifecycle: 'resolved', search: 'checkout');
+
+      final FakeNetworkDriver refetch = seedIncidents();
+      await controller.reload();
+
+      refetch.assertSent(
+        (r) =>
+            r.queryParameters?['lifecycle'] == 'resolved' &&
+            r.queryParameters?['q'] == 'checkout',
+      );
+      expect(controller.lifecycleFilter, 'resolved');
+      expect(controller.searchTerm, 'checkout');
+    });
+  });
+
   group('resetForSession', () {
     test('clears the list, detail, and analysis cache on a failed refetch', () async {
       final fake = seedIncidents();

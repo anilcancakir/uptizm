@@ -537,9 +537,19 @@ class IncidentController extends MagicController
     setState(const <Incident>[], status: const RxStatus.empty());
   }
 
-  /// Re-runs [load] with the same (no) filters. Non-destructive: safe to call
-  /// from a pull-to-refresh or a manual retry action.
-  Future<void> reload() => load();
+  /// Refetches the first page under the filters ALREADY set.
+  ///
+  /// Not `load()`: that reads its filters from its own parameter defaults, so a
+  /// bare call reset the monitor, lifecycle, open-only and search fields to
+  /// nothing. This method is what [RealtimeService] invokes on every
+  /// `incident.opened` / `incident.resolved` / `incident.escalated` frame and
+  /// what [ensureFresh] falls through to on every remount after the first, so
+  /// an operator sitting on the Resolved tab had it widened to All the moment a
+  /// teammate resolved anything, and a search survived into a roster that no
+  /// longer matched it. [MonitorController.reload] has always had this shape.
+  ///
+  /// Non-destructive: safe from a pull-to-refresh or a manual retry.
+  Future<void> reload() => _load(reset: true);
 
   /// Drops the previous session's incident list, cached detail, and AI analysis
   /// cache, publishes the cleared state, then refetches for the identity that
@@ -554,6 +564,12 @@ class IncidentController extends MagicController
   /// [load] is the refetch entry point here ([reload] delegates to it).
   @override
   Future<void> resetForSession() async {
+    // A cursor names a row in the OUTGOING team's ordering. The reset's own
+    // refetch overwrites it on success, but not when that refetch fails, and
+    // then the list footer offers "Load more" and pages the incoming team's
+    // roster from a position in a result set it cannot see.
+    _nextCursor = null;
+    _loadingMore = false;
     _detail = null;
     _detailId = null;
     _detailSettled = false;
