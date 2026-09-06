@@ -34,7 +34,10 @@ const String kTimelineVisibilityAxis = 'visibility';
 /// Emission order per slot: `base ++ actor-variant ++ visibility-variant`.
 const WindSlotRecipe incidentTimelineRecipe = WindSlotRecipe(
   slots: {
-    'item': 'flex flex-row gap-3',
+    // `w-full` is load-bearing and was only in the widget's hand-written copy:
+    // the slot was never read, so the two strings had already drifted and a
+    // later edit here would not have reached the row it names.
+    'item': 'w-full flex flex-row gap-3',
     // No `flex` here: it would make the node hug its icon (mainAxisSize.min) and
     // drop the size-8 box. A plain sized WDiv keeps the 32px circle; the icon is
     // centered with a Flutter Center in the component.

@@ -1436,7 +1436,6 @@ void main() {
       // Today (daysAgo == 0) is the LAST segment (index 89), matching the
       // "90 days ago" (left) / "today" (right) axis labels.
       expect(segments.last.status, equals(StatusKey.down));
-      expect(segments.last.label, equals('today'));
       // The other 89 days had no check, so they stay null (no-data), not up.
       expect(segments.sublist(0, 89).every((s) => s.status == null), isTrue);
     });

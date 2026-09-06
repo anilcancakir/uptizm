@@ -142,7 +142,7 @@ class IncidentTimeline extends StatelessWidget {
         Padding(
           padding: EdgeInsets.only(bottom: isLast ? 0 : 20),
           child: WDiv(
-            className: 'w-full flex flex-row gap-3',
+            className: classes['item'],
             children: [_buildNode(entry, classes), _buildBody(entry, classes)],
           ),
         ),

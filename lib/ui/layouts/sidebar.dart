@@ -134,20 +134,27 @@ class Sidebar extends StatelessWidget {
   Widget _buildNavItem(_SidebarNavItem item) {
     final active = _isActive(item.path);
 
-    // The active fill is applied as a plain, conditional class computed here,
-    // NOT via an `active:` variant: Wind's alias expander only expands a WHOLE
-    // unprefixed token, so a state-prefixed alias like `active:bg-surface-container`
-    // never resolves to a color. py-2 matches the design lab's compact row.
-    final String className = active
-        ? 'px-3 py-2 rounded-md flex items-center gap-3 '
-              'text-sm font-medium bg-surface-container text-fg'
-        : 'px-3 py-2 rounded-md flex items-center gap-3 '
-              'text-sm font-medium text-fg-muted '
-              'hover:bg-surface-container hover:text-fg';
+    // One className with prefixed states, driven by `states:`. The two whole
+    // alternative strings that used to sit here were justified by a comment
+    // claiming "Wind's alias expander only expands a WHOLE unprefixed token, so
+    // a state-prefixed alias like `active:bg-surface-container` never resolves
+    // to a color". That is not what the expander does: it peels the prefix
+    // chain, matches the bare body against the alias map, and re-applies the
+    // prefix to every produced token, which its own source comment gives
+    // `hover:bg-surface` as the example of. `bottom_nav.dart` already uses the
+    // shape below and works. The false claim was the real cost: it reads as a
+    // rule and would have been copied into the next nav component.
+    //
+    // py-2 matches the design lab's compact row.
+    const String className =
+        'px-3 py-2 rounded-md flex items-center gap-3 text-sm font-medium '
+        'text-fg-muted hover:bg-surface-container hover:text-fg '
+        'active:bg-surface-container active:text-fg';
 
     return WAnchor(
       onTap: () => MagicRoute.to(item.path),
       child: WDiv(
+        states: {if (active) 'active'},
         className: className,
         children: [
           WIcon(item.icon, className: 'text-[18px]'),
@@ -198,10 +205,10 @@ class _TeamSwitcher extends StatelessWidget {
                   hover:bg-surface-container
                 ''',
                 children: [
-                  _teamAvatar(
+                  teamAvatar(
                     activeTeam,
                     sizeClass: 'w-7 h-7 rounded-md',
-                    text: 'text-xs',
+                    textClass: 'text-xs',
                   ),
                   Expanded(
                     child: WText(
@@ -241,10 +248,10 @@ class _TeamSwitcher extends StatelessWidget {
                             hover:bg-surface-container
                           ''',
                           children: [
-                            _teamAvatar(
+                            teamAvatar(
                               t,
                               sizeClass: 'w-5 h-5 rounded',
-                              text: 'text-[10px]',
+                              textClass: 'text-[10px]',
                             ),
                             Expanded(child: WText(t.name ?? '', className: 'truncate')),
                             if (t.id == activeTeam?.id)
@@ -275,22 +282,6 @@ class _TeamSwitcher extends StatelessWidget {
   /// leading initial. Real teams have no per-tenant brand color, so this uses
   /// a semantic token (`bg-primary-container`/`text-fg`) instead of the design
   /// lab's arbitrary inline tint.
-  Widget _teamAvatar(
-    Team? team, {
-    required String sizeClass,
-    required String text,
-  }) {
-    return WDiv(
-      className: '''
-        $sizeClass shrink-0 flex items-center justify-center
-        bg-primary-container
-      ''',
-      child: WText(
-        teamInitial(team?.name),
-        className: '$text font-bold text-fg',
-      ),
-    );
-  }
 }
 
 /// **The notification bell** in the sidebar top row.

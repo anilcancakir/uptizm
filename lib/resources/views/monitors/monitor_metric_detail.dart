@@ -295,7 +295,7 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
               className: 'text-fg text-base font-semibold truncate',
             ),
             WText(
-              _keyPath(metric),
+              keyPath(metric),
               className: 'text-fg-muted text-xs font-mono truncate',
             ),
           ],
@@ -546,12 +546,3 @@ class _MonitorMetricDetailState extends State<MonitorMetricDetail> {
 // ---------------------------------------------------------------------------
 // Private helpers
 // ---------------------------------------------------------------------------
-
-/// Formats the key and optional path for the header subtitle.
-///
-/// Returns `"<key> · <path>"` when [form.path] is non-empty, otherwise just
-/// `"<key>"`.
-String _keyPath(MetricForm form) {
-  final String path = form.path.trim();
-  return path.isNotEmpty ? '${form.key} · $path' : form.key;
-}

@@ -27,7 +27,7 @@ List<UptimeSegment> uptime90({
     } else {
       status = StatusKey.up;
     }
-    return UptimeSegment(status: status, label: '${90 - i}d ago');
+    return UptimeSegment(status: status);
   });
 }
 

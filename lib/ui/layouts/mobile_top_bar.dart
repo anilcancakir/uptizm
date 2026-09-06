@@ -118,7 +118,11 @@ class _MobileTeamSwitcher extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _teamAvatar(activeTeam),
+                    teamAvatar(
+                      activeTeam,
+                      sizeClass: 'w-7 h-7 rounded-md',
+                      textClass: 'text-xs',
+                    ),
                     const SizedBox(width: 8),
                     Flexible(
                       child: WText(
@@ -154,7 +158,11 @@ class _MobileTeamSwitcher extends StatelessWidget {
                             hover:bg-surface-container
                           ''',
                           children: [
-                            _teamAvatar(t, small: true),
+                            teamAvatar(
+                              t,
+                              sizeClass: 'w-5 h-5 rounded',
+                              textClass: 'text-[10px]',
+                            ),
                             Expanded(child: WText(t.name ?? '', className: 'truncate')),
                             if (t.id == activeTeam?.id)
                               WIcon(Icons.check, className: 'text-[16px] text-primary'),
@@ -180,19 +188,6 @@ class _MobileTeamSwitcher extends StatelessWidget {
   /// leading initial. Real teams have no per-tenant brand color, so this uses
   /// a semantic token (`bg-primary-container`/`text-fg`) instead of the design
   /// lab's arbitrary inline tint.
-  Widget _teamAvatar(Team? team, {bool small = false}) {
-    return WDiv(
-      className: small
-          ? 'w-5 h-5 rounded shrink-0 flex items-center justify-center bg-primary-container'
-          : 'w-7 h-7 rounded-md shrink-0 flex items-center justify-center bg-primary-container',
-      child: WText(
-        teamInitial(team?.name),
-        className: small
-            ? 'text-[10px] font-bold text-fg'
-            : 'text-xs font-bold text-fg',
-      ),
-    );
-  }
 }
 
 /// The notification bell in the mobile top bar (right).

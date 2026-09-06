@@ -13,10 +13,13 @@ class UptimeSegment {
   /// no-data gap the bar renders as a neutral segment rather than green).
   final StatusKey? status;
 
-  /// Tooltip label, e.g. `"7d ago"`.
-  final String label;
-
-  const UptimeSegment({required this.status, required this.label});
+  // No `label`. The field promised a tooltip that neither [UptimeBar] nor
+  // [ComponentStatusRow] ever read, and both producers filled it with English
+  // literals ('today', '3d ago') that no `trans()` could reach. Dead copy that
+  // reads as live is worse than none: the first person to wire the tooltip
+  // would have shipped English into a Turkish session with nothing to catch it.
+  // Add it back as a catalogue key at the moment something renders it.
+  const UptimeSegment({required this.status});
 }
 
 /// A single row in the recent-checks table.

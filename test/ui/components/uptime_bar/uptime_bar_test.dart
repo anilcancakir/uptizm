@@ -154,7 +154,7 @@ void main() {
 
   testWidgets('UptimeBar applies bg-up to up segments', (tester) async {
     final segments = [
-      const UptimeSegment(status: StatusKey.up, label: '1d ago'),
+      const UptimeSegment(status: StatusKey.up),
     ];
     await tester.pumpWidget(wrap(UptimeBar(segments: segments)));
 
@@ -167,7 +167,7 @@ void main() {
 
   testWidgets('UptimeBar applies bg-down to down segments', (tester) async {
     final segments = [
-      const UptimeSegment(status: StatusKey.down, label: '1d ago'),
+      const UptimeSegment(status: StatusKey.down),
     ];
     await tester.pumpWidget(wrap(UptimeBar(segments: segments)));
 
@@ -182,7 +182,7 @@ void main() {
     tester,
   ) async {
     final segments = [
-      const UptimeSegment(status: StatusKey.degraded, label: '1d ago'),
+      const UptimeSegment(status: StatusKey.degraded),
     ];
     await tester.pumpWidget(wrap(UptimeBar(segments: segments)));
 
@@ -195,7 +195,7 @@ void main() {
 
   testWidgets('UptimeBar applies bg-paused to paused segments', (tester) async {
     final segments = [
-      const UptimeSegment(status: StatusKey.paused, label: '1d ago'),
+      const UptimeSegment(status: StatusKey.paused),
     ];
     await tester.pumpWidget(wrap(UptimeBar(segments: segments)));
 
@@ -211,7 +211,7 @@ void main() {
   ) async {
     // A null status is a day with no check: it must render the neutral no-data
     // surface, never the operational green (bg-up).
-    final segments = [const UptimeSegment(status: null, label: '1d ago')];
+    final segments = [const UptimeSegment(status: null)];
     await tester.pumpWidget(wrap(UptimeBar(segments: segments)));
 
     final all = tester.widgetList<WDiv>(find.byType(WDiv));
