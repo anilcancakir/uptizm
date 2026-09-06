@@ -1778,12 +1778,10 @@ class MonitorController extends MagicController
     }
 
     return List<UptimeSegment>.generate(90, (i) {
-      final int daysAgo = 89 - i;
       return UptimeSegment(
         // A day with no check keeps a null status: the bar renders it as a
         // neutral no-data segment instead of a fabricated green "up" day.
         status: days[i],
-        label: daysAgo == 0 ? 'today' : '${daysAgo}d ago',
       );
     });
   }

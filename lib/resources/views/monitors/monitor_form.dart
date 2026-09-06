@@ -648,7 +648,7 @@ class _MonitorFormState extends State<MonitorForm>
       error: _monitor.getError('type'),
       child: MSSegmentedControl<String>(
         options: kMonitorTypes.map((o) => o.label).toList(),
-        selectedIndex: _indexOfValue(kMonitorTypes, _type),
+        selectedIndex: indexOfValue(kMonitorTypes, _type),
         onChanged: (index) => setState(() {
           _type = kMonitorTypes[index].value;
           _monitor.clearFieldError('type');
@@ -887,7 +887,7 @@ class _MonitorFormState extends State<MonitorForm>
       hint: trans('uptizm.monitors.form_ai_mode_hint'),
       child: MSSegmentedControl<String>(
         options: kAiModes.map((o) => o.label).toList(),
-        selectedIndex: _indexOfValue(kAiModes, _aiMode),
+        selectedIndex: indexOfValue(kAiModes, _aiMode),
         onChanged: (index) => setState(() => _aiMode = kAiModes[index].value),
       ),
     );
@@ -1051,7 +1051,7 @@ class _MonitorFormState extends State<MonitorForm>
           error: _monitor.getError('method'),
           child: MSSegmentedControl<String>(
             options: kHttpMethods.map((o) => o.label).toList(),
-            selectedIndex: _indexOfValue(kHttpMethods, _method),
+            selectedIndex: indexOfValue(kHttpMethods, _method),
             onChanged: (index) {
               _monitor.clearFieldError('method');
               setState(() => _method = kHttpMethods[index].value);
@@ -1393,9 +1393,4 @@ class _MonitorFormState extends State<MonitorForm>
   // Small helpers.
   // ---------------------------------------------------------------------------
 
-  /// Returns the zero-based index of [value] in [options], or 0 when absent.
-  int _indexOfValue(List<MetricOption> options, String value) {
-    final int index = options.indexWhere((o) => o.value == value);
-    return index < 0 ? 0 : index;
-  }
 }

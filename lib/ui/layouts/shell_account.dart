@@ -22,6 +22,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_notifications/magic_notifications.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../../app/models/team.dart';
 import '../../app/models/user.dart';
 
 
@@ -159,4 +160,34 @@ Future<void> handleLogout() async {
   }
 
   await MagicStarterAuthController.instance.logout();
+}
+
+/// The team initial tile both shells render beside a team name.
+///
+/// Real teams have no per-tenant brand colour, so this uses the semantic
+/// `bg-primary-container` / `text-fg` pair rather than the design lab's
+/// arbitrary inline tint.
+///
+/// Here rather than in each shell for the reason this library exists: the two
+/// copies it replaces were the same widget with the same doc comment, differing
+/// only in how the size arrived, so a real per-team colour or a fallback glyph
+/// would have landed on one side of the `lg` breakpoint and not the other, and
+/// nothing would have failed. The app would just have shown two different
+/// avatars depending on the width of the window.
+///
+/// [sizeClass] and [textClass] are the caller's, because that is the only thing
+/// the two shells genuinely disagree about.
+Widget teamAvatar(
+  Team? team, {
+  required String sizeClass,
+  required String textClass,
+}) {
+  return WDiv(
+    className: '$sizeClass shrink-0 flex items-center justify-center '
+        'bg-primary-container',
+    child: WText(
+      teamInitial(team?.name),
+      className: '$textClass font-bold text-fg',
+    ),
+  );
 }

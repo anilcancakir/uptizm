@@ -805,7 +805,7 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
               WText(
                 isStale
                     ? trans('uptizm.monitors.metrics_reading_stale')
-                    : _keyPath(metric),
+                    : keyPath(metric),
                 className: isStale
                     ? 'text-xs text-degraded'
                     : 'font-mono text-xs text-fg-muted',
@@ -834,12 +834,3 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
 // ---------------------------------------------------------------------------
 // Private helpers.
 // ---------------------------------------------------------------------------
-
-/// Formats the key and optional path for a custom-metric row subtitle.
-///
-/// Returns `"<key> · <path>"` when [form.path] is non-empty, otherwise just
-/// `"<key>"` (React `{m.key}{m.path && ` · ${m.path}`}`).
-String _keyPath(MetricForm form) {
-  final String path = form.path.trim();
-  return path.isNotEmpty ? '${form.key} · $path' : form.key;
-}

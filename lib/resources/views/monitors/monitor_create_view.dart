@@ -734,7 +734,7 @@ class _MonitorCreateViewState
       initialName: analysis?.name ?? _aiName,
       initialUrl: _url,
       initialType: 'http',
-      initialInterval: _intervalTokenForSeconds(
+      initialInterval: _snapToNearestIntervalToken(
         analysis?.recommendedIntervalSeconds,
       ),
       initialRegions: analysis != null && analysis.recommendedRegions.isNotEmpty
@@ -760,7 +760,15 @@ class _MonitorCreateViewState
   /// [MonitorForm.initialInterval] only accepts one of the fixed interval
   /// tokens, so the backend's raw `recommended_interval_seconds` must be
   /// snapped to the nearest option rather than passed through directly.
-  String _intervalTokenForSeconds(int? seconds) {
+  // Named for what it DOES, not one underscore away from
+  // `intervalTokenForSeconds` in monitor_form_support.dart. That one is
+  // exact-match and returns null on a miss, and its docblock says the
+  // exactness is load-bearing: "snapping to the nearest option would quietly
+  // rewrite the operator's configuration on the next save". This one snaps on
+  // purpose, because it reads the backend's recommendation rather than the
+  // operator's setting. Two functions one underscore apart, one documented as
+  // the thing the other must never do, is a trap for the next edit.
+  String _snapToNearestIntervalToken(int? seconds) {
     if (seconds == null) return '30s';
 
     String closest = '30s';

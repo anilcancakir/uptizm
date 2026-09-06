@@ -1,30 +1,5 @@
 import 'package:magic/magic.dart';
 
-/// Top-level const [WindRecipe] for the monitor list row container and layout.
-///
-/// Covers the row shell (border, rounded, hover surface, padding) as a single
-/// horizontal row. Status coloring lives entirely in the composed
-/// [StatusBadge]; this recipe governs structure only.
-///
-/// Emission order: `base ++ variant ++ compound ++ caller`.
-///
-/// ### Example:
-/// ```dart
-/// final rootClass = monitorListRowRecipe();
-/// WAnchor(
-///   onTap: onTap,
-///   child: WDiv(className: rootClass, children: [...]),
-/// );
-/// ```
-const WindRecipe monitorListRowRecipe = WindRecipe(
-  base:
-      'flex flex-row items-center gap-3 rounded-lg border border-color-border '
-      'bg-surface px-4 py-3 hover:bg-surface-container transition-colors '
-      'min-h-[44px]',
-  variants: {},
-  defaultVariants: {},
-);
-
 /// Resolves the named slot classNames for [MonitorListRow].
 ///
 /// Returns a `Map<String, String>` keyed by slot name so each sub-region of

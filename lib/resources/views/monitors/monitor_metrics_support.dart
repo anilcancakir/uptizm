@@ -669,3 +669,28 @@ bool isReadingStale(
 
   return age > Duration(seconds: checkIntervalSec * kStaleReadingIntervals);
 }
+
+/// Renders a metric's identity line: `key · path`, or the bare key when the
+/// metric extracts from no path.
+///
+/// One copy rather than two. The metrics list row and the detail sheet it opens
+/// render the same string on two surfaces the operator moves between, and each
+/// held a byte-identical private copy, so a change to the separator or the trim
+/// in one would have desynchronised the row from the sheet with nothing to
+/// fail.
+String keyPath(MetricForm form) {
+  final String path = form.path.trim();
+
+  return path.isNotEmpty ? '${form.key} · $path' : form.key;
+}
+
+/// The index of [value] in [options], or 0 when it is not there.
+///
+/// Zero rather than -1 because every caller feeds a `Select`'s selectedIndex,
+/// where -1 is not a position. Shared for the same reason as [keyPath]: the
+/// monitor form and the metric form each carried an identical private copy.
+int indexOfValue(List<MetricOption> options, String value) {
+  final int index = options.indexWhere((o) => o.value == value);
+
+  return index < 0 ? 0 : index;
+}

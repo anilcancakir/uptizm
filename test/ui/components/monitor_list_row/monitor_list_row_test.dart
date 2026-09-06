@@ -26,17 +26,22 @@ void main() {
   // Recipe / slot-class assertions
   // ---------------------------------------------------------------------------
 
-  group('monitorListRowRecipe', () {
-    test('base contains rounded-lg', () {
-      expect(monitorListRowRecipe(), contains('rounded-lg'));
+  group('monitorListRowSlots', () {
+    // These used to assert against a `monitorListRowRecipe` const that nothing
+    // in lib/ read: the component resolves through the slots below, and the two
+    // strings were kept equal by nothing. So the shell the app actually renders
+    // was uncovered, and the suite would have stayed green if `root` had lost
+    // `bg-surface` outright.
+    test('root carries the rounded shell', () {
+      expect(monitorListRowSlots()['root'], contains('rounded-lg'));
     });
 
-    test('base contains border-color-border', () {
-      expect(monitorListRowRecipe(), contains('border-color-border'));
+    test('root carries the border token', () {
+      expect(monitorListRowSlots()['root'], contains('border-color-border'));
     });
 
-    test('base contains bg-surface', () {
-      expect(monitorListRowRecipe(), contains('bg-surface'));
+    test('root carries the surface token', () {
+      expect(monitorListRowSlots()['root'], contains('bg-surface'));
     });
   });
 

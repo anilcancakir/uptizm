@@ -652,7 +652,7 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
   Widget _buildTypeControl() {
     return MSSegmentedControl<String>(
       options: kMetricTypes.map((o) => o.label).toList(),
-      selectedIndex: _indexOfValue(kMetricTypes, _form.type),
+      selectedIndex: indexOfValue(kMetricTypes, _form.type),
       size: SegmentedControlSize.sm,
       // Through [_setStringBand]: a type change hides or shows the whole
       // string-band block, so any error painted on it stops applying and must
@@ -722,7 +722,7 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
   Widget _buildDirectionControl() {
     return MSSegmentedControl<String>(
       options: kMetricDirections.map((o) => o.label).toList(),
-      selectedIndex: _indexOfValue(kMetricDirections, _form.direction),
+      selectedIndex: indexOfValue(kMetricDirections, _form.direction),
       size: SegmentedControlSize.sm,
       onChanged: (index) =>
           _set(_form.copyWith(direction: kMetricDirections[index].value)),
@@ -1422,12 +1422,6 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
       MetricTestStatus.done => trans('uptizm.monitors.metrics_form_test_again'),
       MetricTestStatus.idle => trans('uptizm.monitors.metrics_form_fetch_test'),
     };
-  }
-
-  /// Returns the zero-based index of [value] in [options], or 0 when absent.
-  int _indexOfValue(List<MetricOption> options, String value) {
-    final int index = options.indexWhere((o) => o.value == value);
-    return index < 0 ? 0 : index;
   }
 
   /// Projects a [MetricOption] list into [SelectOption]s (label -> value).
