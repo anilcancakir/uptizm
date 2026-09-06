@@ -570,6 +570,15 @@ class IncidentController extends MagicController
     _monitorRosterId = null;
     _monitorRoster = null;
     _monitorRosterSettled = false;
+    // The four headline totals are as team-scoped as the rows they summarise,
+    // and null is not zero: keeping them would state the outgoing tenant's
+    // "N active / N critical" as the incoming one's for the length of the
+    // refetch, and for good when that refetch fails at [_load] before
+    // [_readHeadlineCounts] ever runs.
+    _openTotal = null;
+    _criticalTotal = null;
+    _aiTotal = null;
+    _resolvedTotal = null;
     setState(null, status: const RxStatus.empty(), notify: false);
     clearErrors();
     refreshUI();

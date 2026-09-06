@@ -262,31 +262,43 @@ final class PreviewMockHarness {
     Magic.singleton('network', () => driver);
 
     // 2. Seed the authenticated session once so authenticated views render
-    //    their filled state. Deferred to a post-frame callback: install() is
-    //    called from a preview builder DURING the build phase, and Auth.login
-    //    notifies its state listeners synchronously, which would trigger
-    //    "setState() called during build". Running it after the frame seeds the
-    //    session and rebuilds cleanly. Errors are swallowed deliberately: a
-    //    preview must render even if the guard cannot persist a token (e.g.
-    //    secure storage is unavailable on the preview platform).
+    //    their filled state. Deferred to a post-frame callback for ORDERING,
+    //    not for safety: [ScreenPreviewScaffold] calls install() from its own
+    //    initState and registers its deferred view-mount one line later, so
+    //    this callback runs first and the session is in place before any
+    //    controller-backed view builds. The swap itself is inert (see
+    //    [_seedAuth]), so it would be harmless inline; the order is what the
+    //    catalog depends on.
     if (_installed != state) {
       _installed = state;
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => unawaited(_seedAuth()),
-      );
+      WidgetsBinding.instance.addPostFrameCallback((_) => _seedAuth());
     }
 
     return driver;
   }
 
   /// Seed [Auth] with the sample user so authenticated previews render filled.
-  static Future<void> _seedAuth() async {
-    try {
-      final user = MagicStarter.createUser(PreviewSampleData.user);
-      await Auth.login(<String, dynamic>{'token': 'preview-token'}, user);
-    } catch (_) {
-      // Preview-only: a failed seed leaves the view in its guest/empty state,
-      // which is still a valid thing to preview.
-    }
+  ///
+  /// [Auth.fake] rather than [Auth.login]: the app's configured guard is the
+  /// bearer one, whose `login` persists through `Vault`, so seeding by logging
+  /// in overwrote the developer's real Sanctum token and cached user in secure
+  /// storage and left the next cold start restoring a session that 401s. The
+  /// fake replaces the container's `auth` instance with a pre-authenticated
+  /// guard and writes nothing, so the damage no longer survives the process.
+  ///
+  /// It DOES survive the visit: nothing calls `Auth.unfake()`, so once the
+  /// catalog has been opened the binding stays the fake until a hot restart.
+  /// Navigating back into the real app, the developer is the sample user and
+  /// requests go out unauthenticated. That is a debug-only nuisance rather
+  /// than the data loss above, and it is why a QA or dusk walk must not follow
+  /// a `/preview` visit in the same process.
+  ///
+  /// Swapping the instance notifies nobody: `Auth.fake` is a bare container
+  /// map write and the fake guard's constructor only stores the user, so this
+  /// cannot trigger "setState() called during build" the way [Auth.login]
+  /// could (the same fact `app_service_provider.dart` records for its push
+  /// identity test).
+  static void _seedAuth() {
+    Auth.fake(user: MagicStarter.createUser(PreviewSampleData.user));
   }
 }
