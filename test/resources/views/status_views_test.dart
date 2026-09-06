@@ -88,6 +88,11 @@ class _StatusViewsLangLoader implements TranslationLoader {
       'uptizm.status.list_card_subscribers': 'subscribers',
       'uptizm.status.list_card_subs_off': 'Subs off',
       'uptizm.status.list_empty_title': 'No status pages yet',
+      // Without these the error-branch assertions would compare a raw key to a
+      // raw key and pass on whatever the screen rendered.
+      'uptizm.status.load_error_title': 'Could not load status pages',
+      'uptizm.status.load_error_description': 'Unreachable right now.',
+      'uptizm.common.retry': 'Retry',
       'uptizm.status.list_empty_description': 'Create your first page.',
 
       // Editor.
@@ -393,7 +398,13 @@ void main() {
       Magic.flush();
       Magic.singleton('magic_starter', () => MagicStarterManager());
       Magic.singleton('log', () => LogManager());
-      Http.fake();
+      // A SUCCESSFUL empty roster: this test is about the LOADING window, so
+      // the read that ends it has to be one that landed. A bare fake fails, and
+      // the view now renders its error state for that, which is correct and is
+      // not what this test is asking about.
+      Http.fake({
+        'status-pages': Http.response({'data': <Map<String, dynamic>>[]}),
+      });
 
       // Deliberately NOT pumped again: the first frame is painted before the
       // mount's async fetch resolves, which is exactly the moment the operator
@@ -420,7 +431,12 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1280, 3200));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      // Seeding is a resolved state, so an empty seed is a known-empty roster.
+      // A SUCCESSFUL empty roster, not a bare fake. The mount refetches, and a
+      // bare fake makes that read fail, so this used to reach the empty state
+      // through a FAILED read: exactly the conflation the view now refuses.
+      Http.fake({
+        'status-pages': Http.response({'data': <Map<String, dynamic>>[]}),
+      });
       StatusPageController.instance.seedForTest(const []);
 
       await tester.pumpWidget(wrap(const StatusPagesListView()));
@@ -428,6 +444,39 @@ void main() {
 
       expect(find.byType(MSSkeleton), findsNothing);
       expect(find.text(trans('uptizm.status.list_empty_title')), findsOneWidget);
+    });
+
+    testWidgets('a failed roster read says so, never "no status pages"', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 3200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // The defect this pins: `StatusPageController.loadFailed` existed since
+      // the roster was written and had no reader, so a team with several pages
+      // was told during an outage that it had none, and invited to create one.
+      //
+      // A fresh container, because the group's setUp seeds the fixture roster
+      // and `loadFailed` deliberately ANDs on the roster being empty: a failed
+      // REFRESH must not replace pages the operator can still read. The state
+      // this test is about is a failed FIRST read.
+      MagicApp.reset();
+      Magic.flush();
+      Magic.singleton('magic_starter', () => MagicStarterManager());
+      Magic.singleton('log', () => LogManager());
+      Http.fake({
+        'status-pages': Http.response({'message': 'down'}, 500),
+      });
+
+      await tester.pumpWidget(wrap(const StatusPagesListView()));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(MSErrorState), findsOneWidget);
+      expect(
+        find.text(trans('uptizm.status.list_empty_title')),
+        findsNothing,
+        reason: 'a read that did not land is not an account with no pages',
+      );
     });
   });
 

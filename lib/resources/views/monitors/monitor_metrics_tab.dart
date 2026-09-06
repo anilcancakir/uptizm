@@ -568,8 +568,12 @@ class _MonitorMetricsTabState extends State<MonitorMetricsTab> {
       // already gives forty lines below about the custom rows: a GestureDetector
       // gives neither cursor nor hover affordance, so the one row whose
       // tappability had to be discovered was also the one giving no sign of it.
+      // No `semanticLabel`. WAnchor wraps a labelled anchor in
+      // `Semantics(excludeSemantics: true)`, so a label here REPLACES the row's
+      // three text children rather than naming them: a screen reader would
+      // announce "Response time, button" and never read the value or its band.
+      // The custom rows below carry none for the same reason.
       onTap: () => _openSystemDetail(metric),
-      semanticLabel: metric.label,
       child: WDiv(
       className:
           'flex flex-row items-center justify-between gap-3 '

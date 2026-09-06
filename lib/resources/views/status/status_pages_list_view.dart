@@ -163,6 +163,24 @@ class _StatusPagesListViewState
       return _buildSkeleton();
     }
 
+    // Failure is not emptiness either. `StatusPageController.loadFailed` has
+    // existed since the roster was written and had no reader, so a failed read
+    // fell straight through to "No status pages yet" and invited a team that
+    // has several to create their first. It already ANDs on the roster being
+    // empty, so a failed refresh cannot replace pages the operator can read.
+    if (controller.loadFailed) {
+      return MSErrorState(
+        title: trans('uptizm.status.load_error_title'),
+        description: trans('uptizm.status.load_error_description'),
+        action: MSButton(
+          intent: ButtonIntent.secondary,
+          size: ButtonSize.sm,
+          onPressed: controller.reload,
+          child: WText(trans('uptizm.common.retry')),
+        ),
+      );
+    }
+
     if (controller.statusPages.isEmpty) {
       return _buildEmptyState();
     }

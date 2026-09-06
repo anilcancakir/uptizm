@@ -92,6 +92,16 @@ void main() {
             'lifecycle': 'detected',
             'ai_owned': true,
             'started_at': '2026-07-11T12:00:00Z',
+            // The `ai` sub-object the backend attaches to every row of this
+            // endpoint (`DashboardController::shapeSuggestion`). The fixture
+            // omitted it, so it described a payload the server never sends and
+            // the row it stood for could not have been rendered:
+            // `AiInboxItem` reads this block three times.
+            'ai': {
+              'trigger': 'Response time p95 above baseline',
+              'confidence': 'medium',
+              'tldr': 'Payments is answering slower than its baseline.',
+            },
           },
         ],
       }),

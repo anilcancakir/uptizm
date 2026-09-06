@@ -402,7 +402,12 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1280, 6000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      // Seeding is a resolved state, so an empty seed is a known-empty roster.
+      // A SUCCESSFUL empty roster, not a bare fake: the mount refetches, and a
+      // failed refetch now renders the error state, which is the point of the
+      // branch this screen just gained.
+      Http.fake({
+        'escalation-policies': Http.response({'data': <Map<String, dynamic>>[]}),
+      });
       EscalationController.instance.seedForTest(const []);
 
       await tester.pumpWidget(

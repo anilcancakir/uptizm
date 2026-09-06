@@ -1431,22 +1431,30 @@ class _IncidentDetailViewState
   }
 
   /// Posts the composer text via [IncidentController.postUpdate] (`POST
-  /// /incidents/{id}/updates`), then clears the composer. The submit button
-  /// is disabled while the composer is blank, so [_message] is always
-  /// non-empty here; it is captured before the composer clears so the
-  /// controller still receives the real text.
-  void _onPostUpdate(Incident incident) {
+  /// /incidents/{id}/updates`), clearing the composer ONLY once the write has
+  /// landed.
+  ///
+  /// The clear used to happen before the await. `postUpdate` toasts and returns
+  /// on a non-2xx or a thrown request, so a customer-facing update written
+  /// during an outage (which is exactly when the API is flaky) was already gone
+  /// by the time the operator read the error, and had to be retyped from
+  /// memory. The postmortem composer in this same file has always got this
+  /// right; this is the same rule.
+  Future<void> _onPostUpdate(Incident incident) async {
     final String message = _message.trim();
-    setState(() {
-      _message = '';
-      _aiDrafted = false;
-    });
-    controller.postUpdate(
+    final bool posted = await controller.postUpdate(
       incident,
       message: message,
       isPublic: _publish,
       status: _lifecycle,
     );
+
+    if (!mounted || !posted) return;
+
+    setState(() {
+      _message = '';
+      _aiDrafted = false;
+    });
   }
 
   // ---------------------------------------------------------------------------

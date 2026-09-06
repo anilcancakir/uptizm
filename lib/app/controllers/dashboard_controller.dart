@@ -462,9 +462,17 @@ class DashboardController extends MagicController
           : null;
       if (raw is! List) return false;
 
+      // Filtered on `ai != null`, because every row of this list is rendered by
+      // `AiInboxItem`, which reads the AI payload three times. `Incident.ai`
+      // answers null whenever the `ai` key is absent or not a Map, so one
+      // malformed row would throw a null-check inside `build` and take the
+      // whole dashboard with it rather than dropping that row. The backend
+      // emits `ai` on every row today; this makes that a property of the data
+      // we hold rather than an assumption about the server.
       _aiInbox = raw
           .whereType<Map<String, dynamic>>()
           .map(Incident.fromMap)
+          .where((Incident i) => i.ai != null)
           .toList();
       refreshUI();
       return true;

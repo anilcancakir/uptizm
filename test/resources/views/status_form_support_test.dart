@@ -53,13 +53,44 @@ void main() {
       expect(worstStatus(components), StatusKey.info);
     });
 
-    test('paused outranks up and ai', () {
+    test('paused does not outrank up, because it is not a reading', () {
+      // This used to assert the opposite, which was the defect: one paused
+      // monitor flipped an otherwise healthy public page off "Operational".
+      // Pausing is a switch the operator threw, not a statement about health.
       final components = [
         _component(StatusKey.up),
         _component(StatusKey.ai),
         _component(StatusKey.paused),
       ];
-      expect(worstStatus(components), StatusKey.paused);
+      expect(worstStatus(components), StatusKey.up);
+    });
+
+    test('pending does not outrank up either', () {
+      // Attaching a freshly created monitor made a whole page read "Pending"
+      // until its first probe landed, with nothing actually wrong.
+      final components = [
+        _component(StatusKey.up),
+        _component(StatusKey.pending),
+      ];
+      expect(worstStatus(components), StatusKey.up);
+    });
+
+    test('a page with nothing rankable reports no status at all', () {
+      // Not `up`: every component is paused or unprobed, so there is no health
+      // to report and claiming "Operational" would be inventing one.
+      final components = [
+        _component(StatusKey.paused),
+        _component(StatusKey.pending),
+      ];
+      expect(worstStatus(components), isNull);
+    });
+
+    test('a real outage still wins over a paused component', () {
+      final components = [
+        _component(StatusKey.paused),
+        _component(StatusKey.down),
+      ];
+      expect(worstStatus(components), StatusKey.down);
     });
 
     test('up and ai are the lowest rank and yield up when tied', () {
