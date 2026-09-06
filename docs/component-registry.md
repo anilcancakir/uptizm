@@ -31,7 +31,7 @@ with regions, an incident with a lifecycle, an error budget with a window.
 | `ai_confidence_badge/` | `AiConfidenceBadge` | - | yes | yes | yes | A soft pill badge visualizing the AI confidence level for an incident analysis. |
 | `ai_inbox_item/` | `AiInboxItem` | - | yes | yes | yes | AI Inbox Row |
 | `ai_insight/` | `AiInsight` | - | yes | yes | yes | AI Insight — Inline Annotation |
-| `assistant/` | `Assistant` | AssistantRole | yes | yes | yes | The Floating Uptizm AI Assistant |
+| `assistant/` | `Assistant` | - | yes | yes | yes | The Floating Uptizm AI Assistant |
 | `check_history_table/` | `CheckHistoryTable` | - | yes | yes | yes | The Recent Checks History Table |
 | `component_status_row/` | `ComponentStatusRow` | - | yes | yes | yes | One component on a public status page. |
 | `date_range_picker/` | `DateRangePicker` | - | yes | yes | yes | Time-range picker for monitor charts. |

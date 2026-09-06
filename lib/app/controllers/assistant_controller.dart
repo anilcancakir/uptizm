@@ -1,6 +1,8 @@
 import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
+import '../support/assistant_types.dart';
+
 
 /// What one `POST /assistant` round-trip produced.
 ///
@@ -19,10 +21,104 @@ typedef AssistantReply = ({String answer, bool degraded});
 /// toast on failure), but the caller-facing contract here returns the
 /// failure as `null` rather than degrading to a stale cache: a conversation
 /// has no prior answer to fall back to.
-class AssistantController extends MagicController {
+class AssistantController extends MagicController
+    implements SessionScopedController {
   /// Singleton accessor, registering the controller on first access.
   static AssistantController get instance =>
       Magic.findOrPut(AssistantController.new);
+
+  /// The running conversation.
+  ///
+  /// Held HERE and not in the panel's `State`. `AppLayout` mounts `Assistant`
+  /// in two structurally different subtrees selected by `wScreenIs('lg')`, so
+  /// dragging a browser window across 1024px (or rotating a large tablet) moved
+  /// the widget to a new position in the element tree and Flutter discarded its
+  /// State: an operator mid-triage lost the whole exchange, with nothing
+  /// persisted and no way back. Resolved from the container, it outlives either
+  /// shell.
+  final List<AssistantMessage> _messages = <AssistantMessage>[];
+
+  /// Whether a `POST /assistant` round-trip is in flight.
+  ///
+  /// The guard, not just a spinner input. A model round-trip takes seconds and
+  /// the panel showed nothing at all, so the operator tapped send again or
+  /// picked a second quick-prompt chip. Each tap is another request charged
+  /// against the team's daily AI allowance, and replies appended in completion
+  /// order rather than send order, so the answer to the first question could
+  /// land under the second.
+  bool _asking = false;
+
+  /// The conversation so far, oldest first.
+  List<AssistantMessage> get messages =>
+      List<AssistantMessage>.unmodifiable(_messages);
+
+  /// Whether a question is currently awaiting its answer.
+  bool get isAsking => _asking;
+
+  /// Seeds the greeting once, so a freshly opened panel is not blank.
+  ///
+  /// Idempotent: a second call on a conversation that already has messages does
+  /// nothing, which is what lets both shells call it on mount.
+  void ensureGreeted() {
+    if (_messages.isNotEmpty) return;
+
+    _messages.add(assistantGreeting);
+    refreshUI();
+  }
+
+  /// Replaces the conversation with [seed].
+  ///
+  /// Not test-only: `Assistant.initialMessages` is part of the widget's public
+  /// API and the preview catalog scripts a whole exchange through it, so this
+  /// is the seam that serves both that and a widget test.
+  void seedConversation(List<AssistantMessage> seed) {
+    _messages
+      ..clear()
+      ..addAll(seed);
+    _asking = false;
+    refreshUI();
+  }
+
+  /// Appends [text] as the operator's message and asks for its answer.
+  ///
+  /// A no-op while another question is in flight, and while [text] is blank.
+  Future<void> send(String text) async {
+    final String trimmed = text.trim();
+    if (trimmed.isEmpty || _asking) return;
+
+    _messages.add(AssistantMessage(role: AssistantRole.user, text: trimmed));
+    _asking = true;
+    refreshUI();
+
+    try {
+      final AssistantReply? reply = await ask(trimmed);
+      if (reply == null) return;
+
+      _messages.add(
+        AssistantMessage(
+          // A sentence the backend produced without a model is the SYSTEM
+          // speaking, not the assistant.
+          role: reply.degraded
+              ? AssistantRole.system
+              : AssistantRole.assistant,
+          text: reply.answer,
+        ),
+      );
+    } finally {
+      _asking = false;
+      refreshUI();
+    }
+  }
+
+  @override
+  Future<void> resetForSession() async {
+    // The assistant is grounded on ONE team's monitors and incidents, so the
+    // exchange belongs to the identity that had it. There is nothing to
+    // refetch: the next question starts the next conversation.
+    _messages.clear();
+    _asking = false;
+    refreshUI();
+  }
 
   /// Asks the live assistant [question] via `POST /assistant` and returns the
   /// grounded answer, or `null` on failure (network error, non-2xx, or a
