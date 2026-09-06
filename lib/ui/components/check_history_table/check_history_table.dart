@@ -121,8 +121,14 @@ class CheckHistoryTable extends StatelessWidget {
         else
           // Bounded, so the ListView has a main-axis constraint to work with,
           // and lazy, so a 200-row history costs a dozen rows rather than 200.
-          WDiv(
-            className: 'h-[${maxHeight.toInt()}px]',
+          // A SizedBox, not `h-[${maxHeight}px]`. The parse cache is keyed on
+          // the className string, so a Dart value interpolated into one mints a
+          // permanent entry per distinct value: harmless at the fixed default,
+          // and one entry per pixel of viewport height the moment a caller
+          // derives this from MediaQuery, which is the obvious next step for a
+          // table asked to fill a pane.
+          SizedBox(
+            height: maxHeight,
             child: MagicPaginatedListView<CheckRow>(
               paginator: paginator,
               itemBuilder: (_, CheckRow row, _) => _buildRow(row, classes),

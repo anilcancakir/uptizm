@@ -32,6 +32,20 @@ enum MetricTestStatus {
   done,
 }
 
+/// The tone of a verdict box in the test / candidates panels.
+///
+/// An enum rather than the two className strings the builder used to take,
+/// because a caller-supplied token escapes every check the parser can make: a
+/// value that is not an alias key renders a box with no fill and nothing
+/// reports it.
+enum _VerdictTone {
+  /// The rule or the round trip failed: the `down` family.
+  error,
+
+  /// Nothing to say yet (no sample, no candidates): the neutral surface.
+  neutral,
+}
+
 /// The fetch lifecycle for the candidate browser.
 ///
 /// Deliberately separate from [MetricTestStatus] rather than folded into it: the
@@ -996,8 +1010,7 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
     // (no toast), so this box is the only report the operator gets.
     if (result == null) {
       return _buildVerdictBox(
-        tone: 'bg-down-soft',
-        textClass: 'text-down-soft-foreground',
+        tone: _VerdictTone.error,
         message: trans('uptizm.monitors.metrics_form_candidates_error'),
       );
     }
@@ -1006,8 +1019,7 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
     // words: the operator needs a check to have run, not a different path.
     if (!result.hasSample) {
       return _buildVerdictBox(
-        tone: 'bg-surface-container',
-        textClass: 'text-fg-muted',
+        tone: _VerdictTone.neutral,
         message: trans('uptizm.monitors.metrics_form_no_sample'),
       );
     }
@@ -1016,8 +1028,7 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
     // the endpoint rather than about the archive.
     if (result.candidates.isEmpty) {
       return _buildVerdictBox(
-        tone: 'bg-surface-container',
-        textClass: 'text-fg-muted',
+        tone: _VerdictTone.neutral,
         message: trans('uptizm.monitors.metrics_form_candidates_empty'),
       );
     }
@@ -1133,8 +1144,7 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
     // check, not to fix their path.
     if (!preview.hasSample) {
       return _buildVerdictBox(
-        tone: 'bg-surface-container',
-        textClass: 'text-fg-muted',
+        tone: _VerdictTone.neutral,
         message: trans('uptizm.monitors.metrics_form_no_sample'),
       );
     }
@@ -1144,8 +1154,7 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
     }
 
     return _buildVerdictBox(
-      tone: 'bg-down-soft',
-      textClass: 'text-down-soft-foreground',
+      tone: _VerdictTone.error,
       // The backend's own explanation when it has one (a bad regex, a
       // non-JSON body, a type mismatch), so the operator is told what actually
       // went wrong rather than a generic "not found".
@@ -1197,17 +1206,33 @@ class _MonitorMetricFormState extends State<MonitorMetricForm>
   }
 
   /// Builds a single-message verdict box with an optional provenance line.
+  ///
+  /// Takes a [_VerdictTone], not two className strings. The caller used to hand
+  /// in `tone` and `textClass` verbatim, which the parser cannot check: a token
+  /// that is not an alias key produces a box with no fill and nothing anywhere
+  /// reports it. `uptizm_status_tokens.dart` exists because `border-ai-soft`
+  /// was once dropped in exactly that silence.
   Widget _buildVerdictBox({
-    required String tone,
-    required String textClass,
+    required _VerdictTone tone,
     required String message,
     String? provenance,
   }) {
+    final bool isError = tone == _VerdictTone.error;
+
     return WDiv(
+      states: {if (isError) 'error'},
       className:
-          'flex flex-col gap-2 rounded-lg border border-color-border $tone p-3',
+          'flex flex-col gap-2 rounded-lg border border-color-border p-3 '
+          'bg-surface-container error:bg-down-soft',
       children: [
-        WText(message, className: 'text-sm $textClass'),
+        WText(
+          message,
+          // Two whole literals rather than an interpolated tone: the state
+          // prefix above styles the box, and a child WText does not inherit it.
+          className: isError
+              ? 'text-sm text-down-soft-foreground'
+              : 'text-sm text-fg-muted',
+        ),
         ?(provenance == null
             ? null
             : WText(

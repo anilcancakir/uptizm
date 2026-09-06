@@ -387,14 +387,23 @@ class AiAnalysisCard extends StatelessWidget {
   /// recorded state look like a failure to register the second tap.
   Widget _feedbackButton(String label, bool helpful) {
     final bool chosen = ai.feedback == helpful;
-    final String tone = chosen ? 'text-ai' : 'text-fg-muted';
 
     return WButton(
       onTap: onFeedback == null ? null : () => onFeedback!(helpful),
-      className:
-          'px-3 py-1.5 rounded-md text-sm font-medium $tone '
-          '${chosen ? 'bg-ai-soft' : 'hover:bg-surface-container'}',
-      child: WText(label, className: 'text-sm font-medium $tone'),
+      // Whole literals rather than two interpolated fragments. The set is
+      // closed either way, so this is about the shape being copyable: a token
+      // spliced in from a variable is one the parser cannot check, and a value
+      // that is not an alias key renders with no fill and says nothing.
+      className: chosen
+          ? 'px-3 py-1.5 rounded-md text-sm font-medium text-ai bg-ai-soft'
+          : 'px-3 py-1.5 rounded-md text-sm font-medium text-fg-muted '
+                'hover:bg-surface-container',
+      child: WText(
+        label,
+        className: chosen
+            ? 'text-sm font-medium text-ai'
+            : 'text-sm font-medium text-fg-muted',
+      ),
     );
   }
 }
