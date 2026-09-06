@@ -237,7 +237,14 @@ class SloBudgetCard extends StatelessWidget {
                   className: 'text-sm font-semibold text-fg',
                 ),
                 WText(
-                  'SLO $target% · $window',
+                  // Through the catalogue, not concatenated: Turkish puts the
+                  // percent sign BEFORE the number, so an English-shaped
+                  // prefix around a translated tail renders "SLO 99.9% ·" in a
+                  // sentence that should read "%99,9 SLO ·".
+                  trans('uptizm.slo.target_window', {
+                    'target': _formatTarget(target),
+                    'window': window,
+                  }),
                   className: 'font-mono text-xs tabular-nums text-fg-muted',
                 ),
               ],
@@ -331,5 +338,18 @@ class SloBudgetCard extends StatelessWidget {
           ),
       ],
     );
+  }
+
+  /// Renders an SLO target for display, dropping a whole number's `.0`.
+  ///
+  /// A `double` stringifies 99.0 as "99.0", and an SLO written as a whole
+  /// percent is the common case. The decimal SEPARATOR is left alone: Turkish
+  /// writes 99,9 rather than 99.9, but that is true of every latency and
+  /// percentage this app prints, so it belongs to a locale-formatting pass
+  /// rather than to this one line.
+  static String _formatTarget(double target) {
+    return target == target.roundToDouble()
+        ? target.toStringAsFixed(0)
+        : target.toString();
   }
 }

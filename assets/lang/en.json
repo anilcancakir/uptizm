@@ -1559,6 +1559,7 @@
       "escalation_editor_desc_placeholder": "Aggressive paging for revenue-critical monitors.",
       "escalation_editor_ladder_header": "Escalation ladder",
       "escalation_editor_rung_title": "Rung :number",
+      "escalation_editor_remove_rung": "Remove rung :number",
       "escalation_editor_delay_label": "When",
       "escalation_editor_delay_immediately": "Immediately",
       "escalation_editor_delay_3min": "After 3 min",
@@ -1583,6 +1584,9 @@
       "oncall_current_header": "On call now",
       "oncall_rotation_header": "Rotation",
       "oncall_add_button": "+ Add to rotation",
+      "oncall_responder_limit_nudge": "Your :plan plan is limited to :count :noun on call. Upgrade to add more.",
+      "oncall_responder_noun_one": "responder",
+      "oncall_responder_noun_other": "responders",
       "oncall_remove_button": "Remove",
       "oncall_remove_confirm_title": "Remove :name from the rotation?",
       "oncall_remove_confirm_description": "They'll stop taking on-call shifts for this team. You can add them back any time.",
@@ -1734,7 +1738,8 @@
       "coverage_partial_days": "Observed :days days of the :window window.",
       "gap_unmeasured": "Not measured this window: :amount.",
       "window_7day": "7-day",
-      "window_30day": "30-day"
+      "window_30day": "30-day",
+      "target_window": "SLO :target% · :window"
     },
     "units": {
       "minutes": "m",

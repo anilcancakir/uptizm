@@ -1559,6 +1559,7 @@
       "escalation_editor_desc_placeholder": "Gelir açısından kritik izleyiciler için agresif çağrı.",
       "escalation_editor_ladder_header": "Yükseltme merdiveni",
       "escalation_editor_rung_title": "Basamak :number",
+      "escalation_editor_remove_rung": ":number. basamağı kaldır",
       "escalation_editor_delay_label": "Ne zaman",
       "escalation_editor_delay_immediately": "Hemen",
       "escalation_editor_delay_3min": "3 dk sonra",
@@ -1583,6 +1584,9 @@
       "oncall_current_header": "Şu anda nöbetçi",
       "oncall_rotation_header": "Rotasyon",
       "oncall_add_button": "+ Rotasyona ekle",
+      "oncall_responder_limit_nudge": ":plan planınız nöbette en fazla :count :noun ile sınırlıdır. Daha fazlası için yükseltin.",
+      "oncall_responder_noun_one": "kişi",
+      "oncall_responder_noun_other": "kişi",
       "oncall_remove_button": "Kaldır",
       "oncall_remove_confirm_title": ":name rotasyondan kaldırılsın mı?",
       "oncall_remove_confirm_description": "Bu takım için nöbet vardiyalarını almayı bırakacak. İstediğiniz zaman tekrar ekleyebilirsiniz.",
@@ -1734,7 +1738,8 @@
       "coverage_partial_days": ":window pencerenin :days günü gözlendi.",
       "gap_unmeasured": "Bu pencerede :amount ölçülemedi.",
       "window_7day": "7 günlük",
-      "window_30day": "30 günlük"
+      "window_30day": "30 günlük",
+      "target_window": "%:target SLO · :window"
     },
     "units": {
       "minutes": "dk",
