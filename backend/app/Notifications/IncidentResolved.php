@@ -573,9 +573,32 @@ class IncidentResolved extends Notification implements ShouldQueue
 
     /**
      * Build the client-facing URL for this incident.
+     *
+     * Points at the Flutter client's own host, `app.frontend_url`, never at
+     * `app.url` (this API's origin): a Universal Link only opens the
+     * installed app for a host in its entitlement, and `routes/web.php`
+     * registers no `/incidents/{id}` for `app.url` to answer anyway.
      */
     private function incidentUrl(): string
     {
-        return rtrim((string) config('app.url'), '/').'/incidents/'.$this->incident->id;
+        return rtrim(self::frontendBase(), '/').'/incidents/'.$this->incident->id;
+    }
+
+    /**
+     * The frontend origin, normalized against a present-but-empty
+     * `app.frontend_url` (see the comment at `config/app.php:69`): that key
+     * is read directly rather than through its own `env()` default, so a
+     * blank `.env` line, which leaves the key PRESENT and EMPTY, has to be
+     * caught here instead of never firing at all.
+     */
+    private static function frontendBase(): string
+    {
+        $base = trim((string) config('app.frontend_url'));
+
+        if ($base === '') {
+            $base = (string) config('app.url');
+        }
+
+        return $base;
     }
 }

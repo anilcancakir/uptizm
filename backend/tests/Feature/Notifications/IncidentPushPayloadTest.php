@@ -157,6 +157,25 @@ class IncidentPushPayloadTest extends TestCase
     }
 
     /**
+     * `deep_link` stays a bare in-app path even once `incidentUrl()` composes
+     * an absolute frontend URL for the other five surfaces: the client's deep
+     * link handler routes on a path and rejects any destination carrying a
+     * scheme or an authority, so an absolute value here would make a tapped
+     * push a silent no-op.
+     */
+    public function test_deep_link_stays_a_bare_path_even_with_a_frontend_url_configured(): void
+    {
+        config(['app.frontend_url' => 'https://app.example.test']);
+
+        $incident = $this->makeIncident();
+        $user = User::factory()->create();
+
+        $data = (new IncidentOpened($incident))->toOneSignal($user)->getData();
+
+        $this->assertSame('/incidents/'.$incident->id, $data['deep_link']);
+    }
+
+    /**
      * Build a persisted incident with a primary monitor for a fresh team.
      *
      * @param  array<string, mixed>  $overrides
