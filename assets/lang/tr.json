@@ -1742,7 +1742,8 @@
       "escalation_policy_edit": "Yükseltme politikasını düzenle",
       "on_call": "Nöbet",
       "billing": "Plan ve faturalandırma",
-      "welcome": "Hoş geldiniz"
+      "welcome": "Hoş geldiniz",
+      "not_found": "Sayfa bulunamadı"
     },
     "slo": {
       "error_budget": "Hata bütçesi",
@@ -1783,6 +1784,11 @@
       "send_label": "Gönder",
       "error_title": "Uptizm AI'ya ulaşılamadı",
       "error_description": "Bir şeyler ters gitti. Lütfen tekrar deneyin."
+    },
+    "errors": {
+      "not_found_title": "Sayfa bulunamadı",
+      "not_found_description": ":path bulunamadı.",
+      "not_found_action": "Panele git"
     }
   }
 }

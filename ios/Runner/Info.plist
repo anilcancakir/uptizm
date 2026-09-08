@@ -4,6 +4,15 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- Flutter has handled deep links by default since 3.27; without this, the
+	     OS link is routed straight into GoRouter and the validated handler in
+	     magic_deeplink never sees it. -->
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
+	<!-- Stops the OneSignal SDK calling openURL on a push composed by hand in
+	     their dashboard, which would flash Safari instead of the app screen. -->
+	<key>OneSignal_suppress_launch_urls</key>
+	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
