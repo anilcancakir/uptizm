@@ -340,6 +340,8 @@
     "title": "Notifications",
     "view_all": "View all notifications",
     "badge_overflow": "9+",
+    "bulk_title": "Every notification type",
+    "bulk_description": "Turn a channel on or off for every notification type at once.",
     "no_preferences": "No notification preferences available.",
     "channel_email": "Email",
     "channel_in_app": "In-App",

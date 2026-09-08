@@ -340,6 +340,8 @@
     "title": "Bildirimler",
     "view_all": "Tüm bildirimleri görüntüle",
     "badge_overflow": "9+",
+    "bulk_title": "Tüm bildirim türleri",
+    "bulk_description": "Bir kanalı bütün bildirim türleri için tek seferde aç veya kapat.",
     "no_preferences": "Kullanılabilir bildirim tercihi yok.",
     "channel_email": "E-posta",
     "channel_in_app": "Uygulama İçi",
