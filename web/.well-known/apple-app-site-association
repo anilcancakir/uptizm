@@ -1,0 +1,17 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": [
+          "883V9SVA54.com.uptizm.uptizm"
+        ],
+        "components": [
+          {
+            "/": "/*",
+            "comment": "Matches any URL whose path matches /*"
+          }
+        ]
+      }
+    ]
+  }
+}

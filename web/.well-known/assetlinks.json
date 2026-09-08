@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.uptizm.uptizm",
+      "sha256_cert_fingerprints": [
+        "34:4B:42:E4:67:4F:60:01:BA:D5:E2:29:E8:09:0C:45:7D:6E:D1:C4:6D:E8:CA:CE:74:55:85:09:D6:2F:55:86"
+      ]
+    }
+  }
+]
