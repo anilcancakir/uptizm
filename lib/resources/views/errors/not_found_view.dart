@@ -24,9 +24,17 @@ import 'package:magic_starter/magic_starter.dart';
 /// ```
 @immutable
 class NotFoundView extends StatelessWidget {
-  /// The unmatched path segment captured by the `/:path(.*)` route (no
-  /// leading slash, e.g. `main.dart.js` for a request to `/main.dart.js`).
+  /// The unmatched path captured by the `/:path(.*)` route.
+  ///
+  /// Whether it arrives with a leading slash is not something to assume: this
+  /// view first shipped prepending one unconditionally, and a live walk to
+  /// `/definitely-not-a-route` rendered `//definitely-not-a-route` at the user.
+  /// [_displayPath] normalises instead, so either shape reads correctly.
   final String path;
+
+  /// [path] with exactly one leading slash, which is how a person writes the
+  /// address they typed.
+  String get _displayPath => path.startsWith('/') ? path : '/$path';
 
   /// Creates a [NotFoundView] for the unmatched [path].
   const NotFoundView({super.key, required this.path});
@@ -37,7 +45,7 @@ class NotFoundView extends StatelessWidget {
       child: MSEmptyState(
         title: trans('uptizm.errors.not_found_title'),
         description: trans('uptizm.errors.not_found_description', {
-          'path': '/$path',
+          'path': _displayPath,
         }),
         action: MSButton(
           onPressed: () => MagicRoute.to('/'),
