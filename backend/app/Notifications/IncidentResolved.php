@@ -10,6 +10,7 @@ use App\Notifications\Channels\SlackChannel;
 use App\Notifications\Channels\TeamsChannel;
 use App\Notifications\Channels\WebhookChannel;
 use App\Services\Monitoring\IncidentTitle;
+use App\Support\Notifications\IncidentBody;
 use FlutterSdk\MagicStarter\Features;
 use FlutterSdk\MagicStarter\Models\NotificationSetting;
 use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
@@ -286,13 +287,15 @@ class IncidentResolved extends Notification implements ShouldQueue
             'tr' => __('notifications.incident_resolved_push_heading', ['monitor' => $this->monitorName('tr')], 'tr'),
         ]));
         $payload->setContents(new LanguageStringMap([
-            // Two kinds of title, one map: an operator-authored one is
-            // user-generated text and crosses unchanged in both entries, an
-            // automatically composed one renders per locale from its key. See
-            // {@see IncidentOpened::toOneSignal()} for the full reasoning; the
-            // locale is explicit because this payload carries both languages.
-            'en' => IncidentTitle::render($this->incident, 'en'),
-            'tr' => IncidentTitle::render($this->incident, 'tr'),
+            // The same body the in-app row carries: how long the outage ran and
+            // which host it was about. The heading above already says the
+            // incident is resolved, and the incident's own title says the
+            // opposite ("Website is down"), so neither belongs here.
+            //
+            // The locale is explicit because this payload carries both languages
+            // and OneSignal picks per device.
+            'en' => IncidentBody::forResolved($this->incident, 'en'),
+            'tr' => IncidentBody::forResolved($this->incident, 'tr'),
         ]));
         $payload->setData($this->pushData($notifiable));
 
@@ -384,7 +387,7 @@ class IncidentResolved extends Notification implements ShouldQueue
 
         return [
             'text' => __('notifications.incident_resolved_subject', ['monitor' => $monitorName])."\n"
-                .__('notifications.severity_line', ['severity' => $this->incident->severity->value])."\n"
+                .__('notifications.severity_line', ['severity' => IncidentBody::severityName($this->incident)])."\n"
                 .$this->incidentUrl(),
         ];
     }
@@ -508,7 +511,7 @@ class IncidentResolved extends Notification implements ShouldQueue
             ->subject(__('notifications.incident_resolved_subject', ['monitor' => $monitorName]))
             ->greeting(__('notifications.incident_resolved_greeting'))
             ->line(__('notifications.incident_resolved_line', ['monitor' => $monitorName]))
-            ->line(__('notifications.severity_line', ['severity' => $this->incident->severity->value]))
+            ->line(__('notifications.severity_line', ['severity' => IncidentBody::severityName($this->incident)]))
             ->action(__('notifications.view_incident_action'), $this->incidentUrl());
     }
 
@@ -542,7 +545,12 @@ class IncidentResolved extends Notification implements ShouldQueue
             // per recipient. Rendering it before the send (a constructor
             // argument, a property) would serialize one language into the queued
             // payload for everybody.
-            'body' => IncidentTitle::render($this->incident),
+            //
+            // Not the incident's title, which is the sentence about it BREAKING:
+            // a resolved row used to read "Website is resolved" over "Website is
+            // down", which is a contradiction on one row. How long it ran is the
+            // fact a closed incident actually carries.
+            'body' => IncidentBody::forResolved($this->incident),
             'incident_id' => $this->incident->id,
             'monitor_id' => $this->incident->primary_monitor_id,
             'monitor_name' => $monitorName,

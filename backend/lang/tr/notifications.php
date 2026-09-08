@@ -32,6 +32,21 @@ return [
     'incident_resolved_push_heading' => ':monitor sorunu giderildi',
     'incident_resolved_preference_label' => 'Olay çözüldü',
 
+    // Olay bildiriminin başlığı altındaki tek satırlık gövde; besteci
+    // `App\Support\Notifications\IncidentBody`. Her parça bayatlamayan bir
+    // gerçektir, çünkü uygulama içi satır bir kez yazılır ve yaşadığı sürece
+    // okunur: "kritik seviyesine yükseldi" ve "47 dakika sürdü" doğru kalır,
+    // "3 dakika önce başladı" kalmaz.
+    'body_raised_to' => ':severity seviyesine yükseldi',
+    'body_lasted' => ':duration sürdü',
+
+    // Önem dereceleri, veritabanındaki jetonuyla değil adıyla. Sütun
+    // `critical`/`warn`/`info` tutar; bu, veritabanının sözlüğüdür, aranan
+    // kişinin değil.
+    'severity_critical' => 'Kritik',
+    'severity_warn' => 'Uyarı',
+    'severity_info' => 'Bilgi',
+
     'severity_line' => 'Önem derecesi: :severity.',
     'view_incident_action' => 'Olayı görüntüle',
     'unnamed_monitor' => 'Bir monitör',

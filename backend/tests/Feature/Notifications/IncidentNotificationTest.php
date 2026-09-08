@@ -5,6 +5,7 @@ namespace Tests\Feature\Notifications;
 use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\User;
+use App\Notifications\IncidentEscalated;
 use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
 use App\Services\Monitoring\IncidentTitle;
@@ -97,6 +98,12 @@ class IncidentNotificationTest extends TestCase
      * carries no `title_key` (both entries then correctly fall back to the stored
      * text), and seeding the key without inverting the assertion would go red on
      * the very fix. {@see self::makeIncident()} now seeds the composed triple.
+     *
+     * The body is no longer the title at all, and the last assertion is why: the
+     * heading was already the incident's sentence, so a content built from the
+     * same render produced a real push reading "Local web push test 08:41:39"
+     * over itself (measured on a device on 2026-09-08). It now carries what the
+     * heading cannot, composed by `IncidentBody`.
      */
     public function test_toonesignal_renders_the_body_per_language_not_the_stored_english(): void
     {
@@ -111,18 +118,17 @@ class IncidentNotificationTest extends TestCase
         $this->assertSame('API Health is down', $payload->getHeadings()['en']);
         $this->assertSame('API Health kesintide', $payload->getHeadings()['tr']);
 
-        // The English entry is the stored render, which is also what the column
-        // holds; the Turkish one is the catalogue's sentence, and the two are
-        // different strings.
-        $this->assertSame($incident->title, $payload->getContents()['en']);
-        $this->assertSame(
-            $this->catalogueSentence('tr', 'monitor_down', ['monitor' => 'API Health']),
-            $payload->getContents()['tr'],
-        );
+        $this->assertSame('Critical · example.com', $payload->getContents()['en']);
+        $this->assertSame('Kritik · example.com', $payload->getContents()['tr']);
         $this->assertNotSame(
             $payload->getContents()['en'],
             $payload->getContents()['tr'],
-            'A composed title must not cross to a Turkish device in English',
+            'A composed body must not cross to a Turkish device in English',
+        );
+        $this->assertNotSame(
+            $payload->getHeadings()['en'],
+            $payload->getContents()['en'],
+            'The two lines of a push must not be the same sentence twice',
         );
     }
 
@@ -132,6 +138,8 @@ class IncidentNotificationTest extends TestCase
         config(['magic-starter.onesignal.app_id' => 'test-app-id']);
         $incident = $this->makeIncident([
             'lifecycle' => 'resolved',
+            'started_at' => now()->subMinutes(47),
+            'resolved_at' => now(),
         ]);
         $user = User::factory()->create();
 
@@ -141,14 +149,12 @@ class IncidentNotificationTest extends TestCase
         $this->assertSame('API Health is resolved', $payload->getHeadings()['en']);
         $this->assertSame('API Health sorunu giderildi', $payload->getHeadings()['tr']);
 
-        // The heading says "resolved" while the body keeps naming the incident:
-        // the title is what opened, and resolving does not rewrite it. So the
-        // body renders the same composed sentence, per language.
-        $this->assertSame($incident->title, $payload->getContents()['en']);
-        $this->assertSame(
-            $this->catalogueSentence('tr', 'monitor_down', ['monitor' => 'API Health']),
-            $payload->getContents()['tr'],
-        );
+        // The heading says the incident closed; the body says how long it ran.
+        // It used to repeat the incident's own title, which is the sentence about
+        // it BREAKING, so a resolved push read "API Health is resolved" over "API
+        // Health is down" on one notification.
+        $this->assertSame('Lasted 47 minutes · example.com', $payload->getContents()['en']);
+        $this->assertSame('47 dakika sürdü · example.com', $payload->getContents()['tr']);
         $this->assertNotSame(
             $payload->getContents()['en'],
             $payload->getContents()['tr'],
@@ -162,6 +168,10 @@ class IncidentNotificationTest extends TestCase
      * crosses to every device unchanged. Two identical entries are the CORRECT
      * answer here, and this is also what every row written before the structured
      * seam looks like.
+     *
+     * It asserts on the HEADING rather than the content, because the heading is
+     * where the incident's title lives now. The body is composed from the
+     * severity and the target, which are catalogue and column, never authored.
      */
     public function test_an_authored_title_crosses_both_push_languages_unchanged(): void
     {
@@ -176,8 +186,8 @@ class IncidentNotificationTest extends TestCase
 
         $payload = (new IncidentOpened($incident))->toOneSignal($user);
 
-        $this->assertSame('Ödeme akışı EU kenarında yavaş', $payload->getContents()['en']);
-        $this->assertSame('Ödeme akışı EU kenarında yavaş', $payload->getContents()['tr']);
+        $this->assertSame('Ödeme akışı EU kenarında yavaş', $payload->getHeadings()['en']);
+        $this->assertSame('Ödeme akışı EU kenarında yavaş', $payload->getHeadings()['tr']);
     }
 
     /**
@@ -295,12 +305,10 @@ class IncidentNotificationTest extends TestCase
             $trPayload['title'],
         );
 
-        // And `body` is the monitor, so the row carries what happened and where
-        // without saying either twice. It used to be this same sentence, which
-        // for a down incident meant the heading and the body were identical and
-        // for a metric breach meant the heading was the only false line on the
-        // row ("API is down" over "HTTP status code breached critical bound").
-        $this->assertSame('API Health', $trPayload['body']);
+        // And `body` carries what the title cannot: how serious, and which host.
+        // It follows the same ambient locale, so a Turkish recipient gets a
+        // Turkish severity while the host stays a host.
+        $this->assertSame('Kritik · example.com', $trPayload['body']);
 
         $enUser = User::factory()->create(['locale' => 'en']);
         App::setLocale($enUser->preferredLocale());
@@ -311,17 +319,19 @@ class IncidentNotificationTest extends TestCase
         $this->assertSame('Incident opened', $enMail->greeting);
         $this->assertSame('API Health is down', $enPayload['title']);
 
-        // ONE dispatch, two recipients, two languages in the stored feed entry.
-        // Carried by `title` now that it holds the incident's own sentence;
-        // `body` is the monitor name, which is the same word in both languages.
+        // ONE dispatch, two recipients, two languages in the stored feed entry,
+        // on both lines of the row.
         $this->assertNotSame($trPayload['title'], $enPayload['title']);
-        $this->assertSame('API Health', $enPayload['body']);
+        $this->assertSame('Critical · example.com', $enPayload['body']);
+        $this->assertNotSame($trPayload['body'], $enPayload['body']);
     }
 
     public function test_incident_resolved_mail_and_database_render_in_the_notifiables_preferred_locale(): void
     {
         $incident = $this->makeIncident([
             'lifecycle' => 'resolved',
+            'started_at' => now()->subMinutes(47),
+            'resolved_at' => now(),
         ]);
         $notification = new IncidentResolved($incident);
 
@@ -333,10 +343,7 @@ class IncidentNotificationTest extends TestCase
         $this->assertSame('[Uptizm] API Health sorunu giderildi', $trMail->subject);
         $this->assertSame('Olay çözüldü', $trMail->greeting);
         $this->assertSame('API Health sorunu giderildi', $trPayload['title']);
-        $this->assertSame(
-            $this->catalogueSentence('tr', 'monitor_down', ['monitor' => 'API Health']),
-            $trPayload['body'],
-        );
+        $this->assertSame('47 dakika sürdü · example.com', $trPayload['body']);
 
         $enUser = User::factory()->create(['locale' => 'en']);
         App::setLocale($enUser->preferredLocale());
@@ -346,7 +353,7 @@ class IncidentNotificationTest extends TestCase
         $this->assertSame('[Uptizm] API Health is resolved', $enMail->subject);
         $this->assertSame('Incident resolved', $enMail->greeting);
         $this->assertSame('API Health is resolved', $enPayload['title']);
-        $this->assertSame('API Health is down', $enPayload['body']);
+        $this->assertSame('Lasted 47 minutes · example.com', $enPayload['body']);
         $this->assertNotSame($trPayload['body'], $enPayload['body']);
     }
 
@@ -405,6 +412,93 @@ class IncidentNotificationTest extends TestCase
         }
 
         return $sentence;
+    }
+
+    public function test_incident_opened_body_names_the_severity_and_the_target(): void
+    {
+        $incident = $this->makeIncident();
+        $user = User::factory()->create();
+
+        $payload = (new IncidentOpened($incident))->toArray($user);
+
+        $this->assertSame('Critical · example.com', $payload['body']);
+    }
+
+    public function test_incident_opened_body_renders_in_the_recipient_language(): void
+    {
+        App::setLocale('tr');
+
+        $incident = $this->makeIncident();
+        $user = User::factory()->create();
+
+        $payload = (new IncidentOpened($incident))->toArray($user);
+
+        $this->assertSame('Kritik · example.com', $payload['body']);
+    }
+
+    public function test_incident_resolved_body_names_how_long_the_outage_lasted(): void
+    {
+        $incident = $this->makeIncident([
+            'lifecycle' => 'resolved',
+            'started_at' => now()->subMinutes(47),
+            'resolved_at' => now(),
+        ]);
+        $user = User::factory()->create();
+
+        $payload = (new IncidentResolved($incident))->toArray($user);
+
+        $this->assertSame('Lasted 47 minutes · example.com', $payload['body']);
+    }
+
+    public function test_incident_escalated_body_names_the_severity_it_reached(): void
+    {
+        $incident = $this->makeIncident();
+        $user = User::factory()->create();
+
+        $payload = (new IncidentEscalated($incident))->toArray($user);
+
+        $this->assertSame('Raised to Critical · example.com', $payload['body']);
+    }
+
+    /**
+     * An incident whose monitor is gone still has to produce a body, and the
+     * separator has to go with the part it separated.
+     *
+     * `incidents.primary_monitor_id` is `nullOnDelete`, so deleting a monitor
+     * leaves its incidents behind with no target to name. A naive
+     * `:severity · :target` template renders "Critical · " with a dangling middot
+     * on every one of them, and an incident list is exactly where those pile up.
+     */
+    public function test_body_drops_the_separator_when_the_incident_has_no_monitor(): void
+    {
+        $incident = $this->makeIncident();
+        $incident->primaryMonitor->delete();
+        $incident->refresh()->load('primaryMonitor');
+        $user = User::factory()->create();
+
+        $payload = (new IncidentOpened($incident))->toArray($user);
+
+        $this->assertSame('Critical', $payload['body']);
+    }
+
+    /**
+     * The severity line names the tier, it does not print the column.
+     *
+     * `severity_line` interpolated `$incident->severity->value` straight into a
+     * translated sentence, so a Turkish recipient read "Önem derecesi: critical."
+     * and a Slack channel got the same. The stored token is the database's
+     * vocabulary; the catalogue has the reader's.
+     */
+    public function test_the_severity_line_names_the_tier_in_the_recipient_language(): void
+    {
+        App::setLocale('tr');
+
+        $incident = $this->makeIncident();
+        $user = User::factory()->create(['locale' => 'tr']);
+        $notification = new IncidentOpened($incident);
+
+        $this->assertContains('Önem derecesi: Kritik.', $notification->toMail($user)->introLines);
+        $this->assertStringContainsString('Önem derecesi: Kritik.', $notification->toSlack($user)['text']);
     }
 
     /**
