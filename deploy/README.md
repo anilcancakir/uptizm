@@ -744,9 +744,9 @@ Android, with the app installed on a connected device or emulator and `adb`
 on the path:
 
 ```bash
-adb shell pm set-app-links --package com.uptizm.uptizm 0 all
-adb shell pm verify-app-links --re-verify com.uptizm.uptizm
-adb shell pm get-app-links com.uptizm.uptizm
+adb shell pm set-app-links --package com.uptizm.app 0 all
+adb shell pm verify-app-links --re-verify com.uptizm.app
+adb shell pm get-app-links com.uptizm.app
 ```
 
 The first command resets verification state to what it was before the app was

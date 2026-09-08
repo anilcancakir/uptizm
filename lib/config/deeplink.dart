@@ -35,10 +35,10 @@ Map<String, dynamic> get deeplinkConfig => {
     'domain': 'app.uptizm.com',
     'scheme': 'https',
 
-    'ios': {'team_id': '883V9SVA54', 'bundle_id': 'com.uptizm.uptizm'},
+    'ios': {'team_id': '883V9SVA54', 'bundle_id': 'com.uptizm.app'},
 
     'android': {
-      'package_name': 'com.uptizm.uptizm',
+      'package_name': 'com.uptizm.app',
       'sha256_fingerprints': [
         '34:4B:42:E4:67:4F:60:01:BA:D5:E2:29:E8:09:0C:45:7D:6E:D1:C4:6D:E8:CA:CE:74:55:85:09:D6:2F:55:86',
       ],
