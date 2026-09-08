@@ -11,6 +11,7 @@ use App\Notifications\Channels\SlackChannel;
 use App\Notifications\Channels\TeamsChannel;
 use App\Notifications\Channels\WebhookChannel;
 use App\Services\Monitoring\IncidentTitle;
+use App\Support\Notifications\FrontendBase;
 use App\Support\Notifications\IncidentBody;
 use FlutterSdk\MagicStarter\Features;
 use FlutterSdk\MagicStarter\Models\NotificationSetting;
@@ -725,20 +726,14 @@ class IncidentOpened extends Notification implements ShouldQueue
     }
 
     /**
-     * The frontend origin, normalized against a present-but-empty
-     * `app.frontend_url` (see the comment at `config/app.php:69`): that key
-     * is read directly rather than through its own `env()` default, so a
-     * blank `.env` line, which leaves the key PRESENT and EMPTY, has to be
-     * caught here instead of never firing at all.
+     * The frontend origin, or this API's own when none is configured.
+     *
+     * Through {@see FrontendBase::url()}, which is the one place the
+     * fallback chain and the slash-only guard live, so the two incident
+     * notifications cannot drift apart on it.
      */
     private static function frontendBase(): string
     {
-        $base = trim((string) config('app.frontend_url'));
-
-        if ($base === '') {
-            $base = (string) config('app.url');
-        }
-
-        return $base;
+        return FrontendBase::url();
     }
 }

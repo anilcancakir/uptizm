@@ -33,18 +33,35 @@ import '../models/user.dart' show User;
 class UptizmDeeplinkHandler implements DeeplinkHandler {
   /// The route families a link from outside may name.
   ///
-  /// A prefix rather than a route pattern, because the parameter segment is the
-  /// part a link carries: `/incidents/` covers `/incidents/inc-1` and nothing
-  /// this app does not serve. Without it the guard said "any string starting
-  /// with a slash", which is how `/main.dart.js` and every other asset the web
-  /// build serves read as a destination.
-  static const List<String> _routePrefixes = <String>[
-    '/incidents/',
-    '/monitors/',
-    '/status/',
-    '/teams/',
-    '/invitations/',
-    '/settings/',
+  /// A family root rather than a route pattern, because the parameter segment
+  /// is the part a link carries: `/incidents` covers the list screen and
+  /// `/incidents/inc-1` covers the detail one, while `/main.dart.js` and every
+  /// other asset the web build serves is refused. Without any list at all the
+  /// guard said "any string starting with a slash".
+  ///
+  /// A ROOT, not a trailing-slash prefix, and that distinction was a real
+  /// defect rather than a style choice. This shipped as `/incidents/` and
+  /// friends, which refuses `/incidents`, `/monitors` and `/status`, all three
+  /// of which the router serves, and refuses `/auth/reset-password?token=...`,
+  /// which is the link a locked-out customer receives by mail. Since the
+  /// association files claim `/*` on this host, the OS hands those links to the
+  /// app and the app then declined them, and declined them SILENTLY: a false
+  /// [canHandle] means the manager never calls [handle], so nothing is logged
+  /// and nothing is shown.
+  ///
+  /// `deeplink_route_coverage_test.dart` walks the real route table and asserts
+  /// every registered path is accepted, so a new family cannot drift out of
+  /// this list unnoticed.
+  static const List<String> _routeFamilies = <String>[
+    '/incidents',
+    '/monitors',
+    '/status',
+    '/teams',
+    '/invitations',
+    '/settings',
+    '/auth',
+    '/welcome',
+    '/notifications',
   ];
 
   /// The one exact path outside [_routePrefixes], since a prefix match on `/`
@@ -198,7 +215,9 @@ class UptizmDeeplinkHandler implements DeeplinkHandler {
     if (!path.startsWith('/')) return false;
     if (path == _rootPath) return true;
 
-    return _routePrefixes.any(path.startsWith);
+    return _routeFamilies.any(
+      (String family) => path == family || path.startsWith('$family/'),
+    );
   }
 
   /// Whether [uri] addresses this app rather than somewhere else.
