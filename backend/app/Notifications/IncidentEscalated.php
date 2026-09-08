@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Services\Monitoring\ThresholdEvaluator;
+use App\Support\Notifications\IncidentBody;
 
 /**
  * Notification sent when an OPEN incident's severity is raised, not when a new
@@ -39,5 +40,18 @@ class IncidentEscalated extends IncidentOpened
     protected function eventType(): string
     {
         return 'incident_escalated';
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * The escalation body names the tier the incident REACHED, where the open
+     * body names the tier it started at. Same facts, different verb, for the same
+     * reason this class exists at all: the operator has been watching this
+     * incident, and copy shaped like an opening reads as a second outage.
+     */
+    protected function composeBody(?string $locale = null): string
+    {
+        return IncidentBody::forEscalated($this->incident, $locale);
     }
 }

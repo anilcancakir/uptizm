@@ -11,6 +11,7 @@ use App\Notifications\Channels\SlackChannel;
 use App\Notifications\Channels\TeamsChannel;
 use App\Notifications\Channels\WebhookChannel;
 use App\Services\Monitoring\IncidentTitle;
+use App\Support\Notifications\IncidentBody;
 use FlutterSdk\MagicStarter\Features;
 use FlutterSdk\MagicStarter\Models\NotificationSetting;
 use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
@@ -343,19 +344,17 @@ class IncidentOpened extends Notification implements ShouldQueue
             'tr' => __($this->copyKey('push_heading'), $this->copyParams('tr'), 'tr'),
         ]));
         $payload->setContents(new LanguageStringMap([
-            // A title is one of two things, and this map has to be right for
-            // both. An operator-authored one is user-generated text: a human
-            // chose its language, so it crosses unchanged and both entries carry
-            // the same string. An automatically composed one is a key plus its
-            // parameters, so it renders per locale out of `lang/*/incidents.php`
-            // and the two entries differ. {@see IncidentTitle::render()} decides
-            // which from `title_key`.
+            // The same body the in-app row carries, and deliberately NOT the
+            // title again: the heading above is already the incident's own
+            // sentence, so rendering it here too produced a push whose two lines
+            // were the same string ("Local web push test 08:41:39" over itself,
+            // measured on a real device on 2026-09-08).
             //
             // The locale is passed explicitly rather than left ambient because
             // one push payload carries both languages and OneSignal picks per
             // device, exactly like the headings two lines above.
-            'en' => IncidentTitle::render($this->incident, 'en'),
-            'tr' => IncidentTitle::render($this->incident, 'tr'),
+            'en' => $this->composeBody('en'),
+            'tr' => $this->composeBody('tr'),
         ]));
         $payload->setData($this->pushData($notifiable));
 
@@ -470,7 +469,7 @@ class IncidentOpened extends Notification implements ShouldQueue
     {
         return [
             'text' => __($this->copyKey('subject'), $this->copyParams())."\n"
-                .__('notifications.severity_line', ['severity' => $this->incident->severity->value])."\n"
+                .__('notifications.severity_line', ['severity' => IncidentBody::severityName($this->incident)])."\n"
                 .$this->incidentUrl(),
         ];
     }
@@ -578,7 +577,7 @@ class IncidentOpened extends Notification implements ShouldQueue
                         ],
                         [
                             'title' => 'Severity',
-                            'value' => $this->incident->severity->value,
+                            'value' => IncidentBody::severityName($this->incident),
                         ],
                         [
                             'title' => 'State',
@@ -635,7 +634,7 @@ class IncidentOpened extends Notification implements ShouldQueue
                 'monitor' => $monitorName,
                 'lifecycle' => $this->incident->lifecycle->value,
             ]))
-            ->line(__('notifications.severity_line', ['severity' => $this->incident->severity->value]))
+            ->line(__('notifications.severity_line', ['severity' => IncidentBody::severityName($this->incident)]))
             ->action(__('notifications.view_incident_action'), $this->incidentUrl());
     }
 
@@ -670,17 +669,34 @@ class IncidentOpened extends Notification implements ShouldQueue
             // language. Rendering earlier (a constructor argument, a property)
             // would bake the dispatcher's language into the queued payload and
             // hand every recipient the same one.
-            // The MONITOR, because `title` above now carries the incident's own
-            // sentence. Both facts stay on the row: what happened, and where.
-            // The two used to be "API is down" over "HTTP status code breached
-            // critical bound", where only the second was true.
-            'body' => $monitorName,
+            // Not the monitor name, which `title` above already carries for
+            // every automatically composed incident and which the row's own
+            // `monitor_name` key carries for the ones it does not. The body's
+            // job is the fact the title cannot hold: how serious this is, and
+            // which host it is about.
+            'body' => $this->composeBody(),
             'incident_id' => $this->incident->id,
             'monitor_id' => $this->incident->primary_monitor_id,
             'monitor_name' => $monitorName,
             'severity' => $this->incident->severity->value,
             'kind' => 'incident',
         ];
+    }
+
+    /**
+     * The one-line body that sits under this notification's title.
+     *
+     * Overridden by {@see IncidentEscalated}, which reached a severity rather
+     * than opening at one and needs its own sentence for it.
+     *
+     * @param  string|null  $locale  Explicit locale, needed by {@see toOneSignal()},
+     *                               which renders every language in one payload.
+     *                               Null follows the ambient locale, which the
+     *                               database channel sets per recipient.
+     */
+    protected function composeBody(?string $locale = null): string
+    {
+        return IncidentBody::forOpened($this->incident, $locale);
     }
 
     /**

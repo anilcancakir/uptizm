@@ -163,8 +163,14 @@ const String pushOffNoticeLabelClassName = 'truncate text-xs text-fg-muted';
 /// Same fix as [pushPromptEnableButtonClassName] and the more pressing of the
 /// two per the QA finding: with no feedback at all the decline read as easy
 /// to miss as a control, not merely static.
+///
+/// The same `px-4 py-3` box as the enable button beside it, and that is not
+/// symmetry for its own sake. The two sit on one row, so a smaller box here
+/// renders two controls of visibly different height, and the 44dp touch floor
+/// the enable button's padding exists for applies to this one too: declining is
+/// a choice a person makes on a phone with a thumb.
 const String pushPromptDeclineButtonClassName =
-    'rounded-md border border-transparent px-2 py-1 text-sm font-medium '
+    'rounded-md border border-transparent px-4 py-3 text-sm font-medium '
     'text-fg-muted transition-colors hover:bg-surface-container '
     'hover:text-fg focus:border-color-border focus:bg-surface-container '
     'focus:text-fg';

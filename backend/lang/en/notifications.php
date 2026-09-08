@@ -44,6 +44,21 @@ return [
     'incident_resolved_push_heading' => ':monitor is resolved',
     'incident_resolved_preference_label' => 'Incident resolved',
 
+    // The one-line body under an incident notification's title, composed by
+    // `App\Support\Notifications\IncidentBody`. Each part is a fact that does not
+    // go stale, because the in-app row is written once and read for as long as it
+    // lives: "raised to critical" and "lasted 47 minutes" stay true, "started 3
+    // minutes ago" would not.
+    'body_raised_to' => 'Raised to :severity',
+    'body_lasted' => 'Lasted :duration',
+
+    // The severity tiers, named rather than printed as their stored token. The
+    // column holds `critical`/`warn`/`info`, which is the vocabulary of the
+    // database and not of the person being paged.
+    'severity_critical' => 'Critical',
+    'severity_warn' => 'Warning',
+    'severity_info' => 'Info',
+
     'severity_line' => 'Severity: :severity.',
     'view_incident_action' => 'View incident',
     'unnamed_monitor' => 'A monitor',
