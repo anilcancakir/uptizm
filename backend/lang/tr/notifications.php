@@ -32,17 +32,17 @@ return [
     'incident_resolved_push_heading' => ':monitor sorunu giderildi',
     'incident_resolved_preference_label' => 'Olay çözüldü',
 
-    // Olay bildiriminin başlığı altındaki tek satırlık gövde; besteci
-    // `App\Support\Notifications\IncidentBody`. Her parça bayatlamayan bir
-    // gerçektir, çünkü uygulama içi satır bir kez yazılır ve yaşadığı sürece
-    // okunur: "kritik seviyesine yükseldi" ve "47 dakika sürdü" doğru kalır,
-    // "3 dakika önce başladı" kalmaz.
+    // The one-line body under an incident notification's title, composed by
+    // `App\Support\Notifications\IncidentBody`. Each part is a fact that does not
+    // go stale, because the in-app row is written once and read for as long as it
+    // lives: "raised to critical" and "lasted 47 minutes" stay true, "started 3
+    // minutes ago" would not.
     'body_raised_to' => ':severity seviyesine yükseldi',
     'body_lasted' => ':duration sürdü',
 
-    // Önem dereceleri, veritabanındaki jetonuyla değil adıyla. Sütun
-    // `critical`/`warn`/`info` tutar; bu, veritabanının sözlüğüdür, aranan
-    // kişinin değil.
+    // The severity tiers, named rather than printed as their stored token. The
+    // column holds `critical`/`warn`/`info`, which is the vocabulary of the
+    // database and not of the person being paged.
     'severity_critical' => 'Kritik',
     'severity_warn' => 'Uyarı',
     'severity_info' => 'Bilgi',

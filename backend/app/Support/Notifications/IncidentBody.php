@@ -2,6 +2,7 @@
 
 namespace App\Support\Notifications;
 
+use App\Enums\IncidentSeverity;
 use App\Models\Incident;
 use App\Models\Monitor;
 use Carbon\CarbonInterface;
@@ -48,7 +49,7 @@ final class IncidentBody
     {
         return self::join([
             self::severityName($incident, $locale),
-            self::targetLabel($incident->primaryMonitor),
+            self::subjectLabel($incident),
         ]);
     }
 
@@ -69,6 +70,9 @@ final class IncidentBody
             __('notifications.body_raised_to', [
                 'severity' => self::severityName($incident, $locale),
             ], $locale),
+            // The host, unconditionally: this family's title is
+            // `:monitor got worse`, so it names the monitor whatever the
+            // incident's own title says.
             self::targetLabel($incident->primaryMonitor),
         ]);
     }
@@ -86,6 +90,12 @@ final class IncidentBody
             $duration === null
                 ? null
                 : __('notifications.body_lasted', ['duration' => $duration], $locale),
+            // The host, unconditionally: this family's title is
+            // `:monitor is resolved`, so it names the monitor whatever the
+            // incident's own title says. Measured live on 2026-09-08, reading
+            // `title_params` here instead put the monitor name in both lines of
+            // an authored incident: "API sorunu giderildi" over "30 dakika 33
+            // saniye sürdü · API".
             self::targetLabel($incident->primaryMonitor),
         ]);
     }
@@ -101,7 +111,18 @@ final class IncidentBody
      */
     public static function severityName(Incident $incident, ?string $locale = null): string
     {
-        return __('notifications.severity_'.$incident->severity->value, [], $locale);
+        // A match rather than a key built from the stored token. Laravel's
+        // translator answers a miss with the key itself, so a fourth enum case
+        // would have shipped "notifications.severity_major · example.com" to a
+        // lock screen with nothing failing anywhere; this way it does not
+        // compile. Same shape as `IncidentOpened::pagerDutySeverity()`.
+        $key = match ($incident->severity) {
+            IncidentSeverity::Critical => 'notifications.severity_critical',
+            IncidentSeverity::Warn => 'notifications.severity_warn',
+            IncidentSeverity::Info => 'notifications.severity_info',
+        };
+
+        return __($key, [], $locale);
     }
 
     /**
@@ -114,6 +135,11 @@ final class IncidentBody
      * The locale is set on the instance rather than left to Carbon's global,
      * because `App::setLocale()` does not touch it and a push payload renders two
      * languages inside one call anyway.
+     *
+     * TWO parts, not one. At one part a 119-minute outage renders "1 hour", which
+     * rounds away most of what the operator is reading the line for; at two it is
+     * "1 hour 59 minutes", and the shorter windows are unchanged (47 minutes is
+     * still "47 minutes", a day still "1 day").
      */
     private static function durationLabel(Incident $incident, ?string $locale): ?string
     {
@@ -124,12 +150,58 @@ final class IncidentBody
             return null;
         }
 
+        // An open-and-close inside the same second renders "0 seconds", which is
+        // a sentence about nothing. The part goes rather than the number being
+        // rounded up to a second that did not pass.
+        if ($started->diffInSeconds($resolved, true) < 1) {
+            return null;
+        }
+
         return $started
             ->locale($locale ?? app()->getLocale())
             ->diffForHumans($resolved, [
                 'syntax' => CarbonInterface::DIFF_ABSOLUTE,
-                'parts' => 1,
+                'parts' => 2,
             ]);
+    }
+
+    /**
+     * What the incident is about, in the words the title did not already spend.
+     *
+     * Only the OPENED family needs this, and only because its title is the
+     * incident's own sentence (`incident_opened_title` is `:title`), which names
+     * the monitor for some incidents and not for others. A third of the
+     * catalogue is metric-derived and names the METRIC alone
+     * (`incidents.metric_critical_bound` is ":metric breached critical bound"),
+     * and an operator-authored title names whatever a human typed. On those the
+     * host would leave the row with no monitor name anywhere the client renders,
+     * since it shows the title over the body and reads `monitor_name` only for
+     * routing.
+     *
+     * The escalated and resolved families do NOT go through here: their titles
+     * are `:monitor got worse` and `:monitor is resolved`, so the monitor is
+     * always already named and the body owes the host instead.
+     */
+    private static function subjectLabel(Incident $incident): ?string
+    {
+        $params = $incident->title_params;
+        $titleNamesMonitor = is_array($params)
+            && is_string($params['monitor'] ?? null)
+            && trim($params['monitor']) !== '';
+
+        return $titleNamesMonitor
+            ? self::targetLabel($incident->primaryMonitor)
+            : self::monitorLabel($incident->primaryMonitor);
+    }
+
+    /**
+     * The monitor's own name, or null when there is no monitor left to name.
+     */
+    private static function monitorLabel(?Monitor $monitor): ?string
+    {
+        $name = trim((string) ($monitor?->name ?? ''));
+
+        return $name === '' ? null : $name;
     }
 
     /**
@@ -137,11 +209,13 @@ final class IncidentBody
      *
      * The full URL is not it: `https://example.com/health?token=...` is long
      * enough to be truncated by every push surface and carries a query string
-     * that may hold a credential. The host, plus a port when the monitor names a
-     * non-default one, is what identifies the target on a lock screen.
+     * that may hold a credential. Host plus port is one component tighter than
+     * `SentryScrubber::originOnly()`, which the repo already settled on for this
+     * same value class, and it drops userinfo too.
      *
-     * Null when there is no monitor to name, which `nullOnDelete` on
-     * `primary_monitor_id` makes a real state rather than a defensive one.
+     * Null when there is no monitor to name, which is a real state: deleting a
+     * monitor leaves its incidents behind (`primary_monitor_id` is `nullOnDelete`,
+     * and a soft delete takes it out of the relation's scope).
      */
     private static function targetLabel(?Monitor $monitor): ?string
     {
@@ -151,8 +225,9 @@ final class IncidentBody
             return null;
         }
 
-        // A scheme-less `host:port` (how a TCP monitor stores its target) parses
-        // as a path with the port read as a scheme, so retry it as an authority.
+        // `parse_url` reads a scheme-less `host:port` as host plus port already
+        // (measured on PHP 8.5.2), so the authority retry is for the shapes it
+        // answers with a bare path instead: a plain `example.com`.
         $parts = parse_url($url) ?: [];
         $host = $parts['host'] ?? (parse_url('//'.ltrim($url, '/')) ?: [])['host'] ?? null;
 

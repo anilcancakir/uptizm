@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Notifications;
 
+use App\Enums\IncidentSeverity;
 use App\Models\Incident;
 use App\Models\Monitor;
 use App\Models\User;
@@ -9,6 +10,7 @@ use App\Notifications\IncidentEscalated;
 use App\Notifications\IncidentOpened;
 use App\Notifications\IncidentResolved;
 use App\Services\Monitoring\IncidentTitle;
+use App\Support\Notifications\IncidentBody;
 use FlutterSdk\MagicStarter\Features;
 use FlutterSdk\MagicStarter\Models\Team;
 use FlutterSdk\MagicStarter\NotificationPreferenceRegistry;
@@ -424,6 +426,180 @@ class IncidentNotificationTest extends TestCase
         $this->assertSame('Critical · example.com', $payload['body']);
     }
 
+    /**
+     * A title that does not name the monitor makes the body name it.
+     *
+     * A third of the incident catalogue is metric-derived, and those sentences
+     * carry the METRIC and no monitor at all (`lang/*\/incidents.php`:
+     * `:metric breached critical bound`). An operator-authored title names
+     * whatever the human typed. On both, a body that spent its second part on
+     * the host left the row with no monitor name anywhere the client renders:
+     * it shows `title` over `body` and reads `monitor_name` only for routing.
+     */
+    public function test_a_title_that_does_not_name_the_monitor_puts_it_in_the_body(): void
+    {
+        $incident = $this->makeIncident([
+            'title' => 'p95 latency breached critical bound',
+            'title_key' => 'incidents.metric_critical_bound',
+            'title_params' => ['metric' => 'p95 latency'],
+        ]);
+        $user = User::factory()->create();
+
+        $payload = (new IncidentOpened($incident))->toArray($user);
+
+        $this->assertSame('Critical · API Health', $payload['body']);
+    }
+
+    public function test_an_operator_authored_title_also_puts_the_monitor_in_the_body(): void
+    {
+        config(['magic-starter.onesignal.app_id' => 'test-app-id']);
+
+        $incident = $this->makeIncident([
+            'title' => 'Ödeme akışı EU kenarında yavaş',
+            'title_key' => null,
+            'title_params' => null,
+        ]);
+        $user = User::factory()->create();
+        $notification = new IncidentOpened($incident);
+
+        $this->assertSame('Critical · API Health', $notification->toArray($user)['body']);
+
+        // The push half too. The heading is the authored sentence and crosses
+        // both languages unchanged; the CONTENT is composed, so it differs.
+        $payload = $notification->toOneSignal($user);
+        $this->assertSame('Critical · API Health', $payload->getContents()['en']);
+        $this->assertSame('Kritik · API Health', $payload->getContents()['tr']);
+    }
+
+    /**
+     * The resolved and escalated bodies name the HOST even when the incident's
+     * own title named nothing.
+     *
+     * Their titles are `:monitor is resolved` and `:monitor got worse`, composed
+     * from the monitor rather than from the incident's stored sentence, so the
+     * monitor is named whatever that sentence says. Reading `title_params` here
+     * put the monitor name on both lines of an authored incident, measured live
+     * on 2026-09-08: "API sorunu giderildi" over "30 dakika 33 saniye sürdü ·
+     * API". Every fixture in this file carried `title_params`, so the suite could
+     * not see it.
+     */
+    public function test_the_resolved_and_escalated_bodies_name_the_host_on_an_authored_incident(): void
+    {
+        $resolved = $this->makeIncident([
+            'title' => 'Ödeme akışı EU kenarında yavaş',
+            'title_key' => null,
+            'title_params' => null,
+            'lifecycle' => 'resolved',
+            'started_at' => now()->subMinutes(47),
+            'resolved_at' => now(),
+        ]);
+        $escalated = $this->makeIncident([
+            'title' => 'Ödeme akışı EU kenarında yavaş',
+            'title_key' => null,
+            'title_params' => null,
+        ]);
+        $user = User::factory()->create();
+
+        $this->assertSame(
+            'Lasted 47 minutes · example.com',
+            (new IncidentResolved($resolved))->toArray($user)['body'],
+        );
+        $this->assertSame(
+            'Raised to Critical · example.com',
+            (new IncidentEscalated($escalated))->toArray($user)['body'],
+        );
+    }
+
+    /**
+     * A TCP monitor stores its target with no scheme, and the label has to
+     * survive that.
+     */
+    public function test_the_body_labels_a_scheme_less_target(): void
+    {
+        $incident = $this->makeIncident();
+        $incident->primaryMonitor->update([
+            'type' => 'tcp',
+            'url' => 'db.internal:5432',
+        ]);
+        $incident->load('primaryMonitor');
+        $user = User::factory()->create();
+
+        $payload = (new IncidentOpened($incident))->toArray($user);
+
+        $this->assertSame('Critical · db.internal:5432', $payload['body']);
+    }
+
+    /**
+     * Every severity tier has a name in both languages.
+     *
+     * The lookup used to build its key by concatenating the stored token, and
+     * Laravel's translator answers a miss with the key itself, so a fourth enum
+     * case would have shipped `notifications.severity_major · example.com` to a
+     * lock screen with nothing failing.
+     */
+    public function test_every_severity_tier_is_named_in_both_languages(): void
+    {
+        foreach (IncidentSeverity::cases() as $severity) {
+            foreach (['en', 'tr'] as $locale) {
+                $name = IncidentBody::severityName(
+                    $this->makeIncident(['severity' => $severity->value]),
+                    $locale,
+                );
+
+                $this->assertStringNotContainsString('notifications.', $name, "{$severity->value} in {$locale}");
+                $this->assertNotSame($severity->value, $name, "{$severity->value} in {$locale}");
+            }
+        }
+    }
+
+    public function test_the_escalated_push_content_names_the_tier_it_reached(): void
+    {
+        config(['magic-starter.onesignal.app_id' => 'test-app-id']);
+
+        $incident = $this->makeIncident();
+        $user = User::factory()->create();
+
+        $payload = (new IncidentEscalated($incident))->toOneSignal($user);
+
+        $this->assertSame('Raised to Critical · example.com', $payload->getContents()['en']);
+        $this->assertSame('Kritik seviyesine yükseldi · example.com', $payload->getContents()['tr']);
+    }
+
+    /**
+     * A Teams card names the tier, it does not print the column.
+     *
+     * Same defect as the severity line, one surface further out: the FactSet is
+     * read by a person in a channel, and it showed `warn`.
+     */
+    public function test_the_teams_card_names_the_severity_tier(): void
+    {
+        $incident = $this->makeIncident(['severity' => 'warn']);
+        $user = User::factory()->create();
+
+        $facts = $this->teamsFacts((new IncidentOpened($incident))->toTeams($user));
+
+        $this->assertSame('Warning', $facts['Severity']);
+    }
+
+    /**
+     * The `title => value` pairs out of an Adaptive Card's FactSet block.
+     *
+     * @param  array<string, mixed>  $card
+     * @return array<string, string>
+     */
+    private function teamsFacts(array $card): array
+    {
+        foreach ($card['body'] as $block) {
+            if (($block['type'] ?? null) !== 'FactSet') {
+                continue;
+            }
+
+            return collect($block['facts'])->pluck('value', 'title')->all();
+        }
+
+        return [];
+    }
+
     public function test_incident_opened_body_renders_in_the_recipient_language(): void
     {
         App::setLocale('tr');
@@ -448,6 +624,46 @@ class IncidentNotificationTest extends TestCase
         $payload = (new IncidentResolved($incident))->toArray($user);
 
         $this->assertSame('Lasted 47 minutes · example.com', $payload['body']);
+    }
+
+    /**
+     * A two-hour outage says two hours, not "1 hour".
+     *
+     * Carbon's `diffForHumans` takes a `parts` count and one part rounds 119
+     * minutes down to a single unit, which throws away most of what an operator
+     * reads this line for.
+     */
+    public function test_the_duration_does_not_round_a_long_outage_down_to_one_unit(): void
+    {
+        $incident = $this->makeIncident([
+            'lifecycle' => 'resolved',
+            'started_at' => now()->subMinutes(119),
+            'resolved_at' => now(),
+        ]);
+        $user = User::factory()->create();
+
+        $payload = (new IncidentResolved($incident))->toArray($user);
+
+        $this->assertSame('Lasted 1 hour 59 minutes · example.com', $payload['body']);
+    }
+
+    /**
+     * An incident opened and closed inside one second says nothing about its
+     * length, rather than "Lasted 0 seconds".
+     */
+    public function test_the_duration_part_goes_when_there_is_no_duration(): void
+    {
+        $now = now();
+        $incident = $this->makeIncident([
+            'lifecycle' => 'resolved',
+            'started_at' => $now,
+            'resolved_at' => $now,
+        ]);
+        $user = User::factory()->create();
+
+        $payload = (new IncidentResolved($incident))->toArray($user);
+
+        $this->assertSame('example.com', $payload['body']);
     }
 
     public function test_incident_escalated_body_names_the_severity_it_reached(): void

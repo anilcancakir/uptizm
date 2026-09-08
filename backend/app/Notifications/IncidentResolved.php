@@ -479,7 +479,7 @@ class IncidentResolved extends Notification implements ShouldQueue
                         ],
                         [
                             'title' => 'Severity',
-                            'value' => $this->incident->severity->value,
+                            'value' => IncidentBody::severityName($this->incident),
                         ],
                         [
                             'title' => 'State',
