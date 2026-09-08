@@ -672,3 +672,115 @@ select m.url from monitors m join teams t on t.id = m.team_id where t.is_system 
 
 **Check the route exists before calling a 404 a regression.** `artisan route:list`
 settles it. Two "regressions" on 2026-08-05 were URLs that had never existed.
+
+## Launching Universal Links and App Links
+
+This plan stops at code plus the two generated association files
+(`web/.well-known/apple-app-site-association` and `web/.well-known/assetlinks.json`).
+Nothing here is published, merged or deployed yet, so nothing here has ever been
+proven to work on a device. Run these steps in order; each one gates the next.
+
+**1. Publish the two packages, in this order, only after kodizm has reviewed
+each PR and come back with nothing left to raise.**
+
+`magic_deeplink` first (it changed its `DeeplinkHandler` contract and its AASA
+output), then `magic_starter` (it added the intended-URL replay and depends on
+the new `magic_deeplink` shape). Publishing follows this ecosystem's normal pub
+release train; do not merge either PR until kodizm's review is clean.
+
+**2. Merge the uptizm PR.**
+
+`pubspec.yaml` pins both packages as hosted carets, so CI cannot resolve them,
+and the PR cannot go green, until step 1 has actually published both. A red PR
+here before that point is expected, not a defect.
+
+**3. Paste the updated vhost into CloudPanel.**
+
+Nginx configs on this box are never edited on the server; CloudPanel
+regenerates `/etc/nginx/sites-enabled/*.conf` from the panel on save, so a
+direct edit is overwritten on the next save. Site `app.uptizm.com` > Vhost >
+paste `vhost-app.uptizm.com.conf` from this directory > Save.
+
+**4. Deploy the client.**
+
+Run `## Rebuilding the Flutter client` above as it stands; no extra step is
+needed. `flutter build web` already writes both association files into
+`build/web/.well-known/`, and the existing `rsync -az --delete build/web/ ...`
+line carries the whole `web/` tree, `.well-known/` included.
+
+**5. Verify the files answer over HTTPS with the right content type.**
+
+```bash
+curl -sI https://app.uptizm.com/.well-known/apple-app-site-association
+curl -sI https://app.uptizm.com/.well-known/assetlinks.json
+```
+
+Both expect a `content-type: application/json` header and no `location`
+header (a 301 or 302 here means something upstream is redirecting the
+`.well-known` path, which both Apple and Google refuse to follow).
+
+**6. Verify each platform.**
+
+iOS, from a Mac with the app installed on the connected device or a
+simulator that has run it at least once:
+
+```bash
+sudo swcutil dl -d app.uptizm.com
+curl -s https://app.uptizm.com/.well-known/apple-app-site-association -o /tmp/aasa.json
+sudo swcutil verify -d app.uptizm.com -j /tmp/aasa.json -u https://app.uptizm.com/incidents/1
+```
+
+`swcutil dl` proves the file downloads at all. `swcutil verify` reads a local
+copy of that same JSON (curl it yourself first; `dl` does not hand you a
+usable path) and checks whether the given URL pattern matches; the pass line
+reads `Pattern "https://app.uptizm.com/incidents/1" matched.`. Apple's CDN
+caches the AASA per device and offers no manual invalidation, so a change here
+does not take effect the moment it is deployed: a device that already has the
+app installed re-checks the CDN's copy about once a week, and a fresh install
+picks it up immediately. A `blocked match` or no match at all a week after
+deploying is the point to come back and debug, not before.
+
+Android, with the app installed on a connected device or emulator and `adb`
+on the path:
+
+```bash
+adb shell pm set-app-links --package com.uptizm.uptizm 0 all
+adb shell pm verify-app-links --re-verify com.uptizm.uptizm
+adb shell pm get-app-links com.uptizm.uptizm
+```
+
+The first command resets verification state to what it was before the app was
+ever installed, so the second one has something to prove rather than skipping
+because it already ran once. Wait a few minutes after `--re-verify` before
+reading the result. The third command's pass condition is
+`app.uptizm.com: verified` under "Domain verification state"; any other value
+(`legacy_failure`, a bare status code) means verification did not complete and
+`assetlinks.json` or the intent filter is the place to look. On Android 15 and
+higher the system also re-verifies domains in the background on its own
+schedule, and Google states that change can take up to seven days to reach
+every device; on Android 14 and lower there is no background re-verification
+at all; a reinstall is the only way to force one there.
+
+## App Links certificate: the day the app first ships through Play App Signing
+
+Everything above uses the debug signing certificate's fingerprint, the only
+one that exists today (`android/app/build.gradle.kts` signs even the release
+build with it, because there is no release key yet). The first time the app is
+uploaded to the Play Console, Play App Signing re-signs the APK the store
+actually distributes with ITS OWN certificate, which is a different
+fingerprint from anything in this repository. `assetlinks.json` verifies a
+signature, so from that point on it must list Play's certificate too.
+
+1. Play Console > your app > Setup > App signing > copy the **SHA-256
+   certificate fingerprint** under "App signing key certificate".
+2. Add it to `lib/config/deeplink.dart`'s `android.sha256_fingerprints` list,
+   next to the debug one. Keep the debug fingerprint in the list; local debug
+   builds still need it to open a link.
+3. Regenerate: `magic_deeplink`'s `generate` command emits one array ENTRY per
+   configured fingerprint, so a two-fingerprint config produces a
+   two-element `assetlinks.json` array, one statement object per fingerprint
+   rather than one statement carrying a two-item `sha256_cert_fingerprints`
+   list. That is the correct shape and not a duplicate: Google's verifier
+   accepts either form, and this is the one the generator produces.
+4. Redeploy the client (step 4 above) and re-run the Android verification
+   commands (step 6 above).
