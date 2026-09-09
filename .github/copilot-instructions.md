@@ -38,9 +38,11 @@ Shipping a change that spans this app and a sibling does NOT wait for a publish,
 3. This app keeps building through `pubspec_overrides.yaml` against the sibling working trees, so it already has the merged code. **That local build is what deploys.**
 4. Bumping the sibling's version, publishing it, and raising the caret here are a separate, later, deliberate act with no deploy waiting behind it.
 
-Two failures this exists to stop, both seen. **Do not raise a caret in this `pubspec.yaml` ahead of the version on pub.dev.** An override replaces constraint checking, so the local build gains nothing from the raise, while hosted resolution fails outright and CI goes red on `master` itself: `Because uptizm depends on magic_starter ^0.0.1-alpha.27 which doesn't match any versions`. And **do not put a version bump in a sibling's feature PR.** Raising `magic_starter`'s `magic_notifications: ^0.3.0` before 0.3.0 existed made its own `Published graph` job red for a release that had not happened yet.
+**Do not put a version bump in a sibling's feature PR.** Raising `magic_starter`'s `magic_notifications: ^0.3.0` before 0.3.0 existed made its own `Published graph` job red for a release that had not happened yet.
 
-So a red CI here is never a reason to publish something, and a merged sibling PR is never a reason to. When CI reports an undefined symbol that reproduces nowhere, the sibling is merged and unpublished, which is the expected steady state: deploy from the local build and let the release train run on its own clock.
+A caret in this `pubspec.yaml` names what `lib/` actually compiles against, and the two ways to get that wrong point in opposite directions. **Do not raise one to reserve a release this app does not call**: the override replaces constraint checking, so the local build gains nothing, while hosted resolution fails outright and takes `master`'s CI down (`magic_starter ^0.0.1-alpha.27` did exactly that from #170 for a change internal to that package). **Do not lower one below what the code needs either**: `magic_deeplink` stays at `^0.1.0` because `uptizm_deeplink_handler.dart` uses `DeeplinkSource`, and dropping to the published 0.0.3 trades one honest resolution error for twenty analyzer errors that read like this app is broken.
+
+So the Flutter CI job here is RED whenever a sibling this app genuinely depends on is merged and unpublished, and that is the expected steady state rather than a problem to solve. It does not gate anything: the fluttersdk repos are where kodizm approval plus green CI is the merge gate, and this app's own merge and deploy run off the local override build. A red CI here is never a reason to publish something, and a merged sibling PR is never a reason to either.
 
 ## One task, one worktree, one PR
 
