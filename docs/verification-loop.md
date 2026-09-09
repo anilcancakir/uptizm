@@ -15,21 +15,29 @@ skill with its own failure modes.
 ## 1. The static gate
 
 ```sh
-bin/check              # all seven jobs, in parallel
-bin/check --fast       # the four static ones: analyze, design tokens, pint, tsc
+bin/check              # all eleven jobs, in parallel
+bin/check --fast       # the eight static ones
 bin/check flutter      # one half; also backend, worker
 ```
 
-The seven are `flutter-analyze`, `design-tokens`, `backend-pint` and
-`worker-typecheck` (the static four, which is what `--fast` runs), then
-`flutter-test`, `backend-test` and `worker-test`. Two of them are narrower than
-their names suggest, and a change that leans on the wrong one is unverified:
+The eight static jobs, which is what `--fast` runs, are `flutter-analyze`,
+`design-tokens`, `registry`, `icons`, `lockfile`, `overrides-parser`,
+`backend-pint` and `worker-typecheck`. The other three are `flutter-test`,
+`backend-test` and `worker-test`. Three are narrower than their names suggest,
+and a change that leans on the wrong one is unverified:
 
 - `design-tokens` is a comment-stripped regex over `lib/**/*.dart` for `Color(0x`
   and `Colors.`, with four allowlisted paths. It does not see `Color.fromARGB`
   and its siblings, a hardcoded pixel value, a colour token written without its
   `dark:` pair, or a one-off widget where a registry component already exists.
   Those are reviewer-enforced; a green gate is not a statement about them.
+- `icons` re-derives the sources under `assets/brand/generated/` from the brand
+  svg and compares bytes, and separately greps the pbxproj for the build setting
+  `flutter_launcher_icons` corrupts. It does NOT look at a single native icon: it
+  cannot tell you the iOS asset catalog or the Android mipmaps were regenerated
+  from the current sources, only that the sources themselves are current. A
+  commit that reruns `bin/sync-icons` but stages only `assets/` passes this and
+  ships the previous brand.
 - `worker-test` runs in real workerd, so it reaches the Durable Object and a real
   `connect()`, but no test in it can tell you how a given target answers a
   datacenter IP. CI runs it inside the job named `Regional checker (typecheck)`,

@@ -94,6 +94,15 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
+  # Native icon and splash generators. Build-time only: neither ships in the
+  # app, and both are run by hand (`bin/sync-icons` first, then the two
+  # `dart run` invocations its output feeds) rather than on every build,
+  # because both write directly into the tracked native projects and those
+  # diffs want reading. See the `flutter_launcher_icons:` and
+  # `flutter_native_splash:` blocks at the bottom of this file.
+  flutter_launcher_icons: ^0.14.4
+  flutter_native_splash: ^2.4.8
+
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your
@@ -163,3 +172,83 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# ------------------------------------------------------------------------------
+# Native app icons.  dart run flutter_launcher_icons
+#
+# Every source below is written by `bin/sync-icons` from the one brand mark, so
+# do not hand-edit anything under assets/brand/generated/; rerun that instead.
+#
+# WEB IS OFF, and that is the whole reason this block can exist safely. The four
+# files under web/icons/ plus favicon.svg/png were cut by hand from the same mark
+# and are optically corrected per size (the maskable pair is drawn smaller so it
+# survives a launcher mask, the 16px favicon has a thicker ring). A generator
+# would flatten all of that back to one mechanical downscale and would also
+# rewrite web/manifest.json, which carries hand-written copy.
+# ------------------------------------------------------------------------------
+flutter_launcher_icons:
+  image_path: "assets/brand/generated/icon-app.png"
+
+  ios: true
+  # The source is already opaque RGB, so this changes nothing today. It stays as
+  # the guard for tomorrow: App Store Connect rejects a marketing icon carrying
+  # an alpha channel, and that rejection arrives after the upload, not before.
+  remove_alpha_ios: true
+  background_color_ios: "#008560"
+  # iOS 18+ home-screen variants. Apple wants the dark one transparent so the
+  # system composites it over its own material; the tinted one is the same art
+  # desaturated, which for a white mark is a no-op and is the point.
+  image_path_ios_dark_transparent: "assets/brand/generated/icon-ios-dark.png"
+  image_path_ios_tinted_grayscale: "assets/brand/generated/icon-ios-dark.png"
+  desaturate_tinted_to_grayscale_ios: true
+
+  # `true` overwrites the existing ic_launcher rather than adding a second name,
+  # so AndroidManifest.xml's android:icon keeps pointing at the same resource and
+  # this generator never touches the manifest.
+  android: true
+  min_sdk_android: 24
+  adaptive_icon_background: "#008560"
+  adaptive_icon_foreground: "assets/brand/generated/icon-adaptive-foreground.png"
+  # bin/sync-icons already drew the foreground at the safe-zone scale it measured
+  # off the existing maskable web icon, so the tool's default 16% would stack a
+  # second, unmeasured inset on top and shrink the mark to nothing.
+  adaptive_icon_foreground_inset: 0
+  adaptive_icon_monochrome: "assets/brand/generated/icon-monochrome.png"
+
+  web:
+    generate: false
+
+# ------------------------------------------------------------------------------
+# Native splash.  dart run flutter_native_splash:create
+#
+# WEB IS OFF here too, and for a stronger reason than above: web/index.html
+# already draws this exact mark in pure CSS, animated, dark-mode aware and with a
+# prefers-reduced-motion branch, precisely so the first paint costs no network
+# round trip. It also carries the OneSignal SDK tag. This generator rewrites
+# index.html in place.
+#
+# The android_12 block is not optional decoration. flutter_native_splash's own
+# README: "These parameter do not affect the configuration of Android 12 and
+# later". Omit it and every phone from Android 12 up ignores the colours above
+# and shows the platform default instead, which is the silent half of this
+# feature and the half that covers almost every live device.
+# ------------------------------------------------------------------------------
+flutter_native_splash:
+  # DESIGN.md `surface`, the same two values web/index.html uses for its own
+  # splash, so the handover between the two is invisible.
+  color: "#F9FAFB"
+  color_dark: "#07090C"
+  image: assets/brand/generated/splash-mark.png
+  image_dark: assets/brand/generated/splash-mark-dark.png
+
+  android_12:
+    color: "#F9FAFB"
+    color_dark: "#07090C"
+    # A separate, larger rendition rather than the one above: Android 12+ draws
+    # the icon into a masked circle and clips the outer third, so the art has to
+    # sit on a 1152px canvas inside a 768px circle. Handing it the 512px splash
+    # mark would crop the ring.
+    image: assets/brand/generated/splash-android12.png
+    image_dark: assets/brand/generated/splash-android12-dark.png
+
+  web: false
