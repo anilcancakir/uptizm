@@ -60,6 +60,26 @@ jobs:
       - name: Component registry is current
         run: bin/sync-registry --check
 
+      # Also pure Python, but it shells out to rsvg-convert and needs Pillow, so unlike the three
+      # above it cannot run on a bare runner.
+      - name: Icon toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq librsvg2-bin
+          python3 -m pip install --quiet --disable-pip-version-check Pillow
+
+      # Native icons are generated from one svg and none of the other jobs looks at them, so
+      # without this a hand-cut PNG, a stale brand after the mark moves, or a pbxproj carrying
+      # the build setting flutter_launcher_icons corrupts all merge green. `--check` renders into
+      # a temp directory and compares, so it cannot alter the tree it is measuring.
+      #
+      # It compares BYTES against a rasteriser this runner supplies, so a librsvg or Pillow major
+      # bump here can fail an untouched tree. That is the intended trade: a false red names the
+      # toolchain in its own diff, where a pixel-tolerant compare would quietly admit a real
+      # change to the mark.
+      - name: Native icons are current
+        run: bin/sync-icons --check
+
   flutter:
     name: Flutter (analyze + test)
     runs-on: ubuntu-latest
