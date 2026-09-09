@@ -39,15 +39,26 @@ dependencies:
   #
   # Caret on a 0.0.x package does NOT pin the patch in pub: `^0.0.9` means
   # `>=0.0.9 <0.1.0`, so a sibling's next patch is admitted without a bump here.
-  # magic_deeplink left 0.0.x at 0.1.0, where the caret behaves the way it reads
-  # (`^0.1.0` means `>=0.1.0 <0.2.0`), so its next patch needs a bump here like any
-  # other real semver dependency.
+  #
+  # EVERY VERSION BELOW IS ONE THAT EXISTS ON PUB.DEV. Raising a caret ahead of
+  # the release is not a way to reserve it: the local build resolves through the
+  # overrides, which REPLACE constraint checking, so the raise buys nothing here,
+  # while hosted resolution fails outright and takes CI down on master itself.
+  # That is not hypothetical: `^0.1.0` and `^0.0.1-alpha.27` were written here
+  # ahead of both releases in #170, and every run since answered
+  # `Because uptizm depends on magic_starter ^0.0.1-alpha.27 which doesn't match
+  # any versions, version solving failed` before it reached a single test.
+  #
+  # A sibling change reaches production through the overrides and the local
+  # build, not through a caret. These lines move AFTER the release is published,
+  # and the AGENTS.md section "A pub.dev release is never on the critical path"
+  # is the whole rule.
   magic: ^0.0.9
-  magic_deeplink: ^0.1.0
+  magic_deeplink: ^0.0.3
   magic_notifications: ^0.2.0
   magic_payments: ^0.0.2
   magic_social_auth: ^0.0.3
-  magic_starter: ^0.0.1-alpha.27
+  magic_starter: ^0.0.1-alpha.26
 
   # Dev-tooling, imported by lib/main.dart under kDebugMode (release tree-shakes).
   magic_devtools: ^0.0.4

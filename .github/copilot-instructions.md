@@ -27,7 +27,20 @@ Code that breaks one of these is wrong however well it reads. Each is enforced s
 
 The client is built on the in-house stack, and using it correctly is most of writing idiomatic code here: `magic` (IoC container, ORM, auth, validation, routing over `go_router`), `magic_starter` (auth, profile, teams, notifications; override a screen through the view registry, never by forking it), `fluttersdk_wind` (styling through `className`, semantic tokens only), `magic_devtools` (the dev-only `/preview` catalog), and `fluttersdk_artisan`, `fluttersdk_dusk`, `fluttersdk_telescope` reached through `./bin/fsa`. Read their source freely; changing one is a PR in that repository under its own rules, never an edit from here.
 
-`pubspec.yaml` pins those twelve as hosted carets and a gitignored `pubspec_overrides.yaml` points them at the local checkouts with ABSOLUTE paths. That is why a green local run can be a red CI: locally you build against unreleased sibling code, and CI resolves from pub.dev. When CI reports an undefined symbol that reproduces nowhere, publish the sibling and bump the caret rather than reshaping this app. The paths are absolute because a relative `../magic` resolves to nothing from a worktree, and `bin/check` refuses to run when the file is missing or stale. Outside this workspace there are no sibling checkouts and hosted resolution is the right answer, so `CHECK_ALLOW_HOSTED=1 bin/check` is the way through.
+`pubspec.yaml` pins those twelve as hosted carets and a gitignored `pubspec_overrides.yaml` points them at the local checkouts with ABSOLUTE paths. That is why a green local run can be a red CI: locally you build against unreleased sibling code, and CI resolves from pub.dev. The paths are absolute because a relative `../magic` resolves to nothing from a worktree, and `bin/check` refuses to run when the file is missing or stale. Outside this workspace there are no sibling checkouts and hosted resolution is the right answer, so `CHECK_ALLOW_HOSTED=1 bin/check` is the way through.
+
+### A pub.dev release is never on the critical path
+
+Shipping a change that spans this app and a sibling does NOT wait for a publish, and nothing here should be sequenced as though it does. The order is:
+
+1. The sibling change goes up as a PR in its own fluttersdk org repository, **carrying no version bump**. A bump belongs to a release, not to the work.
+2. That PR merges to the sibling's default branch once kodizm review approves it and its CI is green. Those two are the gate, and they are the gate in the fluttersdk repos specifically.
+3. This app keeps building through `pubspec_overrides.yaml` against the sibling working trees, so it already has the merged code. **That local build is what deploys.**
+4. Bumping the sibling's version, publishing it, and raising the caret here are a separate, later, deliberate act with no deploy waiting behind it.
+
+Two failures this exists to stop, both seen. **Do not raise a caret in this `pubspec.yaml` ahead of the version on pub.dev.** An override replaces constraint checking, so the local build gains nothing from the raise, while hosted resolution fails outright and CI goes red on `master` itself: `Because uptizm depends on magic_starter ^0.0.1-alpha.27 which doesn't match any versions`. And **do not put a version bump in a sibling's feature PR.** Raising `magic_starter`'s `magic_notifications: ^0.3.0` before 0.3.0 existed made its own `Published graph` job red for a release that had not happened yet.
+
+So a red CI here is never a reason to publish something, and a merged sibling PR is never a reason to. When CI reports an undefined symbol that reproduces nowhere, the sibling is merged and unpublished, which is the expected steady state: deploy from the local build and let the release train run on its own clock.
 
 ## One task, one worktree, one PR
 
