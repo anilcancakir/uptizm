@@ -4,6 +4,28 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- Flutter has handled deep links by default since 3.27; without this, the
+	     OS link is routed straight into GoRouter and the validated handler in
+	     magic_deeplink never sees it. -->
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
+	<!-- Stops the OneSignal SDK calling openURL on a push composed by hand in
+	     their dashboard, which would flash Safari instead of the app screen. -->
+	<key>OneSignal_suppress_launch_urls</key>
+	<true/>
+	<!-- The profile screen's avatar upload opens the photo library through
+	     image_picker. iOS terminates the app rather than showing the picker
+	     when this string is absent, so its absence is a crash on first tap,
+	     not merely a review finding. -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Uptizm needs access to your photo library so you can choose a profile photo.</string>
+	<!-- The app reaches the network only over TLS and stores credentials in
+	     the Keychain, both of which are exempt operating-system encryption.
+	     magic ships a Crypt facade implementing AES-256-CBC, but no uptizm
+	     code path calls it; revisit this declaration if one ever does, because
+	     answering it wrongly is a false statement on the compliance form. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

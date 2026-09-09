@@ -2,6 +2,7 @@ import 'package:magic/magic.dart';
 import 'package:magic_starter/magic_starter.dart';
 
 import '../resources/views/dashboard/dashboard_view.dart';
+import '../resources/views/errors/not_found_view.dart';
 import '../resources/views/incidents/incident_create_view.dart';
 import '../resources/views/incidents/incident_detail_view.dart';
 import '../resources/views/incidents/incidents_list_view.dart';
@@ -74,6 +75,13 @@ import '../ui/layouts/app_layout.dart';
 /// - `/teams/on-call` — [OnCallScheduleView] inside [AppLayout].
 /// - `/teams/billing` — magic_starter's [MagicStarterBillingView], resolved by
 ///   key through the view registry, inside [AppLayout].
+/// - `/:path(.*)` — [NotFoundView] inside [AppLayout], registered as the LAST
+///   child of the group so every specific route above it wins go_router's
+///   first-match resolution. Catches any URL none of the routes above claimed
+///   (a stale deeplink, a typo, a static asset request once the association
+///   files claim `/*` on app.uptizm.com). Deliberately gated by the group's
+///   `'auth'` middleware rather than a second ungated shell: a signed-out
+///   visitor logs in first, then reads the explanation.
 /// - `/welcome` — [WelcomeView] registered OUTSIDE [AppLayout] (no sidebar/top
 ///   bar shell) and UNGATED, so a fresh unauthenticated launch can reach the
 ///   onboarding carousel.
@@ -281,6 +289,21 @@ void registerAppRoutes() {
         '/teams/billing',
         () => MagicStarter.view.make('teams.billing'),
       ).title('uptizm.titles.billing').transition(RouteTransition.none);
+
+      // 20. Not-found catch-all: matches any path none of the routes above
+      //     claimed. Registered LAST so every specific route wins go_router's
+      //     first-match resolution ahead of it, and registered as a CHILD of
+      //     this group (never as a standalone MagicRoute.page) because
+      //     MagicRouter._buildRoutes() appends every standalone route to the
+      //     go_router tree before any layout's ShellRoute: a standalone
+      //     catch-all would match `/` itself and shadow the entire app. Once
+      //     the deeplink association files claim `/*` on app.uptizm.com, every
+      //     unmatched path (a stale link, a typo, a static asset request) lands
+      //     here rather than opening on nothing.
+      MagicRoute.page(
+        '/:path(.*)',
+        (String path) => NotFoundView(path: path),
+      ).title('uptizm.titles.not_found').transition(RouteTransition.none);
     },
   );
 

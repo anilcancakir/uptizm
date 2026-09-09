@@ -1742,7 +1742,8 @@
       "escalation_policy_edit": "Edit escalation policy",
       "on_call": "On-call",
       "billing": "Plan & billing",
-      "welcome": "Welcome"
+      "welcome": "Welcome",
+      "not_found": "Page not found"
     },
     "slo": {
       "error_budget": "Error budget",
@@ -1783,6 +1784,11 @@
       "send_label": "Send",
       "error_title": "Couldn't reach Uptizm AI",
       "error_description": "Something went wrong. Please try again."
+    },
+    "errors": {
+      "not_found_title": "Page not found",
+      "not_found_description": "We could not find :path.",
+      "not_found_action": "Go to dashboard"
     }
   }
 }

@@ -718,6 +718,90 @@ class IncidentNotificationTest extends TestCase
     }
 
     /**
+     * The incident link has to point at the host that actually serves the
+     * Flutter client (`app.frontend_url`), not this API's own origin: a
+     * Universal Link only opens the installed app for a host in its
+     * entitlement, and `app.url` here is the backend, `uptizm.com`.
+     *
+     * Covers every surface {@see IncidentOpened::incidentUrl()} feeds: the mail
+     * action, the Slack text, the Teams `Action.OpenUrl`, the webhook
+     * `incident_url` and the PagerDuty `custom_details.incident_url`.
+     */
+    public function test_incident_opened_urls_use_the_frontend_host(): void
+    {
+        config(['app.frontend_url' => 'https://app.example.test']);
+
+        $incident = $this->makeIncident();
+        $user = User::factory()->create();
+        $notification = new IncidentOpened($incident);
+        $expected = 'https://app.example.test/incidents/'.$incident->id;
+
+        $this->assertSame($expected, $notification->toMail($user)->actionUrl);
+        $this->assertStringContainsString($expected, $notification->toSlack($user)['text']);
+        $this->assertSame($expected, $notification->toWebhook($user)['incident_url']);
+        $this->assertSame($expected, $notification->toPagerDuty($user)['payload']['custom_details']['incident_url']);
+        $this->assertSame($expected, $this->teamsActionUrl($notification->toTeams($user)));
+    }
+
+    /**
+     * Same five surfaces, on the resolve notification.
+     */
+    public function test_incident_resolved_urls_use_the_frontend_host(): void
+    {
+        config(['app.frontend_url' => 'https://app.example.test']);
+
+        $incident = $this->makeIncident(['lifecycle' => 'resolved']);
+        $user = User::factory()->create();
+        $notification = new IncidentResolved($incident);
+        $expected = 'https://app.example.test/incidents/'.$incident->id;
+
+        $this->assertSame($expected, $notification->toMail($user)->actionUrl);
+        $this->assertStringContainsString($expected, $notification->toSlack($user)['text']);
+        $this->assertSame($expected, $notification->toWebhook($user)['incident_url']);
+        $this->assertSame($expected, $this->teamsActionUrl($notification->toTeams($user)));
+    }
+
+    /**
+     * `backend/.env.example:235` ships `APP_FRONTEND_URL` blank, and a blank
+     * `.env` line makes the key PRESENT and EMPTY, so `env()`'s own default
+     * inside `config/app.php` never fires. A present-but-empty
+     * `app.frontend_url` (the exact runtime shape a stale deploy config
+     * produces) has to fall back to `app.url` rather than compose a relative
+     * `/incidents/{id}` link that a mail client cannot open at all.
+     */
+    public function test_incident_urls_fall_back_to_app_url_when_frontend_url_is_empty(): void
+    {
+        config([
+            'app.frontend_url' => '',
+            'app.url' => 'https://api.example.test',
+        ]);
+
+        $incident = $this->makeIncident();
+        $user = User::factory()->create();
+        $notification = new IncidentOpened($incident);
+        $expected = 'https://api.example.test/incidents/'.$incident->id;
+
+        $this->assertSame($expected, $notification->toMail($user)->actionUrl);
+        $this->assertNotSame('/incidents/'.$incident->id, $notification->toMail($user)->actionUrl);
+    }
+
+    /**
+     * The `url` out of a Teams Adaptive Card's `Action.OpenUrl` block.
+     *
+     * @param  array<string, mixed>  $card
+     */
+    private function teamsActionUrl(array $card): string
+    {
+        foreach ($card['actions'] as $action) {
+            if (($action['type'] ?? null) === 'Action.OpenUrl') {
+                return $action['url'];
+            }
+        }
+
+        return '';
+    }
+
+    /**
      * Build a persisted incident with a primary monitor for a fresh team.
      *
      * The incident is an AUTOMATICALLY opened one: it carries the composed triple

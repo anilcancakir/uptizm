@@ -64,6 +64,14 @@ return [
     | sends have to link there rather than to their own origin. Falls back to
     | APP_URL for a single-origin local setup.
     |
+    | The env() default below cannot fire for a PRESENT but EMPTY key: a blank
+    | .env line sets the variable to '', and env() only substitutes its
+    | default for an ABSENT key (see deploy/README.md:141 for the same trap
+    | on APP_FRONTEND_URL's magic-starter sibling). This file is evaluated
+    | once at bootstrap, so a runtime override cannot patch that gap either.
+    | The real guard normalizes at the read site: see
+    | App\Notifications\IncidentOpened::incidentUrl().
+    |
     */
 
     'frontend_url' => env('APP_FRONTEND_URL', env('APP_URL', 'http://localhost')),

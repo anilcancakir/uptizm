@@ -11,6 +11,7 @@ use App\Notifications\Channels\SlackChannel;
 use App\Notifications\Channels\TeamsChannel;
 use App\Notifications\Channels\WebhookChannel;
 use App\Services\Monitoring\IncidentTitle;
+use App\Support\Notifications\FrontendBase;
 use App\Support\Notifications\IncidentBody;
 use FlutterSdk\MagicStarter\Features;
 use FlutterSdk\MagicStarter\Models\NotificationSetting;
@@ -713,9 +714,26 @@ class IncidentOpened extends Notification implements ShouldQueue
 
     /**
      * Build the client-facing URL for this incident.
+     *
+     * Points at the Flutter client's own host, `app.frontend_url`, never at
+     * `app.url` (this API's origin): a Universal Link only opens the
+     * installed app for a host in its entitlement, and `routes/web.php`
+     * registers no `/incidents/{id}` for `app.url` to answer anyway.
      */
     private function incidentUrl(): string
     {
-        return rtrim((string) config('app.url'), '/').'/incidents/'.$this->incident->id;
+        return rtrim(self::frontendBase(), '/').'/incidents/'.$this->incident->id;
+    }
+
+    /**
+     * The frontend origin, or this API's own when none is configured.
+     *
+     * Through {@see FrontendBase::url()}, which is the one place the
+     * fallback chain and the slash-only guard live, so the two incident
+     * notifications cannot drift apart on it.
+     */
+    private static function frontendBase(): string
+    {
+        return FrontendBase::url();
     }
 }
