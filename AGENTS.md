@@ -56,11 +56,13 @@ Several agents work this repo at the same time, so isolation is the default and 
 
 ## Verifying a change
 
-`bin/check` is the gate: eleven jobs fanned across cores, one summary line each, non-zero when any failed. `--fast` runs the static passes; `flutter`, `backend` or `worker` scopes it to one half. `docs/verification-loop.md` carries the invocations and what each job does and does not measure.
+`bin/check` is the gate: twelve jobs fanned across cores, one summary line each, non-zero when any failed. `--fast` runs the static passes; `flutter`, `backend` or `worker` scopes it to one half. `docs/verification-loop.md` carries the invocations and what each job does and does not measure.
 
 One gate is NOT in `bin/check`: the `.github/` mirrors are checked by CI, so a stale mirror passes locally and blocks the merge there. Run `bin/sync-instructions` after editing this file or any rule, and `bin/sync-skills` after pulling a sibling package.
 
 Do not run `dart format`. The committed tree predates the current SDK's tall formatter, so running it rewrites dozens of untouched files. `flutter analyze` is the real Dart gate, and it is whole-project: there is no per-file mode.
+
+iOS signs TWO entitlements files, so a capability is added to both: `ios/Runner/Runner.entitlements` for Debug and Profile, `ios/Runner/RunnerRelease.entitlements` for Release. The split is forced, because a development provisioning profile allows only `aps-environment: development` and a distribution one only `production`, and the wrong value fails at export. What makes it a trap is the default path: Xcode's Signing and Capabilities tab writes to whichever configuration is selected, which is Debug, so a capability added there reaches every build EXCEPT the one that ships and nothing reports it. `bin/check`'s `ios-entitlements` job compares the two on every key but `aps-environment` and pins each configuration to the file it signs against.
 
 A green suite is the floor. Anything a person clicks gets driven for real with `fluttersdk_dusk` against a running Chrome, at desktop AND at mobile width, because the shell swaps widget trees at `lg` (1024px) and each side can break alone. An endpoint gets a real request; a probe gets a real target. Verify the PREMISE rather than the conclusion: a finding whose conclusion is right and whose reason is invented puts the wrong failure mode into the code.
 

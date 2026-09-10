@@ -80,6 +80,15 @@ jobs:
       - name: Native icons are current
         run: bin/sync-icons --check
 
+      # Back to a bare runner: pure Python, no plutil, no Xcode. iOS signs Debug and Profile
+      # against one entitlements file and Release against another, because a development
+      # provisioning profile and a distribution one allow opposite aps-environment values. The
+      # drift that split invites is invisible to every other job here and to a device test, since
+      # a capability added through Xcode lands on the selected configuration only. Nothing else in
+      # CI opens the iOS project at all.
+      - name: iOS entitlements are in step
+        run: python3 bin/ios-entitlements-check.py
+
   flutter:
     name: Flutter (analyze + test)
     runs-on: ubuntu-latest
