@@ -422,6 +422,35 @@ propose-version, restore and set-commits), and modern `sourcemaps upload`
 attaches maps by DEBUG ID rather than as release-scoped artifacts, so there is
 no per-release file list to read in the first place.
 
+## Rebuilding the iOS app
+
+```bash
+bin/release-ios
+asc builds upload --app 6810789238 --ipa build/ios/ipa/Uptizm.ipa --wait
+```
+
+There is no recipe here to follow by hand, deliberately. iOS needs the same
+`.env` swap the web build needs, for the same reason, and the first TestFlight
+build was made without it: `flutter build ipa` compiled the development `.env`
+into the app, so the phone got `API_URL=http://localhost:8001`, tried to reach
+itself, and sat on the splash screen forever. Nothing reported the failure,
+because `SENTRY_DSN` lives in that same file and the development copy has none.
+
+So `bin/release-ios` performs the swap, writes `SENTRY_RELEASE`, restores the
+development `.env` even when the build fails, and then reads the artifact back:
+the `.env` inside the IPA has to be the production one, and the signed binary
+has to carry `aps-environment: production`. It checks the IPA rather than the
+tree, because the tree is not what gets installed. It also refuses a dirty tree,
+since `SENTRY_RELEASE` would otherwise name a commit that does not describe the
+binary; `--allow-dirty` is there for when that is what you want.
+
+Bump `version:` in `pubspec.yaml` before each upload. App Store Connect rejects
+a build number it has already seen, and it rejects it after the upload has
+finished transferring.
+
+Uploading is a separate command on purpose. Look at what the build reported
+before sending it to Apple.
+
 ## Deploying the backend
 
 ```bash
