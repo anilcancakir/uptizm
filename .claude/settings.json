@@ -1,11 +1,5 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "enabledPlugins": {
-    "fluttersdk@fluttersdk-marketplace": true
-  },
-  "worktree": {
-    "baseRef": "fresh"
-  },
   "hooks": {
     "PostToolUse": [
       {
@@ -19,5 +13,12 @@
         ]
       }
     ]
+  },
+  "worktree": {
+    "baseRef": "fresh"
+  },
+  "enabledPlugins": {
+    "fluttersdk@fluttersdk-marketplace": true,
+    "asc@rorkai": true
   }
 }
