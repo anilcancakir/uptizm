@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+"""Build the iOS release IPA against the production environment, and prove it.
+
+`.env` is a pubspec asset, so whatever sits in it at build time is compiled
+into the app and there is no later chance to correct it. The development copy
+points `API_URL` at `http://localhost:8001` and carries no `SENTRY_DSN`, and a
+build carrying that reaches a phone where localhost is the phone: every request
+fails, nothing renders past the splash, and no report is sent anywhere because
+the DSN is the thing that is missing. That shipped to TestFlight as build 1.
+
+`deploy/README.md` documents the same swap for the web build and it was still
+possible to skip it here, because `flutter build ipa` neither knows nor cares.
+So this script owns the swap rather than describing it, restores the
+development `.env` whatever happens, and then reads the artifact back: the
+bundled `.env` has to be the production one, and the signed binary has to carry
+the production APNs entitlement. Both are checked against the IPA rather than
+against the tree, because the tree is not what gets installed.
+
+Uploading is deliberately NOT part of this. Building an artifact and sending it
+to Apple are separate decisions, and the second one wants the first one's
+output inspected first.
+
+    bin/release-ios              build, verify, print the path
+    bin/release-ios --allow-dirty  skip the clean-tree gate
+
+Requires macOS with Xcode. Run `asc builds upload` afterwards.
+"""
+
+from __future__ import annotations
+
+import plistlib
+import re
+import shutil
+import subprocess
+import sys
+import zipfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+ENV = ROOT / ".env"
+ENV_PRODUCTION = ROOT / ".env.production"
+IPA_DIR = ROOT / "build" / "ios" / "ipa"
+
+# `pubspec.lock` is dirty on every machine in this workspace and is meant to
+# be: a local `pub get` resolves the siblings through `pubspec_overrides.yaml`
+# and writes their paths into it. Treating that as an unclean tree would make
+# the gate below fire on every single release.
+EXPECTED_DIRTY = {"pubspec.lock"}
+
+
+def run(*command: str, capture: bool = False) -> str:
+    result = subprocess.run(
+        command, cwd=ROOT, check=True, text=True,
+        stdout=subprocess.PIPE if capture else None,
+    )
+    return result.stdout if capture else ""
+
+
+def dirty_paths() -> list[str]:
+    """Paths with uncommitted content, minus the one that always has it.
+
+    Untracked files count. A new `.dart` under `lib/` that has never been
+    committed is compiled into this build exactly like a modified one, and it
+    is the case where `SENTRY_RELEASE` is furthest from describing the binary.
+    Anything gitignored, which is every local secret and every build product,
+    does not appear in `--porcelain` at all and so cannot trip this.
+    """
+    lines = run("git", "status", "--porcelain", capture=True).splitlines()
+    return sorted(line[3:] for line in lines if line[3:] not in EXPECTED_DIRTY)
+
+
+def bundled_env(ipa: Path) -> str:
+    """Read the `.env` Flutter compiled into the archive."""
+    with zipfile.ZipFile(ipa) as archive:
+        names = [n for n in archive.namelist() if n.endswith("flutter_assets/.env")]
+        if len(names) != 1:
+            raise SystemExit(
+                f"expected exactly one bundled .env in {ipa.name}, found {len(names)}"
+            )
+        return archive.read(names[0]).decode()
+
+
+def signed_entitlements(ipa: Path) -> dict:
+    """Read the entitlements the app was actually signed with."""
+    extracted = ROOT / "build" / "ios" / "release-ios-verify"
+    shutil.rmtree(extracted, ignore_errors=True)
+    with zipfile.ZipFile(ipa) as archive:
+        archive.extractall(extracted)
+    app = next((extracted / "Payload").glob("*.app"))
+    raw = subprocess.run(
+        ["codesign", "-d", "--entitlements", ":-", "--xml", str(app)],
+        capture_output=True, check=True,
+    ).stdout
+    shutil.rmtree(extracted, ignore_errors=True)
+    return plistlib.loads(raw)
+
+
+def main() -> int:
+    if not ENV_PRODUCTION.exists():
+        raise SystemExit(f"{ENV_PRODUCTION.name} is missing; there is nothing to build against")
+
+    if "--allow-dirty" not in sys.argv:
+        dirty = dirty_paths()
+        if dirty:
+            print("The tree has uncommitted changes, so SENTRY_RELEASE would name a", file=sys.stderr)
+            print("commit that does not describe this binary and every stack trace from", file=sys.stderr)
+            print("it would resolve against the wrong source. Commit, or pass", file=sys.stderr)
+            print("--allow-dirty when that is what you want:", file=sys.stderr)
+            for path in dirty:
+                print(f"  {path}", file=sys.stderr)
+            return 1
+
+    release = run("git", "rev-parse", "--short", "HEAD", capture=True).strip()
+
+    # Written into the file rather than exported, for the reason
+    # deploy/README.md gives about the web build: Flutter reads the bundled
+    # asset and never the shell, so an exported variable reaches nothing.
+    production = ENV_PRODUCTION.read_text()
+    production = re.sub(r"^SENTRY_RELEASE=.*$", f"SENTRY_RELEASE={release}", production, flags=re.M)
+
+    backup = ENV.read_bytes() if ENV.exists() else None
+    try:
+        ENV.write_text(production)
+        print(f"Building against .env.production, SENTRY_RELEASE={release}")
+        run("flutter", "build", "ipa", "--release")
+    finally:
+        # Unconditional. A failed build that leaves the production `.env` in
+        # place would send the next `flutter run` at the live API.
+        if backup is None:
+            ENV.unlink(missing_ok=True)
+        else:
+            ENV.write_bytes(backup)
+        print("Restored the development .env")
+
+    ipas = sorted(IPA_DIR.glob("*.ipa"))
+    if len(ipas) != 1:
+        raise SystemExit(f"expected exactly one .ipa in {IPA_DIR}, found {len(ipas)}")
+    ipa = ipas[0]
+
+    problems: list[str] = []
+
+    if bundled_env(ipa) != production:
+        problems.append(
+            "the .env inside the IPA is not the production one this build was given"
+        )
+
+    entitlements = signed_entitlements(ipa)
+    aps = entitlements.get("aps-environment")
+    if aps != "production":
+        problems.append(f"signed with aps-environment {aps!r}, expected 'production'")
+
+    if problems:
+        for problem in problems:
+            print(f"  {problem}", file=sys.stderr)
+        return 1
+
+    print(f"\n{ipa} is ready.")
+    print(f"  API_URL     {next(l for l in production.splitlines() if l.startswith('API_URL='))[8:]}")
+    print(f"  entitlement aps-environment={aps}")
+    print(f"\nUpload with:\n  asc builds upload --app 6810789238 --ipa {ipa.relative_to(ROOT)} --wait")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
