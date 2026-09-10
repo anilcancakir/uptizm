@@ -216,16 +216,66 @@ def mark_on(
     ring: float = 0.20,
     shadow: str | None = None,
 ) -> None:
-    """Centre the mark on a canvas, opaque when a background is given."""
-    art = render(round(size * fraction / MARK.art_fraction), colour, ring, shadow)
+    """Centre the mark on a canvas, opaque when a background is given.
+
+    The two branches differ for a reason that cost the splash its ring. Pasting
+    an RGBA image with ITSELF as the mask multiplies the source alpha by the
+    mask alpha, and on a transparent canvas there is nothing else to blend
+    with, so the result carries alpha squared: the 0.26 ring the caller asked
+    for came out at 0.07 (measured, 66 -> 17 of 255) and disappeared against
+    the near-black splash on a real phone. Only the semi-transparent parts are
+    affected, which is why the opaque dot always looked right and the fault
+    read as a missing ring rather than as a wrong opacity.
+
+    Onto an OPAQUE canvas the same call is correct, because the mask is doing
+    the job it exists for and the RGB result is a single composite. So the
+    transparent path composites instead, and the opaque one is left alone.
+    """
+    art_px = round(size * fraction / MARK.art_fraction)
+    art = render(art_px, colour, ring, shadow)
+    offset = (size - art_px) // 2
     if background:
         canvas = Image.new("RGB", (size, size), background)
+        canvas.paste(art, (offset, offset), art)
     else:
         canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    offset = (size - art.size[0]) // 2
-    canvas.paste(art, (offset, offset), art)
+        layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        layer.paste(art, (offset, offset))
+        canvas = Image.alpha_composite(canvas, layer)
+        assert_ring_opacity(canvas, path, art_px, ring)
     path.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(path)
+
+
+# How far the measured ring alpha may sit from the requested one. The stroke is
+# antialiased and the sample lands on its centre line, so a pixel or two of
+# rounding is normal; anything larger is a compositing fault rather than noise.
+RING_ALPHA_TOLERANCE = 4
+
+
+def assert_ring_opacity(canvas: Image.Image, path: Path, art_px: int, ring: float) -> None:
+    """Fail loudly when the rendered ring is not the opacity that was asked for.
+
+    This exists because the byte comparison in `--check` cannot see this class
+    of fault at all: it compares one generated tree against another, so a
+    renderer that halves every alpha agrees with itself perfectly and every
+    gate stays green. The fault it caught reached a real phone, where the
+    splash showed a bare green dot and the ring around it was not there.
+
+    Measured on the stroke's centre line, which is where the requested opacity
+    lands undiluted: the annulus is thin enough that averaging over it would
+    fold in the antialiased edges and hide a real shift behind them.
+    """
+    centre = canvas.size[0] / 2
+    radius = MARK.ring_radius * art_px / MARK.view
+    measured = canvas.getpixel((round(centre + radius), round(centre)))[3]
+    expected = round(ring * 255)
+
+    if abs(measured - expected) > RING_ALPHA_TOLERANCE:
+        raise SystemExit(
+            f"{path.name}: ring rendered at alpha {measured}, asked for {expected} "
+            f"(opacity {ring}). The mark is being composited wrong, not restyled."
+        )
 
 
 def build(root: Path = ROOT) -> list[Path]:
