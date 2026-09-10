@@ -4,9 +4,9 @@
 # change, fans them out across cores, and reports one line per job.
 #
 # Usage:
-#   bin/check                  every suite (analyze, design tokens, registry, lockfile, dart tests,
+#   bin/check                  every suite (analyze, design tokens, registry, icons, lockfile, dart tests,
 #                              pint, php tests, worker typecheck + tests)
-#   bin/check --fast           only the static passes: analyze, design tokens, registry, lockfile,
+#   bin/check --fast           only the static passes: analyze, design tokens, registry, icons, lockfile,
 #                              pint, worker typecheck
 #   bin/check flutter          one half only; also `backend` and `worker`
 #   bin/check flutter backend  several halves
@@ -31,9 +31,9 @@ usage() {
     cat <<'USAGE'
 bin/check - the verification gate for this repository.
 
-  bin/check                  every suite: analyze, design tokens, registry, lockfile, dart tests,
+  bin/check                  every suite: analyze, design tokens, registry, icons, lockfile, dart tests,
                              pint, php tests, worker typecheck + tests
-  bin/check --fast           only the static passes: analyze, design tokens, registry, lockfile,
+  bin/check --fast           only the static passes: analyze, design tokens, registry, icons, lockfile,
                              pint, worker typecheck
   bin/check flutter          one half only; also `backend` and `worker`
   bin/check flutter backend  several halves
@@ -265,6 +265,13 @@ run_design_tokens() { bin/design-tokens; }
 # a stale one sends it to scaffold a second copy of a component that already exists.
 # Hand-maintained it drifts within days; generated, it can be verified.
 run_registry() { bin/sync-registry --check && echo "registry: current"; }
+# Two failures in one job, both silent and both shipping. The native icons are
+# generated from one svg, so an edit to the mark that nobody reruns leaves iOS
+# and Android showing the previous brand; that is the stale half. The other half
+# is flutter_launcher_icons 0.14.4 corrupting an Xcode build setting on every
+# run (see bin/sync-icons), which a hurried commit takes along. --check writes
+# nothing, so it is safe here and in CI.
+run_icons() { bin/sync-icons --check && echo "icons: current"; }
 # The committed pubspec.lock has to be the HOSTED-only resolution. A lock generated
 # while pubspec_overrides.yaml is active encodes the sibling working trees, which
 # resolve on this machine and nowhere else, so committing one breaks CI and the
@@ -302,6 +309,7 @@ echo
 wants flutter && start "flutter-analyze" run_flutter_analyze
 wants flutter && start "design-tokens" run_design_tokens
 wants flutter && start "registry" run_registry
+wants flutter && start "icons" run_icons
 wants flutter && start "lockfile" run_lockfile
 wants flutter && start "overrides-parser" run_overrides_parser
 wants backend && start "backend-pint" run_backend_pint

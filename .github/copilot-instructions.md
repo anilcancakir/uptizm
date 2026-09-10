@@ -27,7 +27,22 @@ Code that breaks one of these is wrong however well it reads. Each is enforced s
 
 The client is built on the in-house stack, and using it correctly is most of writing idiomatic code here: `magic` (IoC container, ORM, auth, validation, routing over `go_router`), `magic_starter` (auth, profile, teams, notifications; override a screen through the view registry, never by forking it), `fluttersdk_wind` (styling through `className`, semantic tokens only), `magic_devtools` (the dev-only `/preview` catalog), and `fluttersdk_artisan`, `fluttersdk_dusk`, `fluttersdk_telescope` reached through `./bin/fsa`. Read their source freely; changing one is a PR in that repository under its own rules, never an edit from here.
 
-`pubspec.yaml` pins those twelve as hosted carets and a gitignored `pubspec_overrides.yaml` points them at the local checkouts with ABSOLUTE paths. That is why a green local run can be a red CI: locally you build against unreleased sibling code, and CI resolves from pub.dev. When CI reports an undefined symbol that reproduces nowhere, publish the sibling and bump the caret rather than reshaping this app. The paths are absolute because a relative `../magic` resolves to nothing from a worktree, and `bin/check` refuses to run when the file is missing or stale. Outside this workspace there are no sibling checkouts and hosted resolution is the right answer, so `CHECK_ALLOW_HOSTED=1 bin/check` is the way through.
+`pubspec.yaml` pins those twelve as hosted carets and a gitignored `pubspec_overrides.yaml` points them at the local checkouts with ABSOLUTE paths. That is why a green local run can be a red CI: locally you build against unreleased sibling code, and CI resolves from pub.dev. The paths are absolute because a relative `../magic` resolves to nothing from a worktree, and `bin/check` refuses to run when the file is missing or stale. Outside this workspace there are no sibling checkouts and hosted resolution is the right answer, so `CHECK_ALLOW_HOSTED=1 bin/check` is the way through.
+
+### A pub.dev release is never on the critical path
+
+Shipping a change that spans this app and a sibling does NOT wait for a publish, and nothing here should be sequenced as though it does. The order is:
+
+1. The sibling change goes up as a PR in its own fluttersdk org repository, **carrying no version bump**. A bump belongs to a release, not to the work.
+2. That PR merges to the sibling's default branch once kodizm review approves it and its CI is green. Those two are the gate, and they are the gate in the fluttersdk repos specifically.
+3. This app keeps building through `pubspec_overrides.yaml` against the sibling working trees, so it already has the merged code. **That local build is what deploys.**
+4. Bumping the sibling's version, publishing it, and raising the caret here are a separate, later, deliberate act with no deploy waiting behind it.
+
+**Do not put a version bump in a sibling's feature PR.** Raising `magic_starter`'s `magic_notifications: ^0.3.0` before 0.3.0 existed made its own `Published graph` job red for a release that had not happened yet.
+
+A caret in this `pubspec.yaml` names what `lib/` actually compiles against, and the two ways to get that wrong point in opposite directions. **Do not raise one to reserve a release this app does not call**: the override replaces constraint checking, so the local build gains nothing, while hosted resolution fails outright and takes `master`'s CI down (`magic_starter ^0.0.1-alpha.27` did exactly that from #170 for a change internal to that package). **Do not lower one below what the code needs either**: `magic_deeplink` stays at `^0.1.0` because `uptizm_deeplink_handler.dart` uses `DeeplinkSource`, and dropping to the published 0.0.3 trades one honest resolution error for twenty analyzer errors that read like this app is broken.
+
+So the Flutter CI job here is RED whenever a sibling this app genuinely depends on is merged and unpublished, and that is the expected steady state rather than a problem to solve. It does not gate anything: the fluttersdk repos are where kodizm approval plus green CI is the merge gate, and this app's own merge and deploy run off the local override build. A red CI here is never a reason to publish something, and a merged sibling PR is never a reason to either.
 
 ## One task, one worktree, one PR
 
@@ -43,7 +58,7 @@ Several agents work this repo at the same time, so isolation is the default and 
 
 ## Verifying a change
 
-`bin/check` is the gate: ten jobs fanned across cores, one summary line each, non-zero when any failed. `--fast` runs the static passes; `flutter`, `backend` or `worker` scopes it to one half. `docs/verification-loop.md` carries the invocations and what each job does and does not measure.
+`bin/check` is the gate: eleven jobs fanned across cores, one summary line each, non-zero when any failed. `--fast` runs the static passes; `flutter`, `backend` or `worker` scopes it to one half. `docs/verification-loop.md` carries the invocations and what each job does and does not measure.
 
 One gate is NOT in `bin/check`: the `.github/` mirrors are checked by CI, so a stale mirror passes locally and blocks the merge there. Run `bin/sync-instructions` after editing this file or any rule, and `bin/sync-skills` after pulling a sibling package.
 
@@ -56,6 +71,7 @@ Deploying is never automatic. `deploy/README.md` is the procedure, and an agent 
 ## Off-limits
 
 - Generated files are regenerated, never edited: `docs/component-registry.md` (`bin/sync-registry`), `.github/skills/{magic-framework,wind-ui}/SKILL.md` (`bin/sync-skills`, each carrying the hash CI checks it against), `lib/config/wind_theme.g.dart` (`design:sync`), `lib/_previews.g.dart` (`previews:refresh`), `lib/app/commands/_index.g.dart` (`commands:refresh`), `.artisan/plugins.json`, and everything `bin/sync-instructions` writes under `.github/`.
+- Every native icon and splash file is generated by `bin/sync-icons` from the single mark in `assets/brand/uptizm-mark.svg` (whose geometry the script parses, so editing a circle there really does move every icon). It owns more than the rasters, and the XML is the part that looks hand-editable and is not: `assets/brand/generated/` and `web/icons/notification.png`; on iOS the `AppIcon`, `LaunchImage` and `LaunchBackground` image sets including their `Contents.json`, plus `Base.lproj/LaunchScreen.storyboard`; under `android/app/src/main/res/` the `mipmap-*` launcher icons, `mipmap-anydpi-v26/ic_launcher.xml`, every `drawable*/launch_background.xml` and splash raster, `ic_stat_onesignal_default`, `values/colors.xml`, and `values/styles.xml`, `values-night/styles.xml`, `values-v31/`, `values-night-v31/`. Edit the svg and rerun; the pubspec's two generator blocks say what feeds what. Do not hand-cut a PNG, and do not run the two `dart run` generators directly: one corrupts an Xcode build setting and the other reindents `ios/Runner/Info.plist` on every run, and `bin/sync-icons` is what undoes both. It needs `rsvg-convert` (`brew install librsvg`) and Pillow.
 - `backend/vendor/`, `build/`, `.dart_tool/`.
 - `design:sync`, `design:lint`, `make:component` and `previews:refresh` are `magic`'s commands, not this project's.
 - This repository is public. `.env.production` holds only values that ship to every browser anyway; server credentials live on the box and in the CI secret store.

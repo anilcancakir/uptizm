@@ -1,0 +1,491 @@
+#!/usr/bin/env python3
+"""Regenerate every raster the native platforms need, from the one brand mark.
+
+Why this exists
+---------------
+The mark is `assets/brand/uptizm-mark.svg`: a ring and a dot, two circles and a
+drop shadow. Web already had its favicon and PWA icons cut from it by hand in
+July. iOS and Android never did, so both shipped Flutter's stock template icon,
+byte-identical to `flutter_tools/templates`, right up to the first TestFlight
+build. Hand-cutting the web set worked because it is four files; the native set
+is thirty-odd across two platforms plus five notification densities, and doing
+that by hand once means doing it wrong the next time the mark moves.
+
+So the mark is the input and everything else is output. Change a circle in the
+SVG and rerun this; nothing downstream is authored twice.
+
+What it writes, and who consumes it
+-----------------------------------
+`assets/brand/generated/` holds the SOURCES the two pub generators read. That
+directory is deliberately outside `pubspec.yaml`'s `assets:` block, so none of
+it is bundled into the app: `flutter_launcher_icons` and `flutter_native_splash`
+read these at build-configuration time and emit into the native projects.
+
+The one exception is the notification icon, which has no generator: it is
+written straight into `android/app/src/main/res/drawable-*/`. OneSignal looks
+for `ic_stat_onesignal_default` by exact name and falls back to a GENERIC BELL
+when it is absent, not to the launcher icon, so the app's own brand never
+appears in the status bar until these five files exist.
+
+The svg is read, not restated: `read_geometry` parses the two circles and the
+drop shadow out of it, so thickening the ring there changes every native icon on
+the next run. Only colour, ring opacity and whether the shadow is drawn are
+parameters here, because those genuinely vary per output in ways one file cannot
+hold. See `Geometry` for the whole argument.
+
+Usage
+-----
+    bin/sync-icons              regenerate the sources, then run both pub
+                                generators and repair what they break
+    bin/sync-icons --check      exit 1 if a source is stale, the pbxproj is
+                                corrupted, or the plist was reindented
+
+`--check` renders into a temp directory and compares, so it never touches the
+tree. That is not a nicety: `bin/check` fans its jobs across cores, and a check
+that repairs what it measures passes on its second run over a tree it has just
+called wrong.
+
+The generators are driven from here rather than invoked by hand because both
+damage a tracked file silently on every run, and neither says so in its output.
+`run_generators` documents which and why. Read the resulting diff regardless:
+these tools rewrite native project files, and this script only knows about the
+two faults it has already seen.
+
+Requires `rsvg-convert` (brew install librsvg) and Pillow.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
+from xml.etree import ElementTree
+
+from PIL import Image, ImageChops
+
+ROOT = Path(__file__).resolve().parent.parent
+
+# DESIGN.md, verbatim. `primary` light and dark, and the two page canvases.
+BRAND = "#008560"
+BRAND_DARK = "#00C292"
+SURFACE = "#F9FAFB"
+SURFACE_DARK = "#07090C"
+WHITE = "#FFFFFF"
+
+# Not a DESIGN.md token and deliberately not added as one: it exists only as the
+# shadow under the inverted mark, where the canonical shadow (the mark's own
+# colour) would be white and would blur the dot's edge instead of seating it.
+# It is `primary` taken down to roughly half lightness, dark enough to read as
+# depth on the brand green and never used anywhere a UI token belongs.
+ICON_SHADOW = "#00402E"
+
+
+@dataclass(frozen=True)
+class Geometry:
+    """The mark's shape, read out of the canonical svg rather than restated.
+
+    Only the SHAPE comes from the file. Colour, ring opacity and whether the
+    shadow is drawn at all are parameters here, because they have to vary per
+    output in ways one file cannot hold: the ring goes to 0.42 on a saturated or
+    near-black field, to 1.0 where a platform reads alpha only, and the shadow
+    inverts to a dark green under a white mark. Raising the ring opacity for a
+    dark field is the same correction `uptizm-mark-16.svg` already makes for the
+    different reason of surviving a 16px grid.
+
+    Reading the numbers rather than copying them is what stops the two drifting.
+    A hardcoded copy here would keep producing byte-identical output after
+    someone thickens the ring in the svg, so web would show the new mark and
+    native the old one, with no gate able to notice.
+    """
+
+    view: float
+    ring_radius: float
+    ring_width: float
+    dot_radius: float
+    shadow_dy: float
+    shadow_blur: float
+    shadow_opacity: float
+
+    @property
+    def art_fraction(self) -> float:
+        """How much of the svg's own viewBox the drawn art spans.
+
+        The ring's outer edge is its radius plus half its stroke, so a mark asked
+        to occupy X% of an icon canvas must be rasterised at X/art_fraction of it.
+        """
+        return (self.ring_radius + self.ring_width / 2) * 2 / self.view
+
+
+def read_geometry(path: Path) -> Geometry:
+    """Parse the two circles and the drop shadow out of the canonical mark."""
+    root = ElementTree.parse(path).getroot()
+    ns = {"svg": "http://www.w3.org/2000/svg"}
+
+    view = float(root.get("viewBox").split()[2])
+    circles = root.findall(".//svg:circle", ns)
+    ring = next(c for c in circles if c.get("fill") == "none")
+    dot = next(c for c in circles if c.get("fill") != "none")
+    shadow = root.find(".//svg:feDropShadow", ns)
+
+    return Geometry(
+        view=view,
+        ring_radius=float(ring.get("r")),
+        ring_width=float(ring.get("stroke-width")),
+        dot_radius=float(dot.get("r")),
+        shadow_dy=float(shadow.get("dy")),
+        shadow_blur=float(shadow.get("stdDeviation")),
+        shadow_opacity=float(shadow.get("flood-opacity")),
+    )
+
+
+MARK = read_geometry(ROOT / "assets" / "brand" / "uptizm-mark.svg")
+
+# How much of an icon canvas the mark covers. 0.533 reproduces the existing
+# web/icons/Icon-512.png exactly (measured: a 273px mark on 512px), and is what
+# every full-bleed rendition uses.
+FULL_BLEED = 0.533
+
+# Android's adaptive canvas is 108dp but a launcher clips 18dp off each side, so
+# only the middle 72dp is ever seen. Sizing the foreground against the full
+# canvas is what makes an Android icon look chunkier than its iOS twin: at
+# FULL_BLEED it would fill 80% of what the user actually sees. Scaling by the
+# viewport instead lands the mark at the same optical size on both stores, and
+# at 38dp it sits well inside the 66dp circle the platform guarantees is never
+# clipped whatever mask shape a launcher picks.
+ADAPTIVE_VIEWPORT = 72 / 108
+ADAPTIVE = FULL_BLEED * ADAPTIVE_VIEWPORT
+
+MARK_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {v} {v}" width="{px}" height="{px}">
+  <defs>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feDropShadow dx="0" dy="{sdy}" stdDeviation="{sblur}" flood-color="{shadow_colour}" flood-opacity="{sop}"/>
+    </filter>
+  </defs>
+  <circle cx="{c}" cy="{c}" r="{rr}" fill="none" stroke="{colour}" stroke-opacity="{ring}" stroke-width="{rw}"/>
+  <circle cx="{c}" cy="{c}" r="{dr}" fill="{colour}"{shadow}/>
+</svg>"""
+
+
+def render(px: int, colour: str, ring: float, shadow: str | None) -> Image.Image:
+    """Rasterise the mark at px square, transparent outside the art.
+
+    `shadow` is the drop shadow's colour, or None for no shadow at all. It is a
+    colour rather than a flag because the canonical file's own shadow is the
+    mark's colour, which only reads as depth while the mark is darker than what
+    it sits on. Inverted (a white mark on brand green) that same rule paints a
+    white halo, and a blurred edge on an app icon reads as an out-of-focus
+    render rather than as a design.
+    """
+    svg = MARK_SVG.format(
+        px=px,
+        v=MARK.view,
+        c=MARK.view / 2,
+        rr=MARK.ring_radius,
+        rw=MARK.ring_width,
+        dr=MARK.dot_radius,
+        sdy=MARK.shadow_dy,
+        sblur=MARK.shadow_blur,
+        sop=MARK.shadow_opacity,
+        colour=colour,
+        ring=ring,
+        shadow=' filter="url(#glow)"' if shadow else "",
+        shadow_colour=shadow or colour,
+    )
+    # Scratch files go to a real temp directory rather than beside the output:
+    # an interrupted run would otherwise leave `_mark.svg` in a tracked one.
+    with tempfile.TemporaryDirectory() as scratch:
+        tmp_svg = Path(scratch) / "mark.svg"
+        tmp_png = Path(scratch) / "mark.png"
+        tmp_svg.write_text(svg)
+        subprocess.run(
+            ["rsvg-convert", "-w", str(px), "-h", str(px), str(tmp_svg), "-o", str(tmp_png)],
+            check=True,
+        )
+        return Image.open(tmp_png).convert("RGBA")
+
+
+def mark_on(
+    path: Path,
+    size: int,
+    fraction: float,
+    colour: str,
+    background: str | None = None,
+    ring: float = 0.20,
+    shadow: str | None = None,
+) -> None:
+    """Centre the mark on a canvas, opaque when a background is given."""
+    art = render(round(size * fraction / MARK.art_fraction), colour, ring, shadow)
+    if background:
+        canvas = Image.new("RGB", (size, size), background)
+    else:
+        canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    offset = (size - art.size[0]) // 2
+    canvas.paste(art, (offset, offset), art)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(path)
+
+
+def build(root: Path = ROOT) -> list[Path]:
+    """Write every raster under `root`, and return the paths relative to it.
+
+    `root` is a parameter so `--check` can render into a temp directory and
+    compare, instead of writing over the repository it is measuring. Rendering
+    in place and diffing afterwards is self-healing: the first run reports the
+    staleness and silently fixes it, and the second run passes over a tree that
+    still carries the previous brand in every native icon.
+    """
+    generated = root / "assets" / "brand" / "generated"
+    android_res = root / "android" / "app" / "src" / "main" / "res"
+    web_icons = root / "web" / "icons"
+
+    generated.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+
+    # 1. The App Store / Play / launcher icon. Opaque, because App Store Connect
+    #    rejects an icon carrying an alpha channel, and the mark is inverted to
+    #    white on the brand green: a near-white icon has no visible edge on a
+    #    light home screen and reads as a placeholder next to real ones. The
+    #    ring goes to 0.42 for the same reason the 16px rendition does, 0.20
+    #    white on saturated green is not there at all.
+    icon = generated / "icon-app.png"
+    mark_on(icon, 1024, FULL_BLEED, WHITE, background=BRAND, ring=0.42, shadow=ICON_SHADOW)
+    written.append(icon)
+
+    # 2. iOS 18+ dark variant. Apple asks for this one transparent so the system
+    #    composites it over its own dark material.
+    ios_dark = generated / "icon-ios-dark.png"
+    mark_on(ios_dark, 1024, FULL_BLEED, WHITE, ring=0.42)
+    written.append(ios_dark)
+
+    # 3. Android adaptive foreground, transparent over a flat brand background
+    #    supplied as a colour in pubspec. flutter_launcher_icons' own inset is
+    #    switched off there, so the padding is ADAPTIVE's viewport calculation
+    #    rather than that plus an unmeasured default 16% on top.
+    foreground = generated / "icon-adaptive-foreground.png"
+    mark_on(foreground, 1024, ADAPTIVE, WHITE, ring=0.42, shadow=ICON_SHADOW)
+    written.append(foreground)
+
+    # 4. Android 13 themed icon. The system tints this by alpha, so the ring is
+    #    drawn solid: at 0.42 it would come through as a ghost of a ring next to
+    #    a solid dot, which reads as a rendering fault rather than a design.
+    monochrome = generated / "icon-monochrome.png"
+    mark_on(monochrome, 1024, ADAPTIVE, WHITE, ring=1.0)
+    written.append(monochrome)
+
+    # 5. The native splash mark, in both schemes, matching what web/index.html
+    #    already draws in CSS so the three platforms open the same way.
+    for name, colour, ring in (
+        ("splash-mark.png", BRAND, 0.20),
+        ("splash-mark-dark.png", BRAND_DARK, 0.26),
+    ):
+        path = generated / name
+        mark_on(path, 512, FULL_BLEED, colour, ring=ring, shadow=colour)
+        written.append(path)
+
+    # 6. Android 12+ splash. That API draws the icon into a masked circle and
+    #    clips the outer third, so flutter_native_splash asks for 1152x1152 with
+    #    the art inside a 768px circle. FULL_BLEED puts it at 614px, inside that.
+    for name, colour, ring in (
+        ("splash-android12.png", BRAND, 0.20),
+        ("splash-android12-dark.png", BRAND_DARK, 0.26),
+    ):
+        path = generated / name
+        mark_on(path, 1152, FULL_BLEED, colour, ring=ring, shadow=colour)
+        written.append(path)
+
+    # 7. The OneSignal status-bar icon, straight into the res tree. Android
+    #    reads ONLY the alpha channel here and tints the result itself, so the
+    #    art is solid white with no shadow: any colour would be discarded and a
+    #    partially transparent ring would come through as a faint smudge.
+    for density, px in (
+        ("mdpi", 24),
+        ("hdpi", 36),
+        ("xhdpi", 48),
+        ("xxhdpi", 72),
+        ("xxxhdpi", 96),
+    ):
+        path = android_res / f"drawable-{density}" / "ic_stat_onesignal_default.png"
+        mark_on(path, px, 0.92, WHITE, ring=1.0)
+        written.append(path)
+
+    # 8. The web-push notification icon. Unlike Android's, this one is not a
+    #    silhouette and is not read from the bundle: OneSignal fetches it over
+    #    HTTP from whatever "Default Icon URL" the dashboard names, so it has to
+    #    be a real, opaque, served file. It is the full-colour app icon rather
+    #    than the flat mark, because the browser draws it against the operating
+    #    system's own notification surface where a background-less mark has no
+    #    edge. Set the dashboard to https://app.uptizm.com/icons/notification.png
+    #    or the browser shows OneSignal's generic bell.
+    #
+    #    This is the ONE generated file under web/. Everything else there was
+    #    cut by hand and optically corrected per size, which is why both pub
+    #    generators have web switched off; this file has no hand-cut counterpart
+    #    to overwrite.
+    notification = web_icons / "notification.png"
+    mark_on(notification, 256, FULL_BLEED, WHITE, background=BRAND, ring=0.42, shadow=ICON_SHADOW)
+    written.append(notification)
+
+    return [path.relative_to(root) for path in written]
+
+
+PBXPROJ = ROOT / "ios" / "Runner.xcodeproj" / "project.pbxproj"
+INFO_PLIST = ROOT / "ios" / "Runner" / "Info.plist"
+APPICONSET = ROOT / "ios" / "Runner" / "Assets.xcassets" / "AppIcon.appiconset"
+
+
+def referenced_icons() -> set[str]:
+    """Every filename the iOS asset catalog actually points at."""
+    catalog = json.loads((APPICONSET / "Contents.json").read_text())
+    return {image["filename"] for image in catalog["images"] if image.get("filename")}
+
+
+# How far a freshly rendered icon may differ from the committed one before it
+# counts as stale. Bytes would be the obvious test and it is the wrong one: the
+# comparison runs on whatever librsvg and Pillow the machine has, and two
+# versions antialias the same circle differently, so a byte test fails an
+# untouched tree on any runner but the one that produced it. What no rasteriser
+# version explains is a large area changing a lot, which is what an edited mark
+# looks like. So: same dimensions and mode, and at most this fraction of pixels
+# moving by more than CHANNEL_TOLERANCE in any channel.
+#
+# Calibrated against the smallest output rather than the largest, because the
+# fraction is what has to hold at 24x24 (576 pixels) as well as at 1024. Widening
+# the ring by one unit moves about 2% of an icon's pixels by most of the range;
+# rasteriser disagreement moves a thin edge by single digits.
+CHANNEL_TOLERANCE = 16
+DIFFERING_PIXEL_LIMIT = 0.004
+
+
+def differs(fresh: Path, committed: Path) -> bool:
+    """True when two renditions differ by more than rasteriser noise."""
+    if not committed.exists():
+        return True
+
+    a = Image.open(fresh)
+    b = Image.open(committed)
+    if a.size != b.size or a.mode != b.mode:
+        return True
+
+    # Per-pixel worst channel, via a lighter() fold over the difference bands, so
+    # the count comes out of one histogram rather than a python loop over a
+    # million tuples.
+    bands = ImageChops.difference(a.convert("RGBA"), b.convert("RGBA")).split()
+    worst = bands[0]
+    for band in bands[1:]:
+        worst = ImageChops.lighter(worst, band)
+
+    moved = sum(worst.histogram()[CHANNEL_TOLERANCE + 1 :])
+    return moved > a.size[0] * a.size[1] * DIFFERING_PIXEL_LIMIT
+
+
+# flutter_launcher_icons 0.14.4 corrupts this. It means to set
+# ASSETCATALOG_COMPILER_APPICON_NAME and instead matches every line containing
+# the substring "ASSETCATALOG" (lib/ios.dart:339), so it writes the icon set's
+# NAME into a build setting whose only valid values are YES and NO. The setting
+# it hits governs Swift asset-symbol generation and has nothing to do with icons.
+CORRUPTED_SETTING = "ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS"
+
+
+def run_generators() -> None:
+    """Drive both pub generators, then undo what they damage on the way past.
+
+    They are run from here rather than by hand because each leaves a mess that
+    is invisible in their own output and easy to commit: one corrupts an Xcode
+    build setting, the other reindents a hand-annotated Info.plist end to end to
+    add a key that restates iOS's default. Both are upstream bugs rather than
+    configuration mistakes, so the repair belongs next to the invocation.
+    """
+    plist_before = INFO_PLIST.read_bytes()
+
+    for command in (
+        ["dart", "run", "flutter_launcher_icons"],
+        ["dart", "run", "flutter_native_splash:create"],
+    ):
+        print(f"$ {' '.join(command)}")
+        subprocess.run(command, cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+
+    repaired = repair_pbxproj()
+    if repaired:
+        print(f"  repaired {repaired} corrupted {CORRUPTED_SETTING} line(s) in project.pbxproj")
+
+    if INFO_PLIST.read_bytes() != plist_before:
+        INFO_PLIST.write_bytes(plist_before)
+        print("  reverted Info.plist (flutter_native_splash reindents the whole file)")
+
+
+def repair_pbxproj() -> int:
+    """Put the corrupted build setting back to YES. Returns how many it fixed."""
+    lines = PBXPROJ.read_text().splitlines(keepends=True)
+    fixed = 0
+    for index, line in enumerate(lines):
+        if CORRUPTED_SETTING in line and "= YES;" not in line:
+            indent = line[: len(line) - len(line.lstrip())]
+            lines[index] = f"{indent}{CORRUPTED_SETTING} = YES;\n"
+            fixed += 1
+    if fixed:
+        PBXPROJ.write_text("".join(lines))
+    return fixed
+
+
+def main() -> int:
+    check = "--check" in sys.argv
+
+    if check:
+        # Rendered into a temp tree and compared, never over the repository:
+        # `bin/check` fans its jobs across cores, so a writing check races the
+        # jobs reading the same files, and a check that repairs what it measures
+        # passes on its second run over a tree it has just certified as wrong.
+        with tempfile.TemporaryDirectory() as scratch:
+            fresh = Path(scratch)
+            stale = [path for path in build(fresh) if differs(fresh / path, ROOT / path)]
+
+        # Neither of the two repairs `run_generators` applies is made here, for
+        # the same reason. They are only reported.
+        corrupted = [
+            line.strip()
+            for line in PBXPROJ.read_text().splitlines()
+            if CORRUPTED_SETTING in line and "= YES;" not in line
+        ]
+        # flutter_native_splash's other side effect. It writes exactly this key,
+        # and writing it reindents the whole plist, so its presence means the
+        # generator was run directly rather than through this script.
+        reindented = "UIStatusBarHidden" in INFO_PLIST.read_text()
+
+        # An icon nothing references is invisible to every other check here and
+        # still ships in the repository. Four stock-Flutter PNGs sat in this
+        # directory unreferenced from the day the project was scaffolded, and
+        # flutter_launcher_icons rewrites Contents.json wholesale on each run, so
+        # a future rename orphans its predecessor the same silent way.
+        orphans = sorted(
+            path.name for path in APPICONSET.glob("*.png") if path.name not in referenced_icons()
+        )
+
+        if stale or corrupted or reindented or orphans:
+            print("Run bin/sync-icons and commit the result.")
+            for path in stale:
+                print(f"  stale: {path}")
+            for line in corrupted:
+                print(f"  corrupted in ios/Runner.xcodeproj/project.pbxproj: {line}")
+            if reindented:
+                print("  ios/Runner/Info.plist carries UIStatusBarHidden, which only")
+                print("  flutter_native_splash writes, along with a full reindent.")
+            for name in orphans:
+                print(f"  unreferenced by AppIcon.appiconset/Contents.json: {name}")
+            return 1
+        return 0
+
+    written = build()
+    print(f"Wrote {len(written)} files from the geometry in MARK_SVG:")
+    for path in written:
+        print(f"  {path}")
+
+    run_generators()
+    print("Native icons and splash regenerated. Read the diff before committing.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
