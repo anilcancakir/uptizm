@@ -301,6 +301,14 @@ run_lockfile() {
 # nothing), and it was wrong four times in a row before it had a test. This runs
 # its shape table, so a fifth shape costs one row rather than another round.
 run_overrides_parser() { python3 bin/parse-overrides-test.py; }
+# iOS signs Debug and Profile against Runner.entitlements and Release against
+# RunnerRelease.entitlements, because a distribution profile only carries
+# aps-environment production and a development one only carries development.
+# The cost of that split is drift: an entitlement added to the file Xcode opens
+# by default reaches every build EXCEPT the one that ships, and nothing fails.
+# So compare the two on every key but aps-environment, and pin the pairing to
+# the configurations rather than to a line number in the pbxproj.
+run_ios_entitlements() { python3 bin/ios-entitlements-check.py; }
 
 echo "check: ${SCOPES# } | $TOTAL_CORES cores, $LANE per suite$([ "$FAST" -eq 1 ] && echo ' | static only')"
 prepare
@@ -312,6 +320,7 @@ wants flutter && start "registry" run_registry
 wants flutter && start "icons" run_icons
 wants flutter && start "lockfile" run_lockfile
 wants flutter && start "overrides-parser" run_overrides_parser
+wants flutter && start "ios-entitlements" run_ios_entitlements
 wants backend && start "backend-pint" run_backend_pint
 wants worker && start "worker-typecheck" run_worker_typecheck
 

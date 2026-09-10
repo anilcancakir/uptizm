@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+	Debug and Profile only. RunnerRelease.entitlements is the twin the Release
+	configuration signs against, and the two files have to stay in step: every
+	key except aps-environment is meant to be identical, so an entitlement
+	added here and not there is one the shipped app does not have. bin/check's
+	ios-entitlements job fails when they drift.
+-->
 <plist version="1.0">
 <dict>
 	<key>aps-environment</key>

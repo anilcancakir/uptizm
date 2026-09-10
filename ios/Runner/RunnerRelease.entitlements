@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+	Release only, which is what TestFlight and the App Store are built from.
+	A distribution provisioning profile carries aps-environment production and
+	nothing else, so signing a Release build against the development value in
+	Runner.entitlements fails at export; and if it did get through, the device
+	would register a sandbox APNs token that the production OneSignal app can
+	never deliver to. Debug and Profile keep the development twin.
+
+	Every other key mirrors Runner.entitlements, and bin/check's
+	ios-entitlements job fails when they drift.
+-->
+<plist version="1.0">
+<dict>
+	<key>aps-environment</key>
+	<string>production</string>
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:app.uptizm.com</string>
+	</array>
+</dict>
+</plist>
